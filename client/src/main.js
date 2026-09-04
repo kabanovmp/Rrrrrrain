@@ -93,7 +93,8 @@ scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 const globalHemi = new THREE.HemisphereLight(0xffffff, 0x776655, 1.2);
 scene.add(globalHemi);
 
-const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.05, 500);
+// FOV 70 — стандарт для FPS. 85 было слишком широко, искажало края.
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500);
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
