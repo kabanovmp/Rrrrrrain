@@ -4,6 +4,7 @@ const { Room } = colyseus.default || colyseus;
 import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom } from "../../shared/index.js";
 
 const TICK_MS = 1000 / NET.TICK_RATE;
+const ENEMY_GRACE_SEC = 1.0; // enemies can't attack for first second after spawn
 
 export class ArenaRoom extends Room {
   onCreate() {
@@ -136,7 +137,7 @@ export class ArenaRoom extends Room {
     this.state.wave = 1;
     this.state.portalCharge = 0;
     this.state.enemies.clear();
-    this.spawnWave(8);
+    this.spawnWave(4); // easier first wave
   }
 
   resetArena() {
@@ -145,32 +146,53 @@ export class ArenaRoom extends Room {
     this.projectiles.length = 0;
   }
 
+  // Get "average" player look direction to spawn in front
+  getPlayerFrontAngle() {
+    let sumX = 0, sumZ = 0, n = 0;
+    this.state.players.forEach(p => {
+      if (p.isGhost) return;
+      sumX += Math.sin(p.yaw || 0);
+      sumZ += Math.cos(p.yaw || 0);
+      n++;
+    });
+    if (n === 0) return 0;
+    return Math.atan2(sumX, sumZ);
+  }
+
   spawnWave(count) {
+    const frontAngle = this.getPlayerFrontAngle();
     for (let i = 0; i < count; i++) {
       const roll = Math.random();
       const type = roll < 0.6 ? "IMP" : roll < 0.85 ? "PINKY" : "CACO";
-      this.addEnemy(type);
+      // spawn in ±60° cone in front of player look direction
+      const spread = (Math.random() - 0.5) * (Math.PI * 2 / 3);
+      const a = frontAngle + spread;
+      this.addEnemyAt(type, a);
     }
   }
 
-  addEnemy(typeId) {
+  addEnemyAt(typeId, angle) {
     const t = ENEMY_TYPES[typeId]; if (!t) return;
     const e = new Enemy();
     e.enemyType = typeId;
     e.hp = t.armored ? COMBAT.ARMORED_ENEMY_MAX_HP : COMBAT.ENEMY_MAX_HP;
     e.maxHp = e.hp;
-    const a = Math.random() * Math.PI * 2;
     const r = WORLD.ARENA_RADIUS * (0.7 + Math.random() * 0.25);
-    e.pos.x = Math.cos(a) * r;
+    e.pos.x = Math.sin(angle) * r;
     e.pos.y = t.flying ? 6 + Math.random() * 3 : 1;
-    e.pos.z = Math.sin(a) * r;
+    e.pos.z = Math.cos(angle) * r;
     const id = `e${++this.enemySeq}`;
     this.state.enemies.set(id, e);
+    e._grace = ENEMY_GRACE_SEC;
     return id;
   }
 
+  addEnemy(typeId) {
+    return this.addEnemyAt(typeId, Math.random() * Math.PI * 2);
+  }
+
   spawnColossus() {
-    const id = this.addEnemy("COLOSSUS");
+    const id = this.addEnemyAt("COLOSSUS", this.getPlayerFrontAngle());
     const e = this.state.enemies.get(id);
     if (e) { e.hp = ENEMY_TYPES.COLOSSUS.hp; e.maxHp = e.hp; }
   }
@@ -187,7 +209,7 @@ export class ArenaRoom extends Room {
     }
   }
 
-  damagePlayer(p, dmg, sessionId) {
+  damagePlayer(p, dmg, sessionId, fromX = 0, fromZ = 0) {
     if (p.hp <= 0 || p.isGhost) return;
     p.hp -= dmg;
     if (p.hp <= 0) {
@@ -195,7 +217,7 @@ export class ArenaRoom extends Room {
       p.hp = 0;
       this.broadcast("fx", { type: "death", target: sessionId });
     } else {
-      this.broadcast("fx", { type: "hurt", target: sessionId });
+      this.broadcast("fx", { type: "hurt", target: sessionId, fromX, fromZ });
     }
   }
 
@@ -216,6 +238,7 @@ export class ArenaRoom extends Room {
 
     this.state.enemies.forEach(e => {
       if (!e.alive) return;
+      if (e._grace > 0) e._grace -= dt;
       const t = ENEMY_TYPES[e.enemyType];
       let nearest = null, nd = Infinity, nid = "";
       this.state.players.forEach((p, sid) => {
@@ -232,9 +255,9 @@ export class ArenaRoom extends Room {
       e.pos.x += (dx / d) * t.speed * dt;
       e.pos.z += (dz / d) * t.speed * dt;
       e.pos.y = t.flying ? Math.max(2, e.pos.y + stepY) : 1;
-      if (d < COMBAT.MELEE_RANGE + t.size * 0.5) {
+      if (d < COMBAT.MELEE_RANGE + t.size * 0.5 && e._grace <= 0) {
         e._atkCd = (e._atkCd || 0) - dt;
-        if (e._atkCd <= 0) { e._atkCd = 1.0; this.damagePlayer(nearest, t.damage, nid); }
+        if (e._atkCd <= 0) { e._atkCd = 1.0; this.damagePlayer(nearest, t.damage, nid, e.pos.x, e.pos.z); }
       }
     });
 
@@ -244,7 +267,7 @@ export class ArenaRoom extends Room {
       if (aliveCount === 0 && this.state.wave > 0) {
         this.state.wave += 1;
         if (this.state.wave === 3) this.spawnColossus();
-        else this.spawnWave(8 + this.state.wave * 3);
+        else this.spawnWave(4 + this.state.wave * 2);
       }
     }
   }
