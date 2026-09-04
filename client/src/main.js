@@ -13,7 +13,6 @@ const crackHud = document.getElementById("hud-crack");
 const deadHud = document.getElementById("dead");
 const crosshair = document.getElementById("crosshair");
 
-// --- three.js core
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(1);
 renderer.setClearColor(0x0a0505);
@@ -29,13 +28,11 @@ window.addEventListener("resize", () => {
 });
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 
-// Ambient world lighting — muted palette (RoR Returns-like).
 scene.add(new THREE.AmbientLight(0x554433, 0.7));
 const keyLight = new THREE.DirectionalLight(0xffb080, 0.5);
 keyLight.position.set(20, 30, 10);
 scene.add(keyLight);
 
-// --- worlds
 const hubGroup = new THREE.Group();
 const arenaGroup = new THREE.Group();
 scene.add(hubGroup, arenaGroup);
@@ -43,7 +40,6 @@ setupHub(hubGroup);
 setupArena(arenaGroup);
 arenaGroup.visible = false;
 
-// --- player rig: hands attached to camera
 const handRig = new THREE.Group();
 camera.add(handRig);
 scene.add(camera);
@@ -54,8 +50,7 @@ handRig.add(leftHandMesh, rightHandMesh);
 leftHandMesh.visible = false;
 rightHandMesh.visible = false;
 
-// --- enemy pool (client-side render objects mirrored from server state)
-const enemyMeshes = new Map(); // enemyId -> Group
+const enemyMeshes = new Map();
 const enemyTextures = {};
 for (const key of Object.keys(ENEMY_TYPES)) {
   enemyTextures[key] = createSpriteTexture(key);
@@ -73,11 +68,9 @@ function makeEnemyMesh(typeId) {
   return g;
 }
 
-// --- pickup pool
-const pickupMeshes = new Map(); // pickupId -> Group
+const pickupMeshes = new Map();
 function makePickupMesh(pk) {
   const g = new THREE.Group();
-  // pedestal
   const ped = new THREE.Mesh(
     new THREE.CylinderGeometry(0.55, 0.75, 1.0, 6),
     new THREE.MeshStandardMaterial({ color: 0xa0958a, roughness: 1.0, metalness: 0.0, flatShading: true })
@@ -112,32 +105,42 @@ function makePickupMesh(pk) {
   return g;
 }
 
-// --- projectile pool (client-visual only; server is authoritative for damage)
-const shots = []; // { mesh, ttl }
+// Brighter, longer-lived shot fx
+const shots = [];
 function spawnShotFx(x, y, z, color) {
   const m = new THREE.Mesh(
-    new THREE.SphereGeometry(0.25, 8, 6),
-    new THREE.MeshBasicMaterial({ color })
+    new THREE.SphereGeometry(0.45, 12, 8),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1.0 })
   );
   m.position.set(x, y, z);
   scene.add(m);
-  shots.push({ mesh: m, ttl: 0.4 });
+  shots.push({ mesh: m, ttl: 1.2, maxTtl: 1.2 });
+
+  // extra glow ring
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.5, 1.2, 20),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+  );
+  ring.position.set(x, y, z);
+  ring.lookAt(camera.position);
+  scene.add(ring);
+  shots.push({ mesh: ring, ttl: 0.5, maxTtl: 0.5 });
 }
 function spawnWaveFx(x, y, z, r) {
   const m = new THREE.Mesh(
     new THREE.RingGeometry(0.2, r, 24),
-    new THREE.MeshBasicMaterial({ color: 0xa080ff, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+    new THREE.MeshBasicMaterial({ color: 0xa080ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
   );
   m.position.set(x, y, z);
   m.rotation.x = -Math.PI / 2;
   scene.add(m);
-  shots.push({ mesh: m, ttl: 0.5 });
+  shots.push({ mesh: m, ttl: 0.8, maxTtl: 0.8 });
 }
 
-// --- controller + net
 const controller = new FpsController(camera, canvas);
 
 let client, room, selfId, myPlayer = null, lastHpSeen = 2;
+let deathTimer = 0;
 
 document.getElementById("play").addEventListener("click", async () => {
   const name = document.getElementById("name").value.trim() || "sgustok";
@@ -162,13 +165,11 @@ function setupRoomHandlers() {
     if (id === selfId) myPlayer = p;
     p.onChange(() => {
       if (id === selfId) {
-        // sync visible hands from server state
         leftHandMesh.visible  = p.hasLeftHand;
         rightHandMesh.visible = p.hasRightHand;
         if (p.hasLeftHand)  leftHandMesh.userData.setColor(HAND_TYPES[p.leftHandType]?.color  || 0xff5a1f);
         if (p.hasRightHand) rightHandMesh.userData.setColor(HAND_TYPES[p.rightHandType]?.color || 0xff5a1f);
 
-        // cracks HUD
         if (p.hp === 1 && lastHpSeen === 2) crackHud.classList.add("on");
         if (p.hp >= 2) crackHud.classList.remove("on");
         if (p.isGhost) { deadHud.classList.add("on"); crackHud.classList.remove("on"); }
@@ -208,20 +209,23 @@ function setupRoomHandlers() {
   room.state.listen("phase", (v) => {
     hubGroup.visible = v === "hub";
     arenaGroup.visible = v !== "hub";
-    if (v === "arena" && myPlayer) {
-      // teleport player to arena center
-      controller.setPosition(0, 2, 0);
-    }
-    if (v === "hub" && myPlayer) {
-      controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.3);
-    }
+    if (v === "arena" && myPlayer) controller.setPosition(0, 2, 0);
+    if (v === "hub" && myPlayer) controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.3);
   });
 
   room.onMessage("fx", (msg) => {
     if (msg.type === "shot") spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color);
     else if (msg.type === "wave") spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
     else if (msg.type === "hurt" && msg.target === selfId) flashCracks();
-    else if (msg.type === "death" && msg.target === selfId) deadHud.classList.add("on");
+    else if (msg.type === "death" && msg.target === selfId) {
+      deadHud.classList.add("on");
+      deathTimer = 3.0; // auto-respawn timer for singleplayer
+    }
+    else if (msg.type === "respawn" && msg.target === selfId) {
+      deadHud.classList.remove("on");
+      crackHud.classList.remove("on");
+      deathTimer = 0;
+    }
   });
 }
 
@@ -231,7 +235,6 @@ function flashCracks() {
   flashCracks._t = setTimeout(() => { if (myPlayer && myPlayer.hp >= 2) crackHud.classList.remove("on"); }, 1200);
 }
 
-// --- controller inputs → cast messages
 canvas.addEventListener("mousedown", (ev) => {
   if (!room || !myPlayer) return;
   const hand = ev.button === 0 ? "left" : ev.button === 2 ? "right" : null;
@@ -247,7 +250,6 @@ canvas.addEventListener("mousedown", (ev) => {
     spell: spellId, dx: dir.x, dy: dir.y, dz: dir.z,
     ox: origin.x, oy: origin.y, oz: origin.z, hand
   });
-  // recoil anim
   const meshRef = hand === "left" ? leftHandMesh : rightHandMesh;
   meshRef.userData.kick();
 });
@@ -255,8 +257,14 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 document.addEventListener("keydown", (ev) => {
   if (!room) return;
+  if (ev.code === "Escape") {
+    controller.releasePointer();
+  }
+  if (ev.code === "KeyR" && myPlayer?.isGhost) {
+    // manual respawn
+    room.send("respawn", {});
+  }
   if (ev.code === "KeyF") {
-    // pickup nearest within 3m
     let bestId = null, bestD = Infinity;
     pickupMeshes.forEach((m, id) => {
       const pk = room.state.pickups.get(id);
@@ -267,32 +275,38 @@ document.addEventListener("keydown", (ev) => {
     if (bestId) room.send("pickup", { id: bestId });
   }
   if (ev.code === "KeyE") {
-    // toggle arena/hub for MVP
     const cur = room.state.phase;
     room.send("phase", { phase: cur === "hub" ? "arena" : "hub" });
   }
 });
 
-// --- input send
 function sendInput() {
   if (!room) return;
   const p = controller.position;
   room.send("input", { x: p.x, y: p.y, z: p.z, yaw: controller.yaw, pitch: controller.pitch });
 }
 
-// --- render loop
 const clock = new THREE.Clock();
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   controller.update(dt, myPlayer);
-  // Spin item icons on pedestals
   pickupMeshes.forEach(m => { if (m.userData.spinner?.userData?.spin) m.userData.spinner.rotation.y += dt * 1.2; });
-  // Update shot fx
   for (let i = shots.length - 1; i >= 0; i--) {
     shots[i].ttl -= dt;
+    // fade
+    if (shots[i].mesh.material) {
+      shots[i].mesh.material.opacity = Math.max(0, shots[i].ttl / shots[i].maxTtl);
+      shots[i].mesh.material.transparent = true;
+    }
     if (shots[i].ttl <= 0) { scene.remove(shots[i].mesh); disposeGroup(shots[i].mesh); shots.splice(i, 1); }
   }
-  // Update hand animation
+  // auto respawn countdown for solo
+  if (deathTimer > 0) {
+    deathTimer -= dt;
+    if (deathTimer <= 0 && room && myPlayer?.isGhost) {
+      room.send("respawn", {});
+    }
+  }
   leftHandMesh.userData.update?.(dt);
   rightHandMesh.userData.update?.(dt);
 
@@ -301,12 +315,12 @@ function animate() {
 }
 animate();
 
-// status
 setInterval(() => {
   if (!room) return;
   const ph = room.state.phase;
   const wv = room.state.wave;
   const chg = `${room.state.portalCharge}/${room.state.portalTarget}`;
   const pl = room.state.players.size;
-  status.textContent = `фаза:${ph}  волна:${wv}  портал:${chg}  игроки:${pl}`;
+  const dt = deathTimer > 0 ? `  RESPAWN in ${deathTimer.toFixed(1)}s (или R)` : "";
+  status.textContent = `фаза:${ph}  волна:${wv}  портал:${chg}  игроки:${pl}${dt}`;
 }, 250);
