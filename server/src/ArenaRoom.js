@@ -29,18 +29,12 @@ export class ArenaRoom extends Room {
       if (typeof msg.pitch === "number") p.pitch = msg.pitch;
     });
 
-    this.castCooldown = new Map(); // sessionId -> next allowed ms
     this.onMessage("cast", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       if (!p || p.hp <= 0) return;
       const spellId = msg.spell;
       const spell = SPELLS[spellId];
       if (!spell) return;
-      // Rate-limit: максимум 1 каст в 250мс (4/сек) чтоб не флудить FX-бродкасты
-      const now = Date.now();
-      const nextAllowed = this.castCooldown.get(client.sessionId) || 0;
-      if (now < nextAllowed) return;
-      this.castCooldown.set(client.sessionId, now + 250);
       const dmgMult = p.isGhost ? COMBAT.GHOST_STAT_MULT : 1;
       if (spell.isAoe) {
         this.state.enemies.forEach(e => {
