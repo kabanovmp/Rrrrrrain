@@ -19,20 +19,6 @@ radar.style.cssText = "position:fixed;top:8px;left:50%;transform:translateX(-50%
 document.body.appendChild(radar);
 const rctx = radar.getContext("2d");
 
-// Debug панель — показывает ошибки в браузере
-const debugPanel = document.createElement("div");
-debugPanel.style.cssText = "position:fixed;right:8px;bottom:8px;max-width:400px;max-height:200px;overflow:auto;background:rgba(0,0,0,0.8);color:#0f0;font:11px monospace;padding:6px;z-index:99;border:1px solid #333;";
-debugPanel.textContent = "debug ready";
-document.body.appendChild(debugPanel);
-function dbg(msg) {
-  const line = document.createElement("div");
-  line.textContent = new Date().toISOString().slice(11,19) + " " + msg;
-  debugPanel.appendChild(line);
-  while (debugPanel.childNodes.length > 20) debugPanel.removeChild(debugPanel.firstChild);
-}
-window.addEventListener("error", e => dbg("ERR: " + (e.message || e.error)));
-window.addEventListener("unhandledrejection", e => dbg("REJECT: " + (e.reason?.message || e.reason)));
-
 const dmgOverlay = document.createElement("div");
 dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:14;opacity:0;transition:opacity .3s;";
 document.body.appendChild(dmgOverlay);
@@ -180,22 +166,15 @@ document.getElementById("play").addEventListener("click", async () => {
     controller.enable();
     setupRoomHandlers();
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
-    dbg("CLIENT v0.0.0.12 joined selfId=" + selfId);
-    room.onLeave((code) => {
-      dbg("ROOM LEAVE code=" + code + " — reconnecting...");
-      status.textContent = "соединение потеряно, перезаходите (обновите страницу)";
-    });
-    room.onError((code, msg) => dbg("ROOM ERROR code=" + code + " msg=" + msg));
   } catch (e) {
     console.error(e);
-    dbg("JOIN FAIL: " + (e?.message || e));
     status.textContent = "не удалось подключиться: " + (e?.message || e);
   }
 });
 
 function setupRoomHandlers() {
   room.state.players.onAdd((p, id) => {
-    if (id === selfId) { myPlayer = p; dbg("myPlayer set, hp=" + p.hp); }
+    if (id === selfId) myPlayer = p;
     p.onChange(() => {
       if (id === selfId) {
         leftHandMesh.visible  = p.hasLeftHand;
@@ -203,9 +182,8 @@ function setupRoomHandlers() {
         if (p.hasLeftHand)  leftHandMesh.userData.setColor(HAND_TYPES[p.leftHandType]?.color  || 0xff5a1f);
         if (p.hasRightHand) rightHandMesh.userData.setColor(HAND_TYPES[p.rightHandType]?.color || 0xff5a1f);
 
-        // Трещины только если реально ранен: hp === 1 (полное = 3, одно попадание = 2, критично = 1)
-        if (p.hp === 1) crackHud.classList.add("on");
-        else crackHud.classList.remove("on");
+        if (p.hp < 3 && p.hp > 0) crackHud.classList.add("on");
+        if (p.hp >= 3) crackHud.classList.remove("on");
         if (p.isGhost) { deadHud.classList.add("on"); crackHud.classList.remove("on"); }
         else deadHud.classList.remove("on");
         lastHpSeen = p.hp;
@@ -221,16 +199,22 @@ function setupRoomHandlers() {
     scene.add(m);
     const entry = { mesh: m, targetX: e.pos.x, targetY: e.pos.y, targetZ: e.pos.z };
     enemyMeshes.set(id, entry);
-    // Подписка через try/catch, чтобы падение не убило весь handler
-    try {
-      e.onChange(() => {
+    // подписываемся на изменения ВСЕГО enemy, а не только e.pos
+    e.onChange(() => {
+      entry.targetX = e.pos.x;
+      entry.targetY = e.pos.y;
+      entry.targetZ = e.pos.z;
+      if (!e.alive) { m.visible = false; }
+      if (e.hp === 1 && e.maxHp === 2) m.userData.sprite.material.color.setHex(0xff8080);
+    });
+    // на всякий случай — на изменения самого pos тоже
+    if (e.pos && e.pos.onChange) {
+      e.pos.onChange(() => {
         entry.targetX = e.pos.x;
         entry.targetY = e.pos.y;
         entry.targetZ = e.pos.z;
-        if (!e.alive) { m.visible = false; }
-        if (e.hp === 1 && e.maxHp === 2) m.userData.sprite.material.color.setHex(0xff8080);
       });
-    } catch (err) { console.warn("enemy onChange fail", err); }
+    }
   });
   room.state.enemies.onRemove((_e, id) => {
     const entry = enemyMeshes.get(id);
@@ -249,14 +233,12 @@ function setupRoomHandlers() {
   });
 
   room.state.listen("phase", (v) => {
-    dbg("phase changed to " + v);
     hubGroup.visible = v === "hub";
     arenaGroup.visible = v !== "hub";
     if (v === "arena" && myPlayer) controller.setPosition(0, 2, 0);
     if (v === "hub" && myPlayer) controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.3);
   });
 
-  room.onMessage("srv_dbg", (msg) => { dbg("[SRV] " + msg.msg); });
   room.onMessage("fx", (msg) => {
     if (msg.type === "shot") spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color, msg.dx, msg.dy, msg.dz);
     else if (msg.type === "wave") spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
@@ -284,7 +266,7 @@ function setupRoomHandlers() {
 function flashCracks() {
   crackHud.classList.add("on");
   clearTimeout(flashCracks._t);
-  flashCracks._t = setTimeout(() => { if (myPlayer && myPlayer.hp > 1) crackHud.classList.remove("on"); }, 1200);
+  flashCracks._t = setTimeout(() => { if (myPlayer && myPlayer.hp >= 3) crackHud.classList.remove("on"); }, 1200);
 }
 
 canvas.addEventListener("mousedown", (ev) => {
@@ -312,29 +294,18 @@ document.addEventListener("keydown", (ev) => {
   if (ev.code === "Escape") controller.releasePointer();
   if (ev.code === "KeyR" && myPlayer?.isGhost) room.send("respawn", {});
   if (ev.code === "KeyF") {
-    let bestId = null, bestD = Infinity, closestD = Infinity;
+    let bestId = null, bestD = Infinity;
     pickupMeshes.forEach((m, id) => {
       const pk = room.state.pickups.get(id);
       if (!pk || pk.taken) return;
       const d = m.position.distanceTo(controller.position);
-      if (d < closestD) closestD = d;
-      if (d < 5 && d < bestD) { bestD = d; bestId = id; }
+      if (d < 3 && d < bestD) { bestD = d; bestId = id; }
     });
-    dbg("F: closest=" + closestD.toFixed(1) + "m, sending=" + (bestId || "NONE (need <5m)"));
     if (bestId) room.send("pickup", { id: bestId });
   }
   if (ev.code === "KeyE") {
     const cur = room.state.phase;
-    const next = cur === "hub" ? "arena" : "hub";
-    const ws = room?.connection?.transport?.ws;
-    const wsState = ws ? ["CONNECTING","OPEN","CLOSING","CLOSED"][ws.readyState] : "?";
-    dbg("E: phase " + cur + "->" + next + " [ws=" + wsState + "]");
-    try {
-      room.send("phase", { phase: next });
-      dbg("E: send() returned OK");
-    } catch (err) {
-      dbg("E: send() THREW: " + err.message);
-    }
+    room.send("phase", { phase: cur === "hub" ? "arena" : "hub" });
   }
 });
 
@@ -445,7 +416,7 @@ setInterval(() => {
   const wv = room.state.wave;
   const chg = `${room.state.portalCharge}/${room.state.portalTarget}`;
   const pl = room.state.players.size;
-  const hp = myPlayer ? `HP:${myPlayer.hp}` : "";
+  const hp = myPlayer ? `HP:${myPlayer.hp}/3` : "";
   const dt = deathTimer > 0 ? `  RESPAWN in ${deathTimer.toFixed(1)}s (или R)` : "";
   status.textContent = `${hp}  фаза:${ph}  волна:${wv}  портал:${chg}  игроки:${pl}${dt}`;
 }, 250);

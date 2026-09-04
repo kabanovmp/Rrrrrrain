@@ -10,24 +10,18 @@ import { NET } from "../../shared/index.js";
 const PORT = Number(process.env.PORT || 2567);
 
 const app = express();
-const SERVER_VERSION = "v0.0.0.13";
-app.get("/health", (_req, res) => res.json({ ok: true, version: SERVER_VERSION, ts: Date.now() }));
-app.get("/version", (_req, res) => res.type("text").send(SERVER_VERSION));
+app.get("/health", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 app.use("/colyseus", monitor());
 
 const httpServer = createServer(app);
 
 const gameServer = new Server({
-  transport: new WebSocketTransport({
-    server: httpServer,
-    pingInterval: 8000,
-    pingMaxRetries: 4,
-  }),
+  transport: new WebSocketTransport({ server: httpServer }),
 });
 
 gameServer.define(NET.ROOM_NAME, ArenaRoom);
 
 gameServer.listen(PORT).then(() => {
-  console.log(`[server] Rrrrrrain ${SERVER_VERSION} listening on :${PORT}`);
+  console.log(`[server] Rrrrrrain listening on :${PORT}`);
   console.log(`[server] monitor: http://localhost:${PORT}/colyseus`);
 });
