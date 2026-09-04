@@ -433,10 +433,15 @@ function flashCracks() {
 // ═══════════════════════════════════════════════════════════════════
 // ВВОД
 // ═══════════════════════════════════════════════════════════════════
+let lastCastMs = 0;
 canvas.addEventListener("mousedown", (ev) => {
   if (!room || !myPlayer) return;
   const hand = ev.button === 0 ? "left" : ev.button === 2 ? "right" : null;
   if (!hand) return;
+  // Клиентский rate-limit: 250мс
+  const now = performance.now();
+  if (now - lastCastMs < 250) return;
+  lastCastMs = now;
   const has = hand === "left" ? myPlayer.hasLeftHand : myPlayer.hasRightHand;
   if (!has && myPlayer.itemsInBody.length === 0) return;
   const spellId = HAND_TYPES[hand === "left" ? myPlayer.leftHandType : myPlayer.rightHandType]?.spell

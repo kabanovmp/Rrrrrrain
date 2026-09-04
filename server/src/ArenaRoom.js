@@ -29,12 +29,18 @@ export class ArenaRoom extends Room {
       if (typeof msg.pitch === "number") p.pitch = msg.pitch;
     });
 
+    this.castCooldown = new Map(); // sessionId -> next allowed ms
     this.onMessage("cast", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       if (!p || p.hp <= 0) return;
       const spellId = msg.spell;
       const spell = SPELLS[spellId];
       if (!spell) return;
+      // Rate-limit: максимум 1 каст в 250мс (4/сек) чтоб не флудить FX-бродкасты
+      const now = Date.now();
+      const nextAllowed = this.castCooldown.get(client.sessionId) || 0;
+      if (now < nextAllowed) return;
+      this.castCooldown.set(client.sessionId, now + 250);
       const dmgMult = p.isGhost ? COMBAT.GHOST_STAT_MULT : 1;
       if (spell.isAoe) {
         this.state.enemies.forEach(e => {
@@ -54,7 +60,11 @@ export class ArenaRoom extends Room {
           vz: (msg.dz || 0) * spell.projectileSpeed,
           life: spell.life, damage: spell.damage * dmgMult, radius: spell.radius, color: spell.color,
         });
-        this.broadcast("fx", { type: "shot", x: p.pos.x, y: p.pos.y, z: p.pos.z, color: spell.color, dx: msg.dx || 0, dy: msg.dy || 0, dz: msg.dz || 0 });
+        // Берём origin из msg (актуальная позиция игрока на его клиенте), а не p.pos (может отставать)
+        const ox = typeof msg.ox === "number" ? msg.ox : p.pos.x;
+        const oy = typeof msg.oy === "number" ? msg.oy - 0.6 : p.pos.y;
+        const oz = typeof msg.oz === "number" ? msg.oz : p.pos.z;
+        this.broadcast("fx", { type: "shot", x: ox, y: oy, z: oz, color: spell.color, dx: msg.dx || 0, dy: msg.dy || 0, dz: msg.dz || 0 });
       }
     });
 
