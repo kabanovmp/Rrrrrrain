@@ -16,7 +16,11 @@ app.use("/colyseus", monitor());
 const httpServer = createServer(app);
 
 const gameServer = new Server({
-  transport: new WebSocketTransport({ server: httpServer }),
+  transport: new WebSocketTransport({
+    server: httpServer,
+    pingInterval: 8000,
+    pingMaxRetries: 4,
+  }),
 });
 
 gameServer.define(NET.ROOM_NAME, ArenaRoom);

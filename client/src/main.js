@@ -180,16 +180,12 @@ document.getElementById("play").addEventListener("click", async () => {
     controller.enable();
     setupRoomHandlers();
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
-    dbg("joined room, selfId=" + selfId);
-    room.onLeave((code) => dbg("ROOM LEAVE code=" + code));
+    dbg("CLIENT v0.0.0.12 joined selfId=" + selfId);
+    room.onLeave((code) => {
+      dbg("ROOM LEAVE code=" + code + " — reconnecting...");
+      status.textContent = "соединение потеряно, перезаходите (обновите страницу)";
+    });
     room.onError((code, msg) => dbg("ROOM ERROR code=" + code + " msg=" + msg));
-    const ws = room?.connection?.transport?.ws;
-    if (ws) {
-      ws.addEventListener("close", (e) => dbg("WS CLOSE code=" + e.code + " reason=" + e.reason));
-      ws.addEventListener("error", (e) => dbg("WS ERROR"));
-    }
-    // версия клиента в дебаге
-    dbg("CLIENT v0.0.0.11");
   } catch (e) {
     console.error(e);
     dbg("JOIN FAIL: " + (e?.message || e));
