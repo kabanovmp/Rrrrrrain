@@ -182,8 +182,9 @@ function setupRoomHandlers() {
         if (p.hasLeftHand)  leftHandMesh.userData.setColor(HAND_TYPES[p.leftHandType]?.color  || 0xff5a1f);
         if (p.hasRightHand) rightHandMesh.userData.setColor(HAND_TYPES[p.rightHandType]?.color || 0xff5a1f);
 
-        if (p.hp < 3 && p.hp > 0) crackHud.classList.add("on");
-        if (p.hp >= 3) crackHud.classList.remove("on");
+        // Трещины только если реально ранен: hp === 1 (полное = 3, одно попадание = 2, критично = 1)
+        if (p.hp === 1) crackHud.classList.add("on");
+        else crackHud.classList.remove("on");
         if (p.isGhost) { deadHud.classList.add("on"); crackHud.classList.remove("on"); }
         else deadHud.classList.remove("on");
         lastHpSeen = p.hp;
@@ -266,7 +267,7 @@ function setupRoomHandlers() {
 function flashCracks() {
   crackHud.classList.add("on");
   clearTimeout(flashCracks._t);
-  flashCracks._t = setTimeout(() => { if (myPlayer && myPlayer.hp >= 3) crackHud.classList.remove("on"); }, 1200);
+  flashCracks._t = setTimeout(() => { if (myPlayer && myPlayer.hp > 1) crackHud.classList.remove("on"); }, 1200);
 }
 
 canvas.addEventListener("mousedown", (ev) => {
@@ -416,7 +417,7 @@ setInterval(() => {
   const wv = room.state.wave;
   const chg = `${room.state.portalCharge}/${room.state.portalTarget}`;
   const pl = room.state.players.size;
-  const hp = myPlayer ? `HP:${myPlayer.hp}/3` : "";
+  const hp = myPlayer ? `HP:${myPlayer.hp}` : "";
   const dt = deathTimer > 0 ? `  RESPAWN in ${deathTimer.toFixed(1)}s (или R)` : "";
   status.textContent = `${hp}  фаза:${ph}  волна:${wv}  портал:${chg}  игроки:${pl}${dt}`;
 }, 250);
