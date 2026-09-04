@@ -1,12 +1,18 @@
 import { defineConfig } from "vite";
-import { fileURLToPath, URL } from "url";
 
 export default defineConfig({
-  root: ".",
-  server: { host: "0.0.0.0", port: 5173 },
   resolve: {
     alias: {
-      "@mhfps/shared": fileURLToPath(new URL("../shared/index.js", import.meta.url)),
-    },
+      "@mhfps/shared": "/app/shared/index.js"
+    }
   },
+  preview: {
+    host: "0.0.0.0",
+    port: Number(process.env.PORT) || 8080,
+    allowedHosts: true
+  },
+  server: {
+    host: "0.0.0.0",
+    port: Number(process.env.PORT) || 5173
+  }
 });
