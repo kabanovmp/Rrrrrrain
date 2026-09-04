@@ -19,6 +19,20 @@ radar.style.cssText = "position:fixed;top:8px;left:50%;transform:translateX(-50%
 document.body.appendChild(radar);
 const rctx = radar.getContext("2d");
 
+// Debug панель — показывает ошибки в браузере
+const debugPanel = document.createElement("div");
+debugPanel.style.cssText = "position:fixed;right:8px;bottom:8px;max-width:400px;max-height:200px;overflow:auto;background:rgba(0,0,0,0.8);color:#0f0;font:11px monospace;padding:6px;z-index:99;border:1px solid #333;";
+debugPanel.textContent = "debug ready";
+document.body.appendChild(debugPanel);
+function dbg(msg) {
+  const line = document.createElement("div");
+  line.textContent = new Date().toISOString().slice(11,19) + " " + msg;
+  debugPanel.appendChild(line);
+  while (debugPanel.childNodes.length > 20) debugPanel.removeChild(debugPanel.firstChild);
+}
+window.addEventListener("error", e => dbg("ERR: " + (e.message || e.error)));
+window.addEventListener("unhandledrejection", e => dbg("REJECT: " + (e.reason?.message || e.reason)));
+
 const dmgOverlay = document.createElement("div");
 dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:14;opacity:0;transition:opacity .3s;";
 document.body.appendChild(dmgOverlay);
@@ -166,15 +180,17 @@ document.getElementById("play").addEventListener("click", async () => {
     controller.enable();
     setupRoomHandlers();
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
+    dbg("joined room, selfId=" + selfId);
   } catch (e) {
     console.error(e);
+    dbg("JOIN FAIL: " + (e?.message || e));
     status.textContent = "не удалось подключиться: " + (e?.message || e);
   }
 });
 
 function setupRoomHandlers() {
   room.state.players.onAdd((p, id) => {
-    if (id === selfId) myPlayer = p;
+    if (id === selfId) { myPlayer = p; dbg("myPlayer set, hp=" + p.hp); }
     p.onChange(() => {
       if (id === selfId) {
         leftHandMesh.visible  = p.hasLeftHand;
@@ -200,22 +216,16 @@ function setupRoomHandlers() {
     scene.add(m);
     const entry = { mesh: m, targetX: e.pos.x, targetY: e.pos.y, targetZ: e.pos.z };
     enemyMeshes.set(id, entry);
-    // подписываемся на изменения ВСЕГО enemy, а не только e.pos
-    e.onChange(() => {
-      entry.targetX = e.pos.x;
-      entry.targetY = e.pos.y;
-      entry.targetZ = e.pos.z;
-      if (!e.alive) { m.visible = false; }
-      if (e.hp === 1 && e.maxHp === 2) m.userData.sprite.material.color.setHex(0xff8080);
-    });
-    // на всякий случай — на изменения самого pos тоже
-    if (e.pos && e.pos.onChange) {
-      e.pos.onChange(() => {
+    // Подписка через try/catch, чтобы падение не убило весь handler
+    try {
+      e.onChange(() => {
         entry.targetX = e.pos.x;
         entry.targetY = e.pos.y;
         entry.targetZ = e.pos.z;
+        if (!e.alive) { m.visible = false; }
+        if (e.hp === 1 && e.maxHp === 2) m.userData.sprite.material.color.setHex(0xff8080);
       });
-    }
+    } catch (err) { console.warn("enemy onChange fail", err); }
   });
   room.state.enemies.onRemove((_e, id) => {
     const entry = enemyMeshes.get(id);
@@ -295,6 +305,7 @@ document.addEventListener("keydown", (ev) => {
   if (ev.code === "Escape") controller.releasePointer();
   if (ev.code === "KeyR" && myPlayer?.isGhost) room.send("respawn", {});
   if (ev.code === "KeyF") {
+    dbg("F pressed, pickups=" + pickupMeshes.size);
     let bestId = null, bestD = Infinity;
     pickupMeshes.forEach((m, id) => {
       const pk = room.state.pickups.get(id);
@@ -306,6 +317,7 @@ document.addEventListener("keydown", (ev) => {
   }
   if (ev.code === "KeyE") {
     const cur = room.state.phase;
+    dbg("E pressed, phase=" + cur);
     room.send("phase", { phase: cur === "hub" ? "arena" : "hub" });
   }
 });
