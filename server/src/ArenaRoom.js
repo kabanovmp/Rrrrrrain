@@ -50,7 +50,7 @@ export class ArenaRoom extends Room {
           vz: (msg.dz || 0) * spell.projectileSpeed,
           life: spell.life, damage: spell.damage * dmgMult, radius: spell.radius, color: spell.color,
         });
-        this.broadcast("fx", { type: "shot", x: p.pos.x, y: p.pos.y, z: p.pos.z, color: spell.color });
+        this.broadcast("fx", { type: "shot", x: p.pos.x, y: p.pos.y, z: p.pos.z, color: spell.color, dx: msg.dx || 0, dy: msg.dy || 0, dz: msg.dz || 0 });
       }
     });
 
