@@ -9,7 +9,7 @@ export class ArenaRoom extends Room {
   onCreate() {
     this.maxClients = NET.MAX_PLAYERS;
     this.setState(new GameState());
-    this.projectiles = []; // authoritative, server-side only
+    this.projectiles = [];
     this.enemySeq = 0;
     this.pickupSeq = 0;
     this.spawnInitialPickups();
@@ -18,8 +18,6 @@ export class ArenaRoom extends Room {
     this.onMessage("input", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
-      // Client-authoritative movement for MVP (simpler, less latency).
-      // Anti-cheat pass will be added later — see ASSUMPTIONS.md.
       if (typeof msg.x === "number") p.pos.x = msg.x;
       if (typeof msg.y === "number") p.pos.y = msg.y;
       if (typeof msg.z === "number") p.pos.z = msg.z;
@@ -35,7 +33,6 @@ export class ArenaRoom extends Room {
       if (!spell) return;
       const dmgMult = p.isGhost ? COMBAT.GHOST_STAT_MULT : 1;
       if (spell.isAoe) {
-        // AoE push: hit enemies in radius
         this.state.enemies.forEach(e => {
           if (!e.alive) return;
           const dx = e.pos.x - p.pos.x, dy = e.pos.y - p.pos.y, dz = e.pos.z - p.pos.z;
@@ -62,7 +59,7 @@ export class ArenaRoom extends Room {
       const item = this.state.pickups.get(msg.id);
       if (!p || !item || item.taken) return;
       const dx = item.pos.x - p.pos.x, dy = item.pos.y - p.pos.y, dz = item.pos.z - p.pos.z;
-      if (dx*dx+dy*dy+dz*dz > 9) return; // too far
+      if (dx*dx+dy*dy+dz*dz > 9) return;
       item.taken = true;
       if (item.kind === "HAND") {
         if (!p.hasLeftHand)  { p.hasLeftHand = true;  p.leftHandType = item.handType; }
@@ -74,8 +71,18 @@ export class ArenaRoom extends Room {
       }
     });
 
+    this.onMessage("respawn", (client) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      p.hp = 2;
+      p.isGhost = false;
+      p.pos.x = (Math.random() - 0.5) * 4;
+      p.pos.y = 1.6;
+      p.pos.z = (Math.random() - 0.5) * 4;
+      this.broadcast("fx", { type: "respawn", target: client.sessionId });
+    });
+
     this.onMessage("phase", (_c, msg) => {
-      // Any player can trigger arena start / return to hub for MVP.
       if (msg.phase === "arena" || msg.phase === "hub" || msg.phase === "portal_ready") {
         this.state.phase = msg.phase;
         if (msg.phase === "arena") this.startArena();
@@ -87,7 +94,6 @@ export class ArenaRoom extends Room {
   onJoin(client, opts) {
     const p = new Player();
     p.name = (opts?.name || "sgustok").slice(0, 20);
-    // spawn in hub
     p.pos.x = (Math.random() - 0.5) * 4;
     p.pos.y = 1.6;
     p.pos.z = (Math.random() - 0.5) * 4;
@@ -101,7 +107,6 @@ export class ArenaRoom extends Room {
   }
 
   spawnInitialPickups() {
-    // Hub pickups: 2 hands, 2 legs, 3 items on pedestals in the hub circle.
     const hubItems = [
       { kind: "HAND", handType: "FIRE",  angle: 0.0 },
       { kind: "HAND", handType: "BONE",  angle: Math.PI * 0.5 },
@@ -131,7 +136,7 @@ export class ArenaRoom extends Room {
     this.state.wave = 1;
     this.state.portalCharge = 0;
     this.state.enemies.clear();
-    this.spawnWave(6);
+    this.spawnWave(8);
   }
 
   resetArena() {
@@ -177,7 +182,6 @@ export class ArenaRoom extends Room {
       e.alive = false;
       this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + 1);
       if (this.state.portalCharge >= this.state.portalTarget) this.state.phase = "portal_ready";
-      // remove after brief delay so client can play death fx
       const idEntry = [...this.state.enemies.entries()].find(([, v]) => v === e);
       if (idEntry) setTimeout(() => this.state.enemies.delete(idEntry[0]), 400);
     }
@@ -196,7 +200,6 @@ export class ArenaRoom extends Room {
   }
 
   tick(dt) {
-    // projectiles
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
       pr.life -= dt;
@@ -211,8 +214,6 @@ export class ArenaRoom extends Room {
       if (hit || pr.life <= 0) this.projectiles.splice(i, 1);
     }
 
-    // enemy AI: chase nearest non-ghost player, melee at range
-    this.state.players.forEach(target => {}); // touch
     this.state.enemies.forEach(e => {
       if (!e.alive) return;
       const t = ENEMY_TYPES[e.enemyType];
@@ -237,14 +238,13 @@ export class ArenaRoom extends Room {
       }
     });
 
-    // wave logic
     if (this.state.phase === "arena") {
       let aliveCount = 0;
       this.state.enemies.forEach(e => { if (e.alive) aliveCount++; });
       if (aliveCount === 0 && this.state.wave > 0) {
         this.state.wave += 1;
         if (this.state.wave === 3) this.spawnColossus();
-        else this.spawnWave(6 + this.state.wave * 2);
+        else this.spawnWave(8 + this.state.wave * 3);
       }
     }
   }
