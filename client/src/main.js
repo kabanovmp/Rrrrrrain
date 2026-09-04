@@ -13,6 +13,19 @@ const crackHud = document.getElementById("hud-crack");
 const deadHud = document.getElementById("dead");
 const crosshair = document.getElementById("crosshair");
 
+// --- Radar overlay (canvas over the top of screen for enemy arrow)
+const radar = document.createElement("canvas");
+radar.width = 400; radar.height = 60;
+radar.style.cssText = "position:fixed;top:8px;left:50%;transform:translateX(-50%);pointer-events:none;z-index:15;";
+document.body.appendChild(radar);
+const rctx = radar.getContext("2d");
+
+// --- Damage direction indicator (red arc on edge of screen)
+const dmgOverlay = document.createElement("div");
+dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:14;opacity:0;transition:opacity .3s;";
+document.body.appendChild(dmgOverlay);
+let dmgAngle = 0, dmgTimer = 0;
+
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(1);
 renderer.setClearColor(0x0a0505);
@@ -28,8 +41,8 @@ window.addEventListener("resize", () => {
 });
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 
-scene.add(new THREE.AmbientLight(0x554433, 0.7));
-const keyLight = new THREE.DirectionalLight(0xffb080, 0.5);
+scene.add(new THREE.AmbientLight(0x554433, 0.9));
+const keyLight = new THREE.DirectionalLight(0xffb080, 0.6);
 keyLight.position.set(20, 30, 10);
 scene.add(keyLight);
 
@@ -61,8 +74,9 @@ function makeEnemyMesh(typeId) {
   const g = new THREE.Group();
   const mat = new THREE.SpriteMaterial({ map: enemyTextures[typeId], depthWrite: false });
   const s = new THREE.Sprite(mat);
-  s.scale.set(t.scale, t.scale, t.scale);
-  s.position.y = t.scale * 0.5;
+  const scaleUp = t.scale * 1.5; // bigger enemies
+  s.scale.set(scaleUp, scaleUp, scaleUp);
+  s.position.y = scaleUp * 0.5;
   g.add(s);
   g.userData = { sprite: s, type: typeId };
   return g;
@@ -215,7 +229,16 @@ function setupRoomHandlers() {
   room.onMessage("fx", (msg) => {
     if (msg.type === "shot") spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color, msg.dx, msg.dy, msg.dz);
     else if (msg.type === "wave") spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
-    else if (msg.type === "hurt" && msg.target === selfId) flashCracks();
+    else if (msg.type === "hurt" && msg.target === selfId) {
+      flashCracks();
+      // direction indicator
+      if (typeof msg.fromX === "number" && myPlayer) {
+        const dx = msg.fromX - myPlayer.pos.x;
+        const dz = msg.fromZ - myPlayer.pos.z;
+        dmgAngle = Math.atan2(dx, dz) - controller.yaw;
+        dmgTimer = 0.6;
+      }
+    }
     else if (msg.type === "death" && msg.target === selfId) {
       deadHud.classList.add("on");
       deathTimer = 3.0;
@@ -280,6 +303,44 @@ function sendInput() {
   room.send("input", { x: p.x, y: p.y, z: p.z, yaw: controller.yaw, pitch: controller.pitch });
 }
 
+function drawRadar() {
+  rctx.clearRect(0, 0, radar.width, radar.height);
+  if (!myPlayer || !room) return;
+  // find nearest enemy
+  let nearest = null, nd = Infinity;
+  room.state.enemies.forEach(e => {
+    if (!e.alive) return;
+    const dx = e.pos.x - myPlayer.pos.x;
+    const dz = e.pos.z - myPlayer.pos.z;
+    const d = dx*dx + dz*dz;
+    if (d < nd) { nd = d; nearest = e; }
+  });
+  if (!nearest) return;
+  const dx = nearest.pos.x - myPlayer.pos.x;
+  const dz = nearest.pos.z - myPlayer.pos.z;
+  // angle relative to camera
+  const enemyAngle = Math.atan2(dx, dz);
+  let rel = enemyAngle - controller.yaw;
+  // normalize -PI..PI
+  while (rel > Math.PI) rel -= 2*Math.PI;
+  while (rel < -Math.PI) rel += 2*Math.PI;
+  // map to canvas x (-90deg..+90deg → 0..width). Beyond ±90 clamp
+  const clamped = Math.max(-Math.PI/2, Math.min(Math.PI/2, rel));
+  const x = (clamped / (Math.PI/2)) * (radar.width/2 - 20) + radar.width/2;
+  const behind = Math.abs(rel) > Math.PI/2;
+  rctx.fillStyle = behind ? "#ff2222" : "#ffcc22";
+  rctx.beginPath();
+  rctx.moveTo(x, 10);
+  rctx.lineTo(x - 8, 30);
+  rctx.lineTo(x + 8, 30);
+  rctx.closePath();
+  rctx.fill();
+  rctx.fillStyle = "#fff";
+  rctx.font = "12px monospace";
+  rctx.textAlign = "center";
+  rctx.fillText(behind ? "СЗАДИ" : Math.round(Math.sqrt(nd)) + "м", x, 50);
+}
+
 const clock = new THREE.Clock();
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -303,9 +364,19 @@ function animate() {
     deathTimer -= dt;
     if (deathTimer <= 0 && room && myPlayer?.isGhost) room.send("respawn", {});
   }
+  // damage overlay
+  if (dmgTimer > 0) {
+    dmgTimer -= dt;
+    dmgOverlay.style.opacity = Math.max(0, dmgTimer / 0.6);
+    const angleDeg = (dmgAngle * 180 / Math.PI + 360) % 360;
+    dmgOverlay.style.background = `radial-gradient(circle at ${50 + Math.sin(dmgAngle)*45}% ${50 - Math.cos(dmgAngle)*45}%, rgba(255,20,20,0.6) 0%, transparent 40%)`;
+  } else {
+    dmgOverlay.style.opacity = 0;
+  }
   leftHandMesh.userData.update?.(dt);
   rightHandMesh.userData.update?.(dt);
 
+  drawRadar();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
