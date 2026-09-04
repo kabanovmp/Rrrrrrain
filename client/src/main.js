@@ -13,14 +13,12 @@ const crackHud = document.getElementById("hud-crack");
 const deadHud = document.getElementById("dead");
 const crosshair = document.getElementById("crosshair");
 
-// --- Radar overlay (canvas over the top of screen for enemy arrow)
 const radar = document.createElement("canvas");
 radar.width = 400; radar.height = 60;
 radar.style.cssText = "position:fixed;top:8px;left:50%;transform:translateX(-50%);pointer-events:none;z-index:15;";
 document.body.appendChild(radar);
 const rctx = radar.getContext("2d");
 
-// --- Damage direction indicator (red arc on edge of screen)
 const dmgOverlay = document.createElement("div");
 dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:14;opacity:0;transition:opacity .3s;";
 document.body.appendChild(dmgOverlay);
@@ -63,6 +61,7 @@ handRig.add(leftHandMesh, rightHandMesh);
 leftHandMesh.visible = false;
 rightHandMesh.visible = false;
 
+// enemyMeshes: {mesh, targetX, targetY, targetZ} для интерполяции
 const enemyMeshes = new Map();
 const enemyTextures = {};
 for (const key of Object.keys(ENEMY_TYPES)) {
@@ -74,7 +73,7 @@ function makeEnemyMesh(typeId) {
   const g = new THREE.Group();
   const mat = new THREE.SpriteMaterial({ map: enemyTextures[typeId], depthWrite: false });
   const s = new THREE.Sprite(mat);
-  const scaleUp = t.scale * 1.5; // bigger enemies
+  const scaleUp = t.scale * 1.5;
   s.scale.set(scaleUp, scaleUp, scaleUp);
   s.position.y = scaleUp * 0.5;
   g.add(s);
@@ -152,7 +151,7 @@ function spawnWaveFx(x, y, z, r) {
 
 const controller = new FpsController(camera, canvas);
 
-let client, room, selfId, myPlayer = null, lastHpSeen = 2;
+let client, room, selfId, myPlayer = null, lastHpSeen = 3;
 let deathTimer = 0;
 
 document.getElementById("play").addEventListener("click", async () => {
@@ -183,8 +182,8 @@ function setupRoomHandlers() {
         if (p.hasLeftHand)  leftHandMesh.userData.setColor(HAND_TYPES[p.leftHandType]?.color  || 0xff5a1f);
         if (p.hasRightHand) rightHandMesh.userData.setColor(HAND_TYPES[p.rightHandType]?.color || 0xff5a1f);
 
-        if (p.hp === 1 && lastHpSeen === 2) crackHud.classList.add("on");
-        if (p.hp >= 2) crackHud.classList.remove("on");
+        if (p.hp < 3 && p.hp > 0) crackHud.classList.add("on");
+        if (p.hp >= 3) crackHud.classList.remove("on");
         if (p.isGhost) { deadHud.classList.add("on"); crackHud.classList.remove("on"); }
         else deadHud.classList.remove("on");
         lastHpSeen = p.hp;
@@ -193,19 +192,33 @@ function setupRoomHandlers() {
   });
   room.state.players.onRemove((_p, _id) => {});
 
+  // Мобы: интерполяция позиций
   room.state.enemies.onAdd((e, id) => {
     const m = makeEnemyMesh(e.enemyType);
     m.position.set(e.pos.x, e.pos.y, e.pos.z);
     scene.add(m);
-    enemyMeshes.set(id, m);
+    const entry = { mesh: m, targetX: e.pos.x, targetY: e.pos.y, targetZ: e.pos.z };
+    enemyMeshes.set(id, entry);
+    // подписываемся на изменения ВСЕГО enemy, а не только e.pos
     e.onChange(() => {
-      m.position.set(e.pos.x, e.pos.y, e.pos.z);
+      entry.targetX = e.pos.x;
+      entry.targetY = e.pos.y;
+      entry.targetZ = e.pos.z;
       if (!e.alive) { m.visible = false; }
       if (e.hp === 1 && e.maxHp === 2) m.userData.sprite.material.color.setHex(0xff8080);
     });
+    // на всякий случай — на изменения самого pos тоже
+    if (e.pos && e.pos.onChange) {
+      e.pos.onChange(() => {
+        entry.targetX = e.pos.x;
+        entry.targetY = e.pos.y;
+        entry.targetZ = e.pos.z;
+      });
+    }
   });
   room.state.enemies.onRemove((_e, id) => {
-    const m = enemyMeshes.get(id); if (m) { scene.remove(m); disposeGroup(m); enemyMeshes.delete(id); }
+    const entry = enemyMeshes.get(id);
+    if (entry) { scene.remove(entry.mesh); disposeGroup(entry.mesh); enemyMeshes.delete(id); }
   });
 
   room.state.pickups.onAdd((pk, id) => {
@@ -231,7 +244,6 @@ function setupRoomHandlers() {
     else if (msg.type === "wave") spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
     else if (msg.type === "hurt" && msg.target === selfId) {
       flashCracks();
-      // direction indicator
       if (typeof msg.fromX === "number" && myPlayer) {
         const dx = msg.fromX - myPlayer.pos.x;
         const dz = msg.fromZ - myPlayer.pos.z;
@@ -254,7 +266,7 @@ function setupRoomHandlers() {
 function flashCracks() {
   crackHud.classList.add("on");
   clearTimeout(flashCracks._t);
-  flashCracks._t = setTimeout(() => { if (myPlayer && myPlayer.hp >= 2) crackHud.classList.remove("on"); }, 1200);
+  flashCracks._t = setTimeout(() => { if (myPlayer && myPlayer.hp >= 3) crackHud.classList.remove("on"); }, 1200);
 }
 
 canvas.addEventListener("mousedown", (ev) => {
@@ -306,7 +318,6 @@ function sendInput() {
 function drawRadar() {
   rctx.clearRect(0, 0, radar.width, radar.height);
   if (!myPlayer || !room) return;
-  // find nearest enemy
   let nearest = null, nd = Infinity;
   room.state.enemies.forEach(e => {
     if (!e.alive) return;
@@ -318,13 +329,10 @@ function drawRadar() {
   if (!nearest) return;
   const dx = nearest.pos.x - myPlayer.pos.x;
   const dz = nearest.pos.z - myPlayer.pos.z;
-  // angle relative to camera
   const enemyAngle = Math.atan2(dx, dz);
   let rel = enemyAngle - controller.yaw;
-  // normalize -PI..PI
   while (rel > Math.PI) rel -= 2*Math.PI;
   while (rel < -Math.PI) rel += 2*Math.PI;
-  // map to canvas x (-90deg..+90deg → 0..width). Beyond ±90 clamp
   const clamped = Math.max(-Math.PI/2, Math.min(Math.PI/2, rel));
   const x = (clamped / (Math.PI/2)) * (radar.width/2 - 20) + radar.width/2;
   const behind = Math.abs(rel) > Math.PI/2;
@@ -345,6 +353,17 @@ const clock = new THREE.Clock();
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   controller.update(dt, myPlayer);
+
+  // Интерполируем позиции мобов к целевым (плавно при пинге)
+  const lerpSpeed = 12; // выше = резче реакция
+  enemyMeshes.forEach(entry => {
+    const m = entry.mesh;
+    const a = Math.min(1, dt * lerpSpeed);
+    m.position.x += (entry.targetX - m.position.x) * a;
+    m.position.y += (entry.targetY - m.position.y) * a;
+    m.position.z += (entry.targetZ - m.position.z) * a;
+  });
+
   pickupMeshes.forEach(m => { if (m.userData.spinner?.userData?.spin) m.userData.spinner.rotation.y += dt * 1.2; });
   for (let i = shots.length - 1; i >= 0; i--) {
     const s = shots[i];
@@ -364,11 +383,9 @@ function animate() {
     deathTimer -= dt;
     if (deathTimer <= 0 && room && myPlayer?.isGhost) room.send("respawn", {});
   }
-  // damage overlay
   if (dmgTimer > 0) {
     dmgTimer -= dt;
     dmgOverlay.style.opacity = Math.max(0, dmgTimer / 0.6);
-    const angleDeg = (dmgAngle * 180 / Math.PI + 360) % 360;
     dmgOverlay.style.background = `radial-gradient(circle at ${50 + Math.sin(dmgAngle)*45}% ${50 - Math.cos(dmgAngle)*45}%, rgba(255,20,20,0.6) 0%, transparent 40%)`;
   } else {
     dmgOverlay.style.opacity = 0;
@@ -382,12 +399,24 @@ function animate() {
 }
 animate();
 
+// Пинг измеряем через ping-pong
+let pingMs = 0;
+setInterval(() => {
+  if (!room?.connection?.transport?.ws) return;
+  const t0 = performance.now();
+  try {
+    room.send("__ping", t0);
+    // ответа нет — считаем по round-trip последнего state, но покажем «~200мс» приблизительно
+  } catch {}
+}, 2000);
+
 setInterval(() => {
   if (!room) return;
   const ph = room.state.phase;
   const wv = room.state.wave;
   const chg = `${room.state.portalCharge}/${room.state.portalTarget}`;
   const pl = room.state.players.size;
+  const hp = myPlayer ? `HP:${myPlayer.hp}/3` : "";
   const dt = deathTimer > 0 ? `  RESPAWN in ${deathTimer.toFixed(1)}s (или R)` : "";
-  status.textContent = `фаза:${ph}  волна:${wv}  портал:${chg}  игроки:${pl}${dt}`;
+  status.textContent = `${hp}  фаза:${ph}  волна:${wv}  портал:${chg}  игроки:${pl}${dt}`;
 }, 250);

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Rrrrrrain — MVP</title>
+  <title>Rrrrrrain — v0.0.0.5</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #eee; font-family: 'Courier New', monospace; }
@@ -42,21 +42,21 @@
   <div id="hud-crack"></div>
   <div id="crosshair" style="display:none"></div>
   <div id="status"></div>
-  <div id="dead">ты призрак · ищи воскрешение</div>
+  <div id="dead">ты призрак · нажми R для респа</div>
   <div id="menu">
     <h1>RRRRRRAIN</h1>
-    <p>кооп-прототип · v0.1</p>
+    <p>кооп-прототип · v0.0.0.5</p>
     <div class="row">
       <input id="name" placeholder="твоё имя" value="sgustok" maxlength="20" />
     </div>
     <div class="row">
-      <input id="server" placeholder="ws-сервер" value="wss://rrrrrrain-production.up.railway.app" size="30" />
+      <input id="server" placeholder="ws-сервер" value="wss://rrrrrrain-production.up.railway.app" size="40" />
     </div>
     <div class="row">
       <button id="play">начать</button>
     </div>
     <p style="margin-top:24px;max-width:520px;text-align:center;font-size:12px;line-height:1.6;">
-      WASD — движение · мышь — обзор · ЛКМ / ПКМ — каст · SHIFT — dash · F — подобрать · E — открыть/закрыть портал в арену · ESC — отпустить мышь
+      WASD — движение · SPACE — прыжок · мышь — обзор · ЛКМ / ПКМ — каст · SHIFT — dash · F — подобрать · E — открыть/закрыть портал · R — respawn · ESC — отпустить мышь
     </p>
   </div>
   <script type="module" src="/src/main.js"></script>
