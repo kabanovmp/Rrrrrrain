@@ -218,6 +218,8 @@ export class ArenaRoom extends Room {
   damageEnemy(e, dmg) {
     if (!e.alive) return;
     e.hp -= dmg;
+    // Звук попадания
+    this.broadcast("fx", { type: "hit_enemy", x: e.pos.x, y: e.pos.y, z: e.pos.z });
     if (e.hp <= 0) {
       e.alive = false;
       this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + 1);

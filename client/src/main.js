@@ -1,11 +1,17 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
-import { createSpriteTexture } from "./sprites.js";
-import { setupHub, setupArena, disposeGroup } from "./world.js";
-import { createHandMesh, createHandFistTexture } from "./hands.js";
+import { setupHub, setupArena, disposeGroup, animateTorches } from "./world.js";
+import { createEnemy3D, animateEnemy } from "./enemies3d.js";
+import { createHandsGroup, animateHands, setSpellInHand } from "./hands3d.js";
+import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
+import { createPedestalMesh, animatePedestal } from "./pedestal.js";
 import { FpsController } from "./controller.js";
+import { initAudio, playSound, playSoundLoop, stopSoundLoop } from "./assets.js";
 
+// ═══════════════════════════════════════════════════════════════════
+// DOM
+// ═══════════════════════════════════════════════════════════════════
 const canvas = document.getElementById("canvas");
 const menu = document.getElementById("menu");
 const status = document.getElementById("status");
@@ -24,12 +30,15 @@ dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:1
 document.body.appendChild(dmgOverlay);
 let dmgAngle = 0, dmgTimer = 0;
 
+// ═══════════════════════════════════════════════════════════════════
+// РЕНДЕР
+// ═══════════════════════════════════════════════════════════════════
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
-renderer.setPixelRatio(1);
-renderer.setClearColor(0x0a0505);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setClearColor(0x000000);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x0a0505, 25, 80);
+scene.fog = new THREE.Fog(0x0a0505, 20, 70);
 
 const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.05, 500);
 window.addEventListener("resize", () => {
@@ -39,85 +48,52 @@ window.addEventListener("resize", () => {
 });
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 
-scene.add(new THREE.AmbientLight(0x554433, 0.9));
-const keyLight = new THREE.DirectionalLight(0xffb080, 0.6);
-keyLight.position.set(20, 30, 10);
-scene.add(keyLight);
-
+// ── Разные сцены для хаба/арены (отдельные пространства) ────────
 const hubGroup = new THREE.Group();
 const arenaGroup = new THREE.Group();
+// Хаб парит "в космосе" — можно сместить по Y для отдельности
 scene.add(hubGroup, arenaGroup);
 setupHub(hubGroup);
 setupArena(arenaGroup);
 arenaGroup.visible = false;
 
-const handRig = new THREE.Group();
-camera.add(handRig);
+// ── Руки: детальные 3D-модели ────────────────────────────────────
+const handsRoot = createHandsGroup();
+camera.add(handsRoot);
 scene.add(camera);
+handsRoot.userData.leftHand.visible = false;
+handsRoot.userData.rightHand.visible = false;
 
-const leftHandMesh  = createHandMesh("left");
-const rightHandMesh = createHandMesh("right");
-handRig.add(leftHandMesh, rightHandMesh);
-leftHandMesh.visible = false;
-rightHandMesh.visible = false;
-
-// enemyMeshes: {mesh, targetX, targetY, targetZ} для интерполяции
+// ═══════════════════════════════════════════════════════════════════
+// ХРАНИЛИЩА МЕШЕЙ
+// ═══════════════════════════════════════════════════════════════════
+// Враги: {mesh, targetX, targetY, targetZ, prevX, prevZ}
 const enemyMeshes = new Map();
-const enemyTextures = {};
-for (const key of Object.keys(ENEMY_TYPES)) {
-  enemyTextures[key] = createSpriteTexture(key);
-}
 
-function makeEnemyMesh(typeId) {
-  const t = ENEMY_TYPES[typeId];
-  const g = new THREE.Group();
-  const mat = new THREE.SpriteMaterial({ map: enemyTextures[typeId], depthWrite: false });
-  const s = new THREE.Sprite(mat);
-  const scaleUp = t.scale * 1.5;
-  s.scale.set(scaleUp, scaleUp, scaleUp);
-  s.position.y = scaleUp * 0.5;
-  g.add(s);
-  g.userData = { sprite: s, type: typeId };
-  return g;
-}
+// Другие игроки: {mesh, targetX, targetY, targetZ, targetYaw, prevX, prevZ}
+const otherPlayers = new Map();
+let colorIdxCounter = 0;
 
+// Пикапы = пьедесталы
 const pickupMeshes = new Map();
 function makePickupMesh(pk) {
-  const g = new THREE.Group();
-  const ped = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.55, 0.75, 1.0, 6),
-    new THREE.MeshStandardMaterial({ color: 0xa0958a, roughness: 1.0, metalness: 0.0, flatShading: true })
-  );
-  ped.position.y = 0.5;
-  g.add(ped);
-
-  let item;
+  // Определяем какой тип заклинания
+  let spellType = "fireball";
   if (pk.kind === "HAND") {
-    const col = HAND_TYPES[pk.handType]?.color || 0xff5a1f;
-    item = new THREE.Sprite(new THREE.SpriteMaterial({ map: createHandFistTexture(col), depthWrite: false }));
-    item.scale.set(1.1, 1.1, 1.1);
-    item.position.y = 1.5;
+    const spell = HAND_TYPES[pk.handType]?.spell || "FIREBALL";
+    spellType = spell === "FIREBALL" ? "fireball"
+              : spell === "ICE" ? "ice"
+              : spell === "CHAIN_LIGHTNING" ? "chain"
+              : "fireball";
   } else if (pk.kind === "LEG") {
-    item = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.18, 0.7, 4, 8),
-      new THREE.MeshStandardMaterial({ color: 0xff5a1f, emissive: 0x442200 })
-    );
-    item.position.y = 1.6;
+    spellType = "chain";
   } else {
-    const cfg = ITEMS.find(i => i.id === pk.itemId);
-    const c = cfg?.color || 0xffffff;
-    item = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.28, 0),
-      new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.4 })
-    );
-    item.position.y = 1.5;
-    item.userData.spin = true;
+    spellType = "ice";
   }
-  g.add(item);
-  g.userData = { spinner: item };
-  return g;
+  return createPedestalMesh(spellType);
 }
 
+// FX
 const shots = [];
 function spawnShotFx(x, y, z, color, dx = 0, dy = 0, dz = 0) {
   const speed = 40;
@@ -126,6 +102,9 @@ function spawnShotFx(x, y, z, color, dx = 0, dy = 0, dz = 0) {
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1.0 })
   );
   m.position.set(x, y, z);
+  // Свет от снаряда
+  const light = new THREE.PointLight(color, 1.5, 5, 2);
+  m.add(light);
   scene.add(m);
   shots.push({ mesh: m, ttl: 1.2, maxTtl: 1.2, vx: dx * speed, vy: dy * speed, vz: dz * speed });
 
@@ -149,15 +128,20 @@ function spawnWaveFx(x, y, z, r) {
   shots.push({ mesh: m, ttl: 0.8, maxTtl: 0.8, vx: 0, vy: 0, vz: 0 });
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// КОНТРОЛЛЕР, СЕТЬ
+// ═══════════════════════════════════════════════════════════════════
 const controller = new FpsController(camera, canvas);
-
 let client, room, selfId, myPlayer = null, lastHpSeen = 3;
 let deathTimer = 0;
+let ambientLoop = null;
+let footstepTimer = 0;
 
 document.getElementById("play").addEventListener("click", async () => {
   const name = document.getElementById("name").value.trim() || "sgustok";
   const url  = document.getElementById("server").value.trim();
   try {
+    initAudio(); // разбудить AudioContext сразу после клика
     client = new Client(url);
     room = await client.joinOrCreate(NET.ROOM_NAME, { name });
     selfId = room.sessionId;
@@ -174,40 +158,104 @@ document.getElementById("play").addEventListener("click", async () => {
 
 function setupRoomHandlers() {
   room.state.players.onAdd((p, id) => {
-    if (id === selfId) myPlayer = p;
+    if (id === selfId) {
+      myPlayer = p;
+    } else {
+      // Другой игрок — создаём модель
+      const otherMesh = createOtherPlayer(p.name || "player", colorIdxCounter++);
+      otherMesh.position.set(p.pos.x, p.pos.y, p.pos.z);
+      scene.add(otherMesh);
+      const entry = {
+        mesh: otherMesh, targetX: p.pos.x, targetY: p.pos.y, targetZ: p.pos.z,
+        targetYaw: p.yaw || 0, prevX: p.pos.x, prevZ: p.pos.z, moving: false,
+      };
+      otherPlayers.set(id, entry);
+      p.onChange(() => {
+        entry.targetX = p.pos.x;
+        entry.targetY = p.pos.y;
+        entry.targetZ = p.pos.z;
+        entry.targetYaw = p.yaw || 0;
+      });
+    }
+
     p.onChange(() => {
       if (id === selfId) {
-        leftHandMesh.visible  = p.hasLeftHand;
-        rightHandMesh.visible = p.hasRightHand;
-        if (p.hasLeftHand)  leftHandMesh.userData.setColor(HAND_TYPES[p.leftHandType]?.color  || 0xff5a1f);
-        if (p.hasRightHand) rightHandMesh.userData.setColor(HAND_TYPES[p.rightHandType]?.color || 0xff5a1f);
+        // Руки: обновить видимость + заклинания в ладонях
+        handsRoot.userData.leftHand.visible  = p.hasLeftHand;
+        handsRoot.userData.rightHand.visible = p.hasRightHand;
+        if (p.hasLeftHand) {
+          const spell = HAND_TYPES[p.leftHandType]?.spell;
+          const st = spell === "FIREBALL" ? "fireball"
+                   : spell === "ICE" ? "ice"
+                   : spell === "CHAIN_LIGHTNING" ? "chain" : "fireball";
+          setSpellInHand(handsRoot, -1, st);
+        } else {
+          setSpellInHand(handsRoot, -1, null);
+        }
+        if (p.hasRightHand) {
+          const spell = HAND_TYPES[p.rightHandType]?.spell;
+          const st = spell === "FIREBALL" ? "fireball"
+                   : spell === "ICE" ? "ice"
+                   : spell === "CHAIN_LIGHTNING" ? "chain" : "fireball";
+          setSpellInHand(handsRoot, 1, st);
+        } else {
+          setSpellInHand(handsRoot, 1, null);
+        }
 
         if (p.hp < 3 && p.hp > 0) crackHud.classList.add("on");
         if (p.hp >= 3) crackHud.classList.remove("on");
-        if (p.isGhost) { deadHud.classList.add("on"); crackHud.classList.remove("on"); }
-        else deadHud.classList.remove("on");
+        if (p.isGhost) {
+          deadHud.classList.add("on");
+          crackHud.classList.remove("on");
+        } else {
+          deadHud.classList.remove("on");
+        }
+
+        // Звук получения урона
+        if (lastHpSeen > p.hp && p.hp > 0) {
+          playSound("player_hurt");
+        }
+        if (lastHpSeen > 0 && p.hp <= 0) {
+          playSound("player_death");
+        }
         lastHpSeen = p.hp;
       }
     });
   });
-  room.state.players.onRemove((_p, _id) => {});
 
-  // Мобы: интерполяция позиций
+  room.state.players.onRemove((_p, id) => {
+    if (id === selfId) return;
+    const entry = otherPlayers.get(id);
+    if (entry) {
+      scene.remove(entry.mesh);
+      disposeGroup(entry.mesh);
+      otherPlayers.delete(id);
+    }
+  });
+
+  // ── Мобы: 3D-модели с интерполяцией ─────────────────────────
   room.state.enemies.onAdd((e, id) => {
-    const m = makeEnemyMesh(e.enemyType);
+    const m = createEnemy3D(e.enemyType);
     m.position.set(e.pos.x, e.pos.y, e.pos.z);
     scene.add(m);
-    const entry = { mesh: m, targetX: e.pos.x, targetY: e.pos.y, targetZ: e.pos.z };
+    const entry = {
+      mesh: m, targetX: e.pos.x, targetY: e.pos.y, targetZ: e.pos.z,
+      prevX: e.pos.x, prevZ: e.pos.z, moving: false,
+      wasAlive: true,
+    };
     enemyMeshes.set(id, entry);
-    // подписываемся на изменения ВСЕГО enemy, а не только e.pos
+
     e.onChange(() => {
       entry.targetX = e.pos.x;
       entry.targetY = e.pos.y;
       entry.targetZ = e.pos.z;
-      if (!e.alive) { m.visible = false; }
-      if (e.hp === 1 && e.maxHp === 2) m.userData.sprite.material.color.setHex(0xff8080);
+      if (!e.alive && entry.wasAlive) {
+        // Звук смерти
+        playSound("enemy_death");
+        m.visible = false;
+        entry.wasAlive = false;
+      }
     });
-    // на всякий случай — на изменения самого pos тоже
     if (e.pos && e.pos.onChange) {
       e.pos.onChange(() => {
         entry.targetX = e.pos.x;
@@ -218,9 +266,12 @@ function setupRoomHandlers() {
   });
   room.state.enemies.onRemove((_e, id) => {
     const entry = enemyMeshes.get(id);
-    if (entry) { scene.remove(entry.mesh); disposeGroup(entry.mesh); enemyMeshes.delete(id); }
+    if (entry) {
+      scene.remove(entry.mesh); disposeGroup(entry.mesh); enemyMeshes.delete(id);
+    }
   });
 
+  // ── Пьедесталы ────────────────────────────────────────────
   room.state.pickups.onAdd((pk, id) => {
     const m = makePickupMesh(pk);
     m.position.set(pk.pos.x, pk.pos.y, pk.pos.z);
@@ -232,16 +283,36 @@ function setupRoomHandlers() {
     const m = pickupMeshes.get(id); if (m) { scene.remove(m); disposeGroup(m); pickupMeshes.delete(id); }
   });
 
+  // ── Фаза (хаб/арена) ──────────────────────────────────────
   room.state.listen("phase", (v) => {
     hubGroup.visible = v === "hub";
     arenaGroup.visible = v !== "hub";
+    // Разные амбиенты
+    stopSoundLoop(ambientLoop);
+    if (v === "hub") {
+      ambientLoop = playSoundLoop("hub_ambient", { volume: 0.08 });
+    } else {
+      ambientLoop = playSoundLoop("arena_ambient", { volume: 0.10 });
+    }
+    // Звук телепорта
+    playSound("teleport");
     if (v === "arena" && myPlayer) controller.setPosition(0, 2, 0);
     if (v === "hub" && myPlayer) controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.3);
   });
 
+  // ── FX ────────────────────────────────────────────────────
   room.onMessage("fx", (msg) => {
-    if (msg.type === "shot") spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color, msg.dx, msg.dy, msg.dz);
-    else if (msg.type === "wave") spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
+    if (msg.type === "shot") {
+      spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color, msg.dx, msg.dy, msg.dz);
+      // Звук каста — по цвету угадываем тип
+      if (msg.color === 0xff4400 || msg.color === 0xff5a1f) playSound("fireball_cast");
+      else if (msg.color === 0x66ccff) playSound("ice_cast");
+      else playSound("chain_cast");
+    }
+    else if (msg.type === "wave") {
+      spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
+      playSound("fireball_impact", { volume: 0.35 });
+    }
     else if (msg.type === "hurt" && msg.target === selfId) {
       flashCracks();
       if (typeof msg.fromX === "number" && myPlayer) {
@@ -250,6 +321,10 @@ function setupRoomHandlers() {
         dmgAngle = Math.atan2(dx, dz) - controller.yaw;
         dmgTimer = 0.6;
       }
+    }
+    else if (msg.type === "hit_enemy") {
+      // Сервер шлёт для звука попадания
+      playSound("enemy_hit");
     }
     else if (msg.type === "death" && msg.target === selfId) {
       deadHud.classList.add("on");
@@ -269,6 +344,9 @@ function flashCracks() {
   flashCracks._t = setTimeout(() => { if (myPlayer && myPlayer.hp >= 3) crackHud.classList.remove("on"); }, 1200);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// ВВОД
+// ═══════════════════════════════════════════════════════════════════
 canvas.addEventListener("mousedown", (ev) => {
   if (!room || !myPlayer) return;
   const hand = ev.button === 0 ? "left" : ev.button === 2 ? "right" : null;
@@ -284,8 +362,8 @@ canvas.addEventListener("mousedown", (ev) => {
     spell: spellId, dx: dir.x, dy: dir.y, dz: dir.z,
     ox: origin.x, oy: origin.y, oz: origin.z, hand
   });
-  const meshRef = hand === "left" ? leftHandMesh : rightHandMesh;
-  meshRef.userData.kick();
+  // Анимация отдачи руки
+  handsRoot.userData[hand === "left" ? "leftHand" : "rightHand"].userData.recoil = 1.0;
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -301,11 +379,17 @@ document.addEventListener("keydown", (ev) => {
       const d = m.position.distanceTo(controller.position);
       if (d < 3 && d < bestD) { bestD = d; bestId = id; }
     });
-    if (bestId) room.send("pickup", { id: bestId });
+    if (bestId) {
+      room.send("pickup", { id: bestId });
+      playSound("pickup");
+    }
   }
   if (ev.code === "KeyE") {
     const cur = room.state.phase;
     room.send("phase", { phase: cur === "hub" ? "arena" : "hub" });
+  }
+  if (ev.code === "Space") {
+    playSound("jump");
   }
 });
 
@@ -315,6 +399,9 @@ function sendInput() {
   room.send("input", { x: p.x, y: p.y, z: p.z, yaw: controller.yaw, pitch: controller.pitch });
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// РАДАР
+// ═══════════════════════════════════════════════════════════════════
 function drawRadar() {
   rctx.clearRect(0, 0, radar.width, radar.height);
   if (!myPlayer || !room) return;
@@ -349,22 +436,92 @@ function drawRadar() {
   rctx.fillText(behind ? "СЗАДИ" : Math.round(Math.sqrt(nd)) + "м", x, 50);
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// АНИМАЦИОННЫЙ ЦИКЛ
+// ═══════════════════════════════════════════════════════════════════
 const clock = new THREE.Clock();
+let prevControllerPos = new THREE.Vector3();
+
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   controller.update(dt, myPlayer);
 
-  // Интерполируем позиции мобов к целевым (плавно при пинге)
-  const lerpSpeed = 12; // выше = резче реакция
+  // Определяем движется ли игрок (для звука шагов)
+  const nowP = controller.position;
+  const moved = nowP.distanceTo(prevControllerPos) > 0.01;
+  if (moved && myPlayer && !myPlayer.isGhost) {
+    footstepTimer -= dt;
+    if (footstepTimer <= 0) {
+      playSound("footstep");
+      footstepTimer = 0.4;
+    }
+  }
+  prevControllerPos.copy(nowP);
+
+  // ── Враги: интерполяция + анимация ──────────────────────
+  const lerpSpeed = 12;
   enemyMeshes.forEach(entry => {
     const m = entry.mesh;
     const a = Math.min(1, dt * lerpSpeed);
     m.position.x += (entry.targetX - m.position.x) * a;
     m.position.y += (entry.targetY - m.position.y) * a;
     m.position.z += (entry.targetZ - m.position.z) * a;
+
+    // Определяем движение
+    const moved = Math.hypot(m.position.x - entry.prevX, m.position.z - entry.prevZ) > 0.005;
+    entry.moving = moved;
+    entry.prevX = m.position.x;
+    entry.prevZ = m.position.z;
+
+    // Поворот в сторону движения
+    if (moved) {
+      const dx = entry.targetX - m.position.x;
+      const dz = entry.targetZ - m.position.z;
+      if (dx * dx + dz * dz > 0.001) {
+        const targetYaw = Math.atan2(dx, dz);
+        // Плавный поворот
+        let diff = targetYaw - m.rotation.y;
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        m.rotation.y += diff * Math.min(1, dt * 6);
+      }
+    }
+    animateEnemy(m, dt, moved);
   });
 
-  pickupMeshes.forEach(m => { if (m.userData.spinner?.userData?.spin) m.userData.spinner.rotation.y += dt * 1.2; });
+  // ── Другие игроки ─────────────────────────────────────
+  otherPlayers.forEach(entry => {
+    const m = entry.mesh;
+    const a = Math.min(1, dt * 12);
+    m.position.x += (entry.targetX - m.position.x) * a;
+    m.position.y += (entry.targetY - m.position.y) * a;
+    m.position.z += (entry.targetZ - m.position.z) * a;
+    // Поворот на yaw (лицом куда смотрит)
+    let diff = entry.targetYaw - m.rotation.y;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    m.rotation.y += diff * Math.min(1, dt * 8);
+
+    const moved = Math.hypot(m.position.x - entry.prevX, m.position.z - entry.prevZ) > 0.005;
+    entry.prevX = m.position.x; entry.prevZ = m.position.z;
+    animateOtherPlayer(m, dt, moved);
+
+    // Табличка с именем всегда смотрит на камеру (билборд)
+    if (m.userData.nameSprite) {
+      // Sprite автоматически смотрит на камеру
+    }
+  });
+
+  // ── Пьедесталы (кристаллы вращаются) ─────────────────
+  pickupMeshes.forEach(m => {
+    if (m.userData.crystal) animatePedestal(m, dt);
+  });
+
+  // ── Факелы (пламя мерцает) ──────────────────────────
+  const activeGroup = hubGroup.visible ? hubGroup : arenaGroup;
+  animateTorches(activeGroup, dt);
+
+  // ── Снаряды ─────────────────────────────────────────
   for (let i = shots.length - 1; i >= 0; i--) {
     const s = shots[i];
     s.ttl -= dt;
@@ -379,6 +536,7 @@ function animate() {
     }
     if (s.ttl <= 0) { scene.remove(s.mesh); disposeGroup(s.mesh); shots.splice(i, 1); }
   }
+
   if (deathTimer > 0) {
     deathTimer -= dt;
     if (deathTimer <= 0 && room && myPlayer?.isGhost) room.send("respawn", {});
@@ -390,8 +548,9 @@ function animate() {
   } else {
     dmgOverlay.style.opacity = 0;
   }
-  leftHandMesh.userData.update?.(dt);
-  rightHandMesh.userData.update?.(dt);
+
+  // ── Анимация рук ─────────────────────────────────────
+  animateHands(handsRoot, dt, { moving: moved });
 
   drawRadar();
   renderer.render(scene, camera);
@@ -399,17 +558,9 @@ function animate() {
 }
 animate();
 
-// Пинг измеряем через ping-pong
-let pingMs = 0;
-setInterval(() => {
-  if (!room?.connection?.transport?.ws) return;
-  const t0 = performance.now();
-  try {
-    room.send("__ping", t0);
-    // ответа нет — считаем по round-trip последнего state, но покажем «~200мс» приблизительно
-  } catch {}
-}, 2000);
-
+// ═══════════════════════════════════════════════════════════════════
+// СТАТУС-ЛЕНТА
+// ═══════════════════════════════════════════════════════════════════
 setInterval(() => {
   if (!room) return;
   const ph = room.state.phase;
