@@ -105,26 +105,25 @@ function makePickupMesh(pk) {
   return g;
 }
 
-// Brighter, longer-lived shot fx
 const shots = [];
-function spawnShotFx(x, y, z, color) {
+function spawnShotFx(x, y, z, color, dx = 0, dy = 0, dz = 0) {
+  const speed = 40;
   const m = new THREE.Mesh(
-    new THREE.SphereGeometry(0.45, 12, 8),
+    new THREE.SphereGeometry(0.35, 12, 8),
     new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1.0 })
   );
   m.position.set(x, y, z);
   scene.add(m);
-  shots.push({ mesh: m, ttl: 1.2, maxTtl: 1.2 });
+  shots.push({ mesh: m, ttl: 1.2, maxTtl: 1.2, vx: dx * speed, vy: dy * speed, vz: dz * speed });
 
-  // extra glow ring
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.5, 1.2, 20),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+    new THREE.RingGeometry(0.3, 0.8, 20),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
   );
   ring.position.set(x, y, z);
   ring.lookAt(camera.position);
   scene.add(ring);
-  shots.push({ mesh: ring, ttl: 0.5, maxTtl: 0.5 });
+  shots.push({ mesh: ring, ttl: 0.35, maxTtl: 0.35, vx: 0, vy: 0, vz: 0 });
 }
 function spawnWaveFx(x, y, z, r) {
   const m = new THREE.Mesh(
@@ -134,7 +133,7 @@ function spawnWaveFx(x, y, z, r) {
   m.position.set(x, y, z);
   m.rotation.x = -Math.PI / 2;
   scene.add(m);
-  shots.push({ mesh: m, ttl: 0.8, maxTtl: 0.8 });
+  shots.push({ mesh: m, ttl: 0.8, maxTtl: 0.8, vx: 0, vy: 0, vz: 0 });
 }
 
 const controller = new FpsController(camera, canvas);
@@ -214,12 +213,12 @@ function setupRoomHandlers() {
   });
 
   room.onMessage("fx", (msg) => {
-    if (msg.type === "shot") spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color);
+    if (msg.type === "shot") spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color, msg.dx, msg.dy, msg.dz);
     else if (msg.type === "wave") spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
     else if (msg.type === "hurt" && msg.target === selfId) flashCracks();
     else if (msg.type === "death" && msg.target === selfId) {
       deadHud.classList.add("on");
-      deathTimer = 3.0; // auto-respawn timer for singleplayer
+      deathTimer = 3.0;
     }
     else if (msg.type === "respawn" && msg.target === selfId) {
       deadHud.classList.remove("on");
@@ -257,13 +256,8 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 document.addEventListener("keydown", (ev) => {
   if (!room) return;
-  if (ev.code === "Escape") {
-    controller.releasePointer();
-  }
-  if (ev.code === "KeyR" && myPlayer?.isGhost) {
-    // manual respawn
-    room.send("respawn", {});
-  }
+  if (ev.code === "Escape") controller.releasePointer();
+  if (ev.code === "KeyR" && myPlayer?.isGhost) room.send("respawn", {});
   if (ev.code === "KeyF") {
     let bestId = null, bestD = Infinity;
     pickupMeshes.forEach((m, id) => {
@@ -292,20 +286,22 @@ function animate() {
   controller.update(dt, myPlayer);
   pickupMeshes.forEach(m => { if (m.userData.spinner?.userData?.spin) m.userData.spinner.rotation.y += dt * 1.2; });
   for (let i = shots.length - 1; i >= 0; i--) {
-    shots[i].ttl -= dt;
-    // fade
-    if (shots[i].mesh.material) {
-      shots[i].mesh.material.opacity = Math.max(0, shots[i].ttl / shots[i].maxTtl);
-      shots[i].mesh.material.transparent = true;
+    const s = shots[i];
+    s.ttl -= dt;
+    if (s.vx || s.vy || s.vz) {
+      s.mesh.position.x += s.vx * dt;
+      s.mesh.position.y += s.vy * dt;
+      s.mesh.position.z += s.vz * dt;
     }
-    if (shots[i].ttl <= 0) { scene.remove(shots[i].mesh); disposeGroup(shots[i].mesh); shots.splice(i, 1); }
+    if (s.mesh.material) {
+      s.mesh.material.opacity = Math.max(0, s.ttl / s.maxTtl);
+      s.mesh.material.transparent = true;
+    }
+    if (s.ttl <= 0) { scene.remove(s.mesh); disposeGroup(s.mesh); shots.splice(i, 1); }
   }
-  // auto respawn countdown for solo
   if (deathTimer > 0) {
     deathTimer -= dt;
-    if (deathTimer <= 0 && room && myPlayer?.isGhost) {
-      room.send("respawn", {});
-    }
+    if (deathTimer <= 0 && room && myPlayer?.isGhost) room.send("respawn", {});
   }
   leftHandMesh.userData.update?.(dt);
   rightHandMesh.userData.update?.(dt);
