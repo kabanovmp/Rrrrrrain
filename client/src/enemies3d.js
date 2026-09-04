@@ -11,32 +11,33 @@ import * as THREE from "three";
 import { getTexture } from "./assets.js";
 
 // ── Параметры по типам ─────────────────────────────────────────────
+// Яркие контрастные цвета, чтобы враг был виден даже при слабом свете.
+// emissive — самосвечение, не требует света вообще.
 const ENEMY_SPECS = {
   IMP: {
-    height: 1.6, bodyColor: 0xa04030, tex: "enemy_imp",
+    height: 1.6, bodyColor: 0xff5522, emissive: 0x552200, tex: "enemy_imp",
     hasWings: false, isFlying: false,
-    hornStyle: "small", eyeColor: 0xffaa22,
+    hornStyle: "small", eyeColor: 0xffee00,
   },
   PINKY: {
-    height: 1.8, bodyColor: 0xe04040, tex: "enemy_pinky",
+    height: 1.8, bodyColor: 0xff4488, emissive: 0x551122, tex: "enemy_pinky",
     hasWings: false, isFlying: false,
     hornStyle: "bull", eyeColor: 0xffff00,
   },
   CACO: {
-    height: 1.5, bodyColor: 0xc02020, tex: "enemy_caco",
+    height: 1.5, bodyColor: 0xdd3333, emissive: 0x661111, tex: "enemy_caco",
     hasWings: false, isFlying: true,
     hornStyle: "none", eyeColor: 0x00ffaa,
-    // Сфероид с одним глазом (кактодемон)
   },
   BARON: {
-    height: 2.4, bodyColor: 0xc08820, tex: "enemy_baron",
+    height: 2.4, bodyColor: 0xffcc22, emissive: 0x442200, tex: "enemy_baron",
     hasWings: false, isFlying: false,
     hornStyle: "goat", eyeColor: 0xff0000,
   },
   COLOSSUS: {
-    height: 3.2, bodyColor: 0x603010, tex: "enemy_colossus",
+    height: 3.2, bodyColor: 0xcc4400, emissive: 0x331100, tex: "enemy_colossus",
     hasWings: false, isFlying: false,
-    hornStyle: "spikes", eyeColor: 0xff2200,
+    hornStyle: "spikes", eyeColor: 0xff4400,
   },
 };
 
@@ -45,13 +46,15 @@ export function createEnemy3D(typeId) {
   const group = new THREE.Group();
   group.userData.spec = spec;
   group.userData.typeId = typeId;
+  group.userData.flying = (typeId === "CACO");
   group.userData.walkPhase = Math.random() * Math.PI * 2;
   group.userData.headPhase = Math.random() * Math.PI * 2;
 
   const tex = getTexture(spec.tex);
   const bodyMat = new THREE.MeshStandardMaterial({
     map: tex, color: spec.bodyColor,
-    roughness: 0.85, metalness: 0.0,
+    emissive: spec.emissive || 0x000000, emissiveIntensity: 0.6,
+    roughness: 0.7, metalness: 0.0,
     flatShading: false,
   });
 

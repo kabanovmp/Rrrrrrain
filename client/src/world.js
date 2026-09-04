@@ -94,14 +94,13 @@ export function setupHub(group) {
   dome.position.y = wallHeight;
   group.add(dome);
 
-  // ── Освещение ─────────────────────────────────────────
-  const ambient = new THREE.AmbientLight(0x223344, 0.3);
+  // ── Освещение: ярко и дёшево ────────────────────────────
+  // Только Hemisphere + Ambient. Никаких PointLight/DirectionalLight!
+  const ambient = new THREE.AmbientLight(0xffffff, 1.2);
   group.add(ambient);
-
-  // Центральный "магический" источник света
-  const centerLight = new THREE.PointLight(0x88aaff, 1.2, 15, 2);
-  centerLight.position.set(0, 3, 0);
-  group.add(centerLight);
+  const hemi = new THREE.HemisphereLight(0xaaccff, 0x554433, 1.5);
+  hemi.position.set(0, 20, 0);
+  group.add(hemi);
 
   // Факелы по углам
   addTorch(group, R * 0.75, 0, R * 0.75);
@@ -215,11 +214,11 @@ export function setupArena(group) {
   }
 
   // ── Освещение арены ──────────────────────────────────
-  const ambient = new THREE.AmbientLight(0x220808, 0.4);
+  const ambient = new THREE.AmbientLight(0xffffff, 1.1);
   group.add(ambient);
 
   // Верхний "лунный" свет (холодный, тусклый)
-  const moon = new THREE.DirectionalLight(0x334455, 0.3);
+  const moon = new THREE.HemisphereLight(0xffddbb, 0x552222, 1.3);
   moon.position.set(20, 30, 10);
   group.add(moon);
 }
@@ -260,9 +259,8 @@ function addTorch(group, x, y, z, tall = false) {
   group.add(flameCore);
 
   // Свет
-  const light = new THREE.PointLight(0xff7722, 1.5, 8, 2);
-  light.position.set(x, y + h + 0.4, z);
-  group.add(light);
+  // Без PointLight — только визуальное пламя (бесплатно)
+  const light = { position: { set: () => {} }, userData: {} };
 
   // Флаг для анимации
   flame.userData.isFlame = true;

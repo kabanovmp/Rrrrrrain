@@ -35,10 +35,14 @@ let dmgAngle = 0, dmgTimer = 0;
 // ═══════════════════════════════════════════════════════════════════
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-renderer.setClearColor(0x000000);
+renderer.setClearColor(0x1a2030);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x0a0505, 20, 70);
+// Без тумана — чтобы было видно всё.
+// Общее яркое освещение в самой scene (не в группах), чтобы всё гарантированно освещалось.
+scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+const globalHemi = new THREE.HemisphereLight(0xffffff, 0x776655, 1.2);
+scene.add(globalHemi);
 
 const camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.05, 500);
 window.addEventListener("resize", () => {
@@ -97,20 +101,25 @@ function makePickupMesh(pk) {
 const shots = [];
 function spawnShotFx(x, y, z, color, dx = 0, dy = 0, dz = 0) {
   const speed = 40;
+  // Без PointLight! Динамические света убивают ФПС в THREE.js (рекомпиляция шейдеров).
+  // Замена: светящийся MeshBasicMaterial (не нуждается в освещении) + halo-сфера.
   const m = new THREE.Mesh(
-    new THREE.SphereGeometry(0.35, 12, 8),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1.0 })
+    new THREE.SphereGeometry(0.35, 10, 6),
+    new THREE.MeshBasicMaterial({ color })
   );
   m.position.set(x, y, z);
-  // Свет от снаряда
-  const light = new THREE.PointLight(color, 1.5, 5, 2);
-  m.add(light);
+  // Ореол вокруг — большая прозрачная сфера
+  const halo = new THREE.Mesh(
+    new THREE.SphereGeometry(0.8, 8, 6),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, depthWrite: false })
+  );
+  m.add(halo);
   scene.add(m);
   shots.push({ mesh: m, ttl: 1.2, maxTtl: 1.2, vx: dx * speed, vy: dy * speed, vz: dz * speed });
 
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.3, 0.8, 20),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+    new THREE.RingGeometry(0.3, 0.8, 16),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false })
   );
   ring.position.set(x, y, z);
   ring.lookAt(camera.position);
@@ -161,18 +170,20 @@ function setupRoomHandlers() {
     if (id === selfId) {
       myPlayer = p;
     } else {
-      // Другой игрок — создаём модель
+      // Другой игрок — создаём модель.
+      // Сервер шлёт pos.y = 1.6 (центр камеры), а модель рисуется от ног (Y=0).
+      // Поэтому опускаем на 1.6.
       const otherMesh = createOtherPlayer(p.name || "player", colorIdxCounter++);
-      otherMesh.position.set(p.pos.x, p.pos.y, p.pos.z);
+      otherMesh.position.set(p.pos.x, p.pos.y - 1.6, p.pos.z);
       scene.add(otherMesh);
       const entry = {
-        mesh: otherMesh, targetX: p.pos.x, targetY: p.pos.y, targetZ: p.pos.z,
+        mesh: otherMesh, targetX: p.pos.x, targetY: p.pos.y - 1.6, targetZ: p.pos.z,
         targetYaw: p.yaw || 0, prevX: p.pos.x, prevZ: p.pos.z, moving: false,
       };
       otherPlayers.set(id, entry);
       p.onChange(() => {
         entry.targetX = p.pos.x;
-        entry.targetY = p.pos.y;
+        entry.targetY = p.pos.y - 1.6;
         entry.targetZ = p.pos.z;
         entry.targetYaw = p.yaw || 0;
       });
@@ -236,10 +247,14 @@ function setupRoomHandlers() {
   // ── Мобы: 3D-модели с интерполяцией ─────────────────────────
   room.state.enemies.onAdd((e, id) => {
     const m = createEnemy3D(e.enemyType);
-    m.position.set(e.pos.x, e.pos.y, e.pos.z);
+    // Сервер шлёт y=1 для наземных (центр тела) — опускаем на 1, чтобы ноги были на полу.
+    // Летающие (CACO) шлются y=6+, там офсет не нужен.
+    const yOff = m.userData.flying ? 0 : 1.0;
+    m.userData.yOff = yOff;
+    m.position.set(e.pos.x, e.pos.y - yOff, e.pos.z);
     scene.add(m);
     const entry = {
-      mesh: m, targetX: e.pos.x, targetY: e.pos.y, targetZ: e.pos.z,
+      mesh: m, targetX: e.pos.x, targetY: e.pos.y - yOff, targetZ: e.pos.z,
       prevX: e.pos.x, prevZ: e.pos.z, moving: false,
       wasAlive: true,
     };
@@ -247,7 +262,7 @@ function setupRoomHandlers() {
 
     e.onChange(() => {
       entry.targetX = e.pos.x;
-      entry.targetY = e.pos.y;
+      entry.targetY = e.pos.y - yOff;
       entry.targetZ = e.pos.z;
       if (!e.alive && entry.wasAlive) {
         // Звук смерти
@@ -259,7 +274,7 @@ function setupRoomHandlers() {
     if (e.pos && e.pos.onChange) {
       e.pos.onChange(() => {
         entry.targetX = e.pos.x;
-        entry.targetY = e.pos.y;
+        entry.targetY = e.pos.y - yOff;
         entry.targetZ = e.pos.z;
       });
     }
@@ -274,7 +289,8 @@ function setupRoomHandlers() {
   // ── Пьедесталы ────────────────────────────────────────────
   room.state.pickups.onAdd((pk, id) => {
     const m = makePickupMesh(pk);
-    m.position.set(pk.pos.x, pk.pos.y, pk.pos.z);
+    // Сервер шлёт y=1.2 (высота вершины для подбора), а модель постамента рисуется от пола
+    m.position.set(pk.pos.x, 0, pk.pos.z);
     scene.add(m);
     pickupMeshes.set(id, m);
     pk.onChange(() => { if (pk.taken) { m.visible = false; } });
