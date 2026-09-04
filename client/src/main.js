@@ -49,6 +49,16 @@ chatInput.style.cssText = "position:fixed;left:12px;bottom:20px;width:420px;padd
 document.body.appendChild(chatInput);
 chatInput.addEventListener("keydown", (ev) => {
   ev.stopPropagation(); // чтобы канвас-листенер не ловил W/A/S/D
+  if (ev.code === "Enter") {
+    const text = chatInput.value.trim();
+    if (text && room) room.send("chat", { text });
+    chatInput.value = "";
+    chatInput.style.display = "none";
+    chatInput.blur();
+    chatOpen = false;
+    ev.preventDefault();
+    return;
+  }
   if (ev.code === "Escape") {
     chatInput.value = "";
     chatInput.style.display = "none";
