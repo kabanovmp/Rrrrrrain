@@ -1,0 +1,251 @@
+import colyseus from "colyseus";
+import { GameState, Player, Enemy, Pickup, Vec3 } from "./schema.js";
+const { Room } = colyseus.default || colyseus;
+import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom } from "../../shared/index.js";
+
+const TICK_MS = 1000 / NET.TICK_RATE;
+
+export class ArenaRoom extends Room {
+  onCreate() {
+    this.maxClients = NET.MAX_PLAYERS;
+    this.setState(new GameState());
+    this.projectiles = []; // authoritative, server-side only
+    this.enemySeq = 0;
+    this.pickupSeq = 0;
+    this.spawnInitialPickups();
+    this.setSimulationInterval(dt => this.tick(dt / 1000), TICK_MS);
+
+    this.onMessage("input", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      // Client-authoritative movement for MVP (simpler, less latency).
+      // Anti-cheat pass will be added later — see ASSUMPTIONS.md.
+      if (typeof msg.x === "number") p.pos.x = msg.x;
+      if (typeof msg.y === "number") p.pos.y = msg.y;
+      if (typeof msg.z === "number") p.pos.z = msg.z;
+      if (typeof msg.yaw === "number") p.yaw = msg.yaw;
+      if (typeof msg.pitch === "number") p.pitch = msg.pitch;
+    });
+
+    this.onMessage("cast", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p || p.hp <= 0) return;
+      const spellId = msg.spell;
+      const spell = SPELLS[spellId];
+      if (!spell) return;
+      const dmgMult = p.isGhost ? COMBAT.GHOST_STAT_MULT : 1;
+      if (spell.isAoe) {
+        // AoE push: hit enemies in radius
+        this.state.enemies.forEach(e => {
+          if (!e.alive) return;
+          const dx = e.pos.x - p.pos.x, dy = e.pos.y - p.pos.y, dz = e.pos.z - p.pos.z;
+          if (dx*dx+dy*dy+dz*dz <= spell.radius*spell.radius) {
+            this.damageEnemy(e, spell.damage * dmgMult);
+          }
+        });
+        this.broadcast("fx", { type: "wave", x: p.pos.x, y: p.pos.y, z: p.pos.z, r: spell.radius });
+      } else {
+        this.projectiles.push({
+          ownerId: client.sessionId,
+          x: msg.ox ?? p.pos.x, y: msg.oy ?? p.pos.y, z: msg.oz ?? p.pos.z,
+          vx: (msg.dx || 0) * spell.projectileSpeed,
+          vy: (msg.dy || 0) * spell.projectileSpeed,
+          vz: (msg.dz || 0) * spell.projectileSpeed,
+          life: spell.life, damage: spell.damage * dmgMult, radius: spell.radius, color: spell.color,
+        });
+        this.broadcast("fx", { type: "shot", x: p.pos.x, y: p.pos.y, z: p.pos.z, color: spell.color });
+      }
+    });
+
+    this.onMessage("pickup", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      const item = this.state.pickups.get(msg.id);
+      if (!p || !item || item.taken) return;
+      const dx = item.pos.x - p.pos.x, dy = item.pos.y - p.pos.y, dz = item.pos.z - p.pos.z;
+      if (dx*dx+dy*dy+dz*dz > 9) return; // too far
+      item.taken = true;
+      if (item.kind === "HAND") {
+        if (!p.hasLeftHand)  { p.hasLeftHand = true;  p.leftHandType = item.handType; }
+        else if (!p.hasRightHand) { p.hasRightHand = true; p.rightHandType = item.handType; }
+      } else if (item.kind === "LEG") {
+        p.hasLegs = Math.min(2, p.hasLegs + 1);
+      } else {
+        p.itemsInBody.push(item.itemId);
+      }
+    });
+
+    this.onMessage("phase", (_c, msg) => {
+      // Any player can trigger arena start / return to hub for MVP.
+      if (msg.phase === "arena" || msg.phase === "hub" || msg.phase === "portal_ready") {
+        this.state.phase = msg.phase;
+        if (msg.phase === "arena") this.startArena();
+        if (msg.phase === "hub") this.resetArena();
+      }
+    });
+  }
+
+  onJoin(client, opts) {
+    const p = new Player();
+    p.name = (opts?.name || "sgustok").slice(0, 20);
+    // spawn in hub
+    p.pos.x = (Math.random() - 0.5) * 4;
+    p.pos.y = 1.6;
+    p.pos.z = (Math.random() - 0.5) * 4;
+    this.state.players.set(client.sessionId, p);
+    console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
+  }
+
+  onLeave(client) {
+    this.state.players.delete(client.sessionId);
+    console.log(`[room] leave ${client.sessionId}. total=${this.state.players.size}`);
+  }
+
+  spawnInitialPickups() {
+    // Hub pickups: 2 hands, 2 legs, 3 items on pedestals in the hub circle.
+    const hubItems = [
+      { kind: "HAND", handType: "FIRE",  angle: 0.0 },
+      { kind: "HAND", handType: "BONE",  angle: Math.PI * 0.5 },
+      { kind: "LEG",                     angle: Math.PI },
+      { kind: "LEG",                     angle: Math.PI * 1.5 },
+      { kind: "ITEM", itemId: "SIGIL_DASH",  angle: Math.PI * 0.25 },
+      { kind: "ITEM", itemId: "RING_QUICK",  angle: Math.PI * 0.75 },
+      { kind: "ITEM", itemId: "BAND_SHIELD", angle: Math.PI * 1.25 },
+    ];
+    const HR = WORLD.HUB_RADIUS * 0.6;
+    for (const it of hubItems) this.addPickup({
+      kind: it.kind, itemId: it.itemId || "", handType: it.handType || "",
+      x: Math.cos(it.angle) * HR, y: 1.2, z: Math.sin(it.angle) * HR,
+    });
+  }
+
+  addPickup({ kind, itemId, handType, x, y, z }) {
+    const id = `p${++this.pickupSeq}`;
+    const pk = new Pickup();
+    pk.kind = kind; pk.itemId = itemId; pk.handType = handType;
+    pk.pos.x = x; pk.pos.y = y; pk.pos.z = z;
+    this.state.pickups.set(id, pk);
+    return id;
+  }
+
+  startArena() {
+    this.state.wave = 1;
+    this.state.portalCharge = 0;
+    this.state.enemies.clear();
+    this.spawnWave(6);
+  }
+
+  resetArena() {
+    this.state.wave = 0;
+    this.state.enemies.clear();
+    this.projectiles.length = 0;
+  }
+
+  spawnWave(count) {
+    for (let i = 0; i < count; i++) {
+      const roll = Math.random();
+      const type = roll < 0.6 ? "IMP" : roll < 0.85 ? "PINKY" : "CACO";
+      this.addEnemy(type);
+    }
+  }
+
+  addEnemy(typeId) {
+    const t = ENEMY_TYPES[typeId]; if (!t) return;
+    const e = new Enemy();
+    e.enemyType = typeId;
+    e.hp = t.armored ? COMBAT.ARMORED_ENEMY_MAX_HP : COMBAT.ENEMY_MAX_HP;
+    e.maxHp = e.hp;
+    const a = Math.random() * Math.PI * 2;
+    const r = WORLD.ARENA_RADIUS * (0.7 + Math.random() * 0.25);
+    e.pos.x = Math.cos(a) * r;
+    e.pos.y = t.flying ? 6 + Math.random() * 3 : 1;
+    e.pos.z = Math.sin(a) * r;
+    const id = `e${++this.enemySeq}`;
+    this.state.enemies.set(id, e);
+    return id;
+  }
+
+  spawnColossus() {
+    const id = this.addEnemy("COLOSSUS");
+    const e = this.state.enemies.get(id);
+    if (e) { e.hp = ENEMY_TYPES.COLOSSUS.hp; e.maxHp = e.hp; }
+  }
+
+  damageEnemy(e, dmg) {
+    if (!e.alive) return;
+    e.hp -= dmg;
+    if (e.hp <= 0) {
+      e.alive = false;
+      this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + 1);
+      if (this.state.portalCharge >= this.state.portalTarget) this.state.phase = "portal_ready";
+      // remove after brief delay so client can play death fx
+      const idEntry = [...this.state.enemies.entries()].find(([, v]) => v === e);
+      if (idEntry) setTimeout(() => this.state.enemies.delete(idEntry[0]), 400);
+    }
+  }
+
+  damagePlayer(p, dmg, sessionId) {
+    if (p.hp <= 0 || p.isGhost) return;
+    p.hp -= dmg;
+    if (p.hp <= 0) {
+      p.isGhost = true;
+      p.hp = 0;
+      this.broadcast("fx", { type: "death", target: sessionId });
+    } else {
+      this.broadcast("fx", { type: "hurt", target: sessionId });
+    }
+  }
+
+  tick(dt) {
+    // projectiles
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i];
+      pr.life -= dt;
+      pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.z += pr.vz * dt;
+      let hit = false;
+      this.state.enemies.forEach(e => {
+        if (hit || !e.alive) return;
+        const dx = e.pos.x - pr.x, dy = e.pos.y - pr.y, dz = e.pos.z - pr.z;
+        const r = pr.radius + (ENEMY_TYPES[e.enemyType]?.size || 1);
+        if (dx*dx+dy*dy+dz*dz <= r*r) { this.damageEnemy(e, pr.damage); hit = true; }
+      });
+      if (hit || pr.life <= 0) this.projectiles.splice(i, 1);
+    }
+
+    // enemy AI: chase nearest non-ghost player, melee at range
+    this.state.players.forEach(target => {}); // touch
+    this.state.enemies.forEach(e => {
+      if (!e.alive) return;
+      const t = ENEMY_TYPES[e.enemyType];
+      let nearest = null, nd = Infinity, nid = "";
+      this.state.players.forEach((p, sid) => {
+        if (p.isGhost || p.hp <= 0) return;
+        const dx = p.pos.x - e.pos.x, dy = p.pos.y - e.pos.y, dz = p.pos.z - e.pos.z;
+        const d2 = dx*dx+dy*dy+dz*dz;
+        if (d2 < nd) { nd = d2; nearest = p; nid = sid; }
+      });
+      if (!nearest) return;
+      e.targetId = nid;
+      const dx = nearest.pos.x - e.pos.x, dy = nearest.pos.y - e.pos.y, dz = nearest.pos.z - e.pos.z;
+      const d = Math.max(0.001, Math.sqrt(dx*dx+dy*dy+dz*dz));
+      const stepY = t.flying ? (dy / d) * t.speed * dt : 0;
+      e.pos.x += (dx / d) * t.speed * dt;
+      e.pos.z += (dz / d) * t.speed * dt;
+      e.pos.y = t.flying ? Math.max(2, e.pos.y + stepY) : 1;
+      if (d < COMBAT.MELEE_RANGE + t.size * 0.5) {
+        e._atkCd = (e._atkCd || 0) - dt;
+        if (e._atkCd <= 0) { e._atkCd = 1.0; this.damagePlayer(nearest, t.damage, nid); }
+      }
+    });
+
+    // wave logic
+    if (this.state.phase === "arena") {
+      let aliveCount = 0;
+      this.state.enemies.forEach(e => { if (e.alive) aliveCount++; });
+      if (aliveCount === 0 && this.state.wave > 0) {
+        this.state.wave += 1;
+        if (this.state.wave === 3) this.spawnColossus();
+        else this.spawnWave(6 + this.state.wave * 2);
+      }
+    }
+  }
+}

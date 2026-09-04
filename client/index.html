@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Rrrrrrain — MVP</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #eee; font-family: 'Courier New', monospace; }
+    #canvas { position: fixed; inset: 0; display: block; cursor: none; }
+    #menu {
+      position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      background: radial-gradient(circle at 50% 50%, #1a0808 0%, #000 80%);
+      z-index: 100;
+    }
+    #menu h1 { font-size: 42px; letter-spacing: 4px; margin-bottom: 8px; color: #ff5a1f; text-shadow: 0 0 20px #ff5a1f80; }
+    #menu p { color: #999; margin-bottom: 24px; }
+    #menu .row { display: flex; gap: 12px; margin-bottom: 12px; }
+    #menu input, #menu button {
+      background: #1a0808; color: #eee; border: 1px solid #ff5a1f; padding: 12px 18px;
+      font-family: inherit; font-size: 14px; letter-spacing: 1px;
+    }
+    #menu button { cursor: pointer; text-transform: uppercase; }
+    #menu button:hover { background: #ff5a1f; color: #000; }
+    #hud-crack { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 10;
+      background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M0 40 L30 42 L45 30 L55 45 L70 40 L100 55' stroke='%23ff3030' stroke-width='0.3' fill='none' opacity='0.4'/><path d='M0 60 L20 65 L40 55 L60 70 L80 60 L100 70' stroke='%23ff3030' stroke-width='0.3' fill='none' opacity='0.3'/></svg>") center/cover;
+      mix-blend-mode: screen;
+    }
+    #hud-crack.on { opacity: 1; }
+    #status { position: fixed; left: 12px; top: 12px; z-index: 20; font-size: 12px; color: #666; }
+    #dead { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 30;
+      background: rgba(20, 0, 0, 0.4); color: #ff5a1f; font-size: 24px; letter-spacing: 4px; }
+    #dead.on { display: flex; }
+    #crosshair {
+      position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
+      background: #ff5a1fcc; border-radius: 50%; z-index: 15; pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="hud-crack"></div>
+  <div id="crosshair" style="display:none"></div>
+  <div id="status"></div>
+  <div id="dead">ты призрак · ищи воскрешение</div>
+  <div id="menu">
+    <h1>RRRRRRAIN</h1>
+    <p>кооп-прототип · v0.1</p>
+    <div class="row">
+      <input id="name" placeholder="твоё имя" value="sgustok" maxlength="20" />
+    </div>
+    <div class="row">
+      <input id="server" placeholder="ws-сервер" value="ws://localhost:2567" size="30" />
+    </div>
+    <div class="row">
+      <button id="play">начать</button>
+    </div>
+    <p style="margin-top:24px;max-width:520px;text-align:center;font-size:12px;line-height:1.6;">
+      WASD — движение · мышь — обзор · ЛКМ / ПКМ — каст · SHIFT — dash · F — подобрать · E — открыть/закрыть портал в арену · ESC — отпустить мышь
+    </p>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

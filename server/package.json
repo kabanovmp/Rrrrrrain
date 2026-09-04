@@ -1,0 +1,17 @@
+{
+  "name": "@mhfps/server",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "colyseus": "0.15.57",
+    "@colyseus/schema": "2.0.37",
+    "@colyseus/ws-transport": "0.15.3",
+    "@colyseus/monitor": "0.15.8",
+    "express": "^4.19.2"
+  }
+}
