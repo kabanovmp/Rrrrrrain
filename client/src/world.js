@@ -12,14 +12,49 @@ import { getTexture } from "./assets.js";
 export function setupHub(group) {
   const R = WORLD.HUB_RADIUS;
 
-  // ── Небо: чёрный космос со звёздами + туманности ──────────
-  const sphereGeo = new THREE.SphereGeometry(200, 32, 16);
-  const spaceTex = makeSpaceTexture();
+  // ── Небо: равномерный тёмный купол + частицы-звёзды вокруг ──────────
+  // Никакого UV-шва — купол одноцветный, звёзды — точки.
   const skySphere = new THREE.Mesh(
-    sphereGeo,
-    new THREE.MeshBasicMaterial({ map: spaceTex, side: THREE.BackSide, depthWrite: false })
+    new THREE.SphereGeometry(200, 24, 12),
+    new THREE.MeshBasicMaterial({ color: 0x0a0820, side: THREE.BackSide, depthWrite: false })
   );
   group.add(skySphere);
+
+  // Звёзды через Points (без шва, дешёво)
+  const starCount = 2000;
+  const starGeo = new THREE.BufferGeometry();
+  const starPos = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
+    // Равномерно на сфере R=180
+    const theta = Math.acos(2 * Math.random() - 1);
+    const phi = Math.random() * Math.PI * 2;
+    starPos[i * 3    ] = 180 * Math.sin(theta) * Math.cos(phi);
+    starPos[i * 3 + 1] = 180 * Math.cos(theta);
+    starPos[i * 3 + 2] = 180 * Math.sin(theta) * Math.sin(phi);
+  }
+  starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
+  const stars = new THREE.Points(
+    starGeo,
+    new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, sizeAttenuation: false })
+  );
+  group.add(stars);
+
+  // Несколько ярких звёзд крупнее
+  const bigStarGeo = new THREE.BufferGeometry();
+  const bigStarPos = new Float32Array(60 * 3);
+  for (let i = 0; i < 60; i++) {
+    const theta = Math.acos(2 * Math.random() - 1);
+    const phi = Math.random() * Math.PI * 2;
+    bigStarPos[i * 3    ] = 175 * Math.sin(theta) * Math.cos(phi);
+    bigStarPos[i * 3 + 1] = 175 * Math.cos(theta);
+    bigStarPos[i * 3 + 2] = 175 * Math.sin(theta) * Math.sin(phi);
+  }
+  bigStarGeo.setAttribute("position", new THREE.BufferAttribute(bigStarPos, 3));
+  const bigStars = new THREE.Points(
+    bigStarGeo,
+    new THREE.PointsMaterial({ color: 0xffddaa, size: 3, sizeAttenuation: false })
+  );
+  group.add(bigStars);
 
   // ── Пол: каменная плита с текстурой ─────────────────────
   const floorTex = getTexture("hub_floor");
@@ -214,6 +249,43 @@ export function setupArena(group) {
   }
 
   // ── Освещение арены ──────────────────────────────────
+  // ── ПОРТАЛ в центре арены (возврат в хаб) ──────────────
+  const portal = new THREE.Group();
+  portal.userData.isPortal = true;
+  const arch = new THREE.Mesh(
+    new THREE.TorusGeometry(2.5, 0.35, 10, 20),
+    new THREE.MeshStandardMaterial({
+      color: 0x666677, roughness: 0.9,
+      emissive: 0x442288, emissiveIntensity: 0.2,
+    })
+  );
+  arch.position.y = 2.8;
+  portal.add(arch);
+  portal.userData.arch = arch;
+  const water = new THREE.Mesh(
+    new THREE.CircleGeometry(2.4, 20),
+    new THREE.MeshBasicMaterial({
+      color: 0x220044, transparent: true, opacity: 0.75, side: THREE.DoubleSide,
+    })
+  );
+  water.position.y = 2.8;
+  portal.add(water);
+  portal.userData.water = water;
+  const base = new THREE.Mesh(
+    new THREE.RingGeometry(2.5, 3.3, 20),
+    new THREE.MeshBasicMaterial({
+      color: 0x442266, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false,
+    })
+  );
+  base.rotation.x = -Math.PI / 2;
+  base.position.y = 0.05;
+  portal.add(base);
+  portal.userData.base = base;
+  portal.position.set(0, 0, 0);
+  group.add(portal);
+  group.userData.portal = portal;
+
+  // (комментарий про освещение ниже)
   const ambient = new THREE.AmbientLight(0xffffff, 1.1);
   group.add(ambient);
 
@@ -271,6 +343,41 @@ function addTorch(group, x, y, z, tall = false) {
 // ═══════════════════════════════════════════════════════════════════
 // АНИМАЦИЯ ФАКЕЛОВ (мерцание)
 // ═══════════════════════════════════════════════════════════════════
+// Обновление состояния портала на арене.
+// ready=true — ярко светится, можно входить. ready=false — тусклый.
+export function updateArenaPortal(arenaGroup, ready, tSec) {
+  const p = arenaGroup.userData.portal;
+  if (!p) return;
+  const water = p.userData.water;
+  const arch = p.userData.arch;
+  const base = p.userData.base;
+  if (ready) {
+    // Ярко-фиолетовый пульс
+    const pulse = 0.8 + Math.sin(tSec * 4) * 0.2;
+    water.material.color.setHex(0x8844ff);
+    water.material.opacity = 0.85 * pulse;
+    arch.material.emissive.setHex(0xaa66ff);
+    arch.material.emissiveIntensity = 1.2 * pulse;
+    base.material.color.setHex(0xaa66ff);
+    base.material.opacity = 0.7 * pulse;
+  } else {
+    water.material.color.setHex(0x220044);
+    water.material.opacity = 0.5;
+    arch.material.emissive.setHex(0x442288);
+    arch.material.emissiveIntensity = 0.15;
+    base.material.color.setHex(0x442266);
+    base.material.opacity = 0.3;
+  }
+  // Медленно вращается вода
+  water.rotation.z = tSec * 0.5;
+}
+
+// Позиция портала на арене (для проверки дистанции)
+export function getArenaPortalPos(arenaGroup) {
+  const p = arenaGroup.userData.portal;
+  return p ? p.position : null;
+}
+
 export function animateTorches(group, dt) {
   const t = performance.now() * 0.005;
   group.traverse(o => {

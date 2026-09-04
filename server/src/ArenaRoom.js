@@ -86,6 +86,14 @@ export class ArenaRoom extends Room {
       this.broadcast("fx", { type: "respawn", target: client.sessionId });
     });
 
+    this.onMessage("chat", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      const text = String(msg?.text || "").slice(0, 200);
+      if (!text.trim()) return;
+      this.broadcast("chat", { name: p.name || "?", text, id: client.sessionId });
+    });
+
     this.onMessage("phase", (_c, msg) => {
       if (msg.phase === "arena" || msg.phase === "hub" || msg.phase === "portal_ready") {
         this.state.phase = msg.phase;

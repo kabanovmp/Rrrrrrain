@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches } from "./world.js";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos } from "./world.js";
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
 import { createHandsGroup, animateHands, setSpellInHand } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
@@ -29,6 +29,55 @@ const dmgOverlay = document.createElement("div");
 dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:14;opacity:0;transition:opacity .3s;";
 document.body.appendChild(dmgOverlay);
 let dmgAngle = 0, dmgTimer = 0;
+
+// HUD-подсказка (центр экрана)
+const hintText = document.createElement("div");
+hintText.style.cssText = "position:fixed;top:35%;left:50%;transform:translateX(-50%);color:#fff;text-shadow:0 0 8px #000;font-family:sans-serif;font-size:20px;padding:12px 18px;background:rgba(0,0,0,0.6);border-radius:8px;pointer-events:none;z-index:16;opacity:0;transition:opacity .3s;";
+document.body.appendChild(hintText);
+let hintTimer = 0;
+
+// Чат (внизу слева)
+const chatBox = document.createElement("div");
+chatBox.style.cssText = "position:fixed;left:12px;bottom:60px;width:420px;max-height:200px;overflow:hidden;pointer-events:none;z-index:15;display:flex;flex-direction:column;justify-content:flex-end;font-family:sans-serif;font-size:14px;";
+document.body.appendChild(chatBox);
+
+const chatInput = document.createElement("input");
+chatInput.type = "text";
+chatInput.maxLength = 200;
+chatInput.placeholder = "сообщение...";
+chatInput.style.cssText = "position:fixed;left:12px;bottom:20px;width:420px;padding:8px 10px;background:rgba(0,0,0,0.75);border:1px solid #555;color:#fff;font-family:sans-serif;font-size:14px;outline:none;z-index:20;display:none;";
+document.body.appendChild(chatInput);
+chatInput.addEventListener("keydown", (ev) => {
+  ev.stopPropagation(); // чтобы канвас-листенер не ловил W/A/S/D
+  if (ev.code === "Escape") {
+    chatInput.value = "";
+    chatInput.style.display = "none";
+    chatInput.blur();
+    chatOpen = false;
+    ev.preventDefault();
+  }
+});
+
+let chatOpen = false;
+// Escape в чат-инпуте закрывает без отправки
+// (иначе pointerlock перехватывает и мы в лимбе)
+function addChatMessage(name, text, self = false) {
+  const line = document.createElement("div");
+  line.style.cssText = "padding:4px 8px;margin-top:2px;background:rgba(0,0,0,0.55);color:#fff;text-shadow:0 0 4px #000;border-radius:4px;word-wrap:break-word;";
+  line.innerHTML = `<span style="color:${self ? '#ffaa44' : '#66ccff'};font-weight:bold">${escapeHtml(name)}:</span> ${escapeHtml(text)}`;
+  chatBox.appendChild(line);
+  // Авто-удаление через 10 секунд
+  setTimeout(() => {
+    line.style.transition = "opacity 1s";
+    line.style.opacity = "0";
+    setTimeout(() => line.remove(), 1000);
+  }, 10000);
+  // Ограничение на число видимых
+  while (chatBox.children.length > 10) chatBox.children[0].remove();
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // РЕНДЕР
@@ -65,8 +114,9 @@ arenaGroup.visible = false;
 const handsRoot = createHandsGroup();
 camera.add(handsRoot);
 scene.add(camera);
-handsRoot.userData.leftHand.visible = false;
-handsRoot.userData.rightHand.visible = false;
+// Руки видны всегда (базовые голые ладони), пикапы добавляют заклинания
+handsRoot.userData.leftHand.visible = true;
+handsRoot.userData.rightHand.visible = true;
 
 // ═══════════════════════════════════════════════════════════════════
 // ХРАНИЛИЩА МЕШЕЙ
@@ -146,8 +196,13 @@ let deathTimer = 0;
 let ambientLoop = null;
 let footstepTimer = 0;
 
+// Сохранённый ник
+const savedName = localStorage.getItem("rrrrrrain_name");
+if (savedName) document.getElementById("name").value = savedName;
+
 document.getElementById("play").addEventListener("click", async () => {
   const name = document.getElementById("name").value.trim() || "sgustok";
+  localStorage.setItem("rrrrrrain_name", name);
   const url  = document.getElementById("server").value.trim();
   try {
     initAudio(); // разбудить AudioContext сразу после клика
@@ -192,8 +247,7 @@ function setupRoomHandlers() {
     p.onChange(() => {
       if (id === selfId) {
         // Руки: обновить видимость + заклинания в ладонях
-        handsRoot.userData.leftHand.visible  = p.hasLeftHand;
-        handsRoot.userData.rightHand.visible = p.hasRightHand;
+        // Руки всегда видны, меняется только заклинание в ладони
         if (p.hasLeftHand) {
           const spell = HAND_TYPES[p.leftHandType]?.spell;
           const st = spell === "FIREBALL" ? "fireball"
@@ -289,14 +343,15 @@ function setupRoomHandlers() {
   // ── Пьедесталы ────────────────────────────────────────────
   room.state.pickups.onAdd((pk, id) => {
     const m = makePickupMesh(pk);
-    // Сервер шлёт y=1.2 (высота вершины для подбора), а модель постамента рисуется от пола
+    // Сервер шлёт y=1.2 (высота вершины для подбора), а модель постамента рисуется от пола.
+    // Добавляем в hubGroup — постаменты видны только в хабе, на арене прячутся.
     m.position.set(pk.pos.x, 0, pk.pos.z);
-    scene.add(m);
+    hubGroup.add(m);
     pickupMeshes.set(id, m);
     pk.onChange(() => { if (pk.taken) { m.visible = false; } });
   });
   room.state.pickups.onRemove((_pk, id) => {
-    const m = pickupMeshes.get(id); if (m) { scene.remove(m); disposeGroup(m); pickupMeshes.delete(id); }
+    const m = pickupMeshes.get(id); if (m) { hubGroup.remove(m); disposeGroup(m); pickupMeshes.delete(id); }
   });
 
   // ── Фаза (хаб/арена) ──────────────────────────────────────
@@ -317,6 +372,10 @@ function setupRoomHandlers() {
   });
 
   // ── FX ────────────────────────────────────────────────────
+  room.onMessage("chat", (msg) => {
+    addChatMessage(msg.name || "?", msg.text || "", msg.id === selfId);
+  });
+
   room.onMessage("fx", (msg) => {
     if (msg.type === "shot") {
       spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color, msg.dx, msg.dy, msg.dz);
@@ -385,6 +444,26 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 document.addEventListener("keydown", (ev) => {
   if (!room) return;
+  // Чат: Enter — открыть/отправить
+  if (ev.code === "Enter") {
+    if (chatOpen) {
+      const text = chatInput.value.trim();
+      if (text) room.send("chat", { text });
+      chatInput.value = "";
+      chatInput.style.display = "none";
+      chatInput.blur();
+      chatOpen = false;
+      controller.enable();
+    } else {
+      chatOpen = true;
+      chatInput.style.display = "block";
+      chatInput.focus();
+      controller.releasePointer();
+    }
+    ev.preventDefault();
+    return;
+  }
+  if (chatOpen) return; // пока открыт чат — остальные вводы игнорируем
   if (ev.code === "Escape") controller.releasePointer();
   if (ev.code === "KeyR" && myPlayer?.isGhost) room.send("respawn", {});
   if (ev.code === "KeyF") {
@@ -402,7 +481,26 @@ document.addEventListener("keydown", (ev) => {
   }
   if (ev.code === "KeyE") {
     const cur = room.state.phase;
-    room.send("phase", { phase: cur === "hub" ? "arena" : "hub" });
+    if (cur === "hub") {
+      // Из хаба — всегда можно на арену
+      room.send("phase", { phase: "arena" });
+    } else {
+      // С арены — только если рядом с порталом и он готов
+      const portalPos = getArenaPortalPos(arenaGroup);
+      const ready = cur === "portal_ready";
+      if (ready && portalPos) {
+        const d = Math.hypot(controller.position.x - portalPos.x, controller.position.z - portalPos.z);
+        if (d < 4) {
+          room.send("phase", { phase: "hub" });
+        } else {
+          hintText.textContent = "подойди к порталу в центре арены";
+          hintTimer = 2;
+        }
+      } else {
+        hintText.textContent = "портал ещё не готов — бей врагов";
+        hintTimer = 2;
+      }
+    }
   }
   if (ev.code === "Space") {
     playSound("jump");
@@ -536,6 +634,15 @@ function animate() {
   // ── Факелы (пламя мерцает) ──────────────────────────
   const activeGroup = hubGroup.visible ? hubGroup : arenaGroup;
   animateTorches(activeGroup, dt);
+  if (room) {
+    updateArenaPortal(arenaGroup, room.state.phase === "portal_ready", performance.now() * 0.001);
+  }
+
+  // HUD-подсказка
+  if (hintTimer > 0) {
+    hintTimer -= dt;
+    hintText.style.opacity = hintTimer > 0 ? 1 : 0;
+  }
 
   // ── Снаряды ─────────────────────────────────────────
   for (let i = shots.length - 1; i >= 0; i--) {
