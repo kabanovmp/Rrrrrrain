@@ -181,6 +181,15 @@ document.getElementById("play").addEventListener("click", async () => {
     setupRoomHandlers();
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
     dbg("joined room, selfId=" + selfId);
+    room.onLeave((code) => dbg("ROOM LEAVE code=" + code));
+    room.onError((code, msg) => dbg("ROOM ERROR code=" + code + " msg=" + msg));
+    const ws = room?.connection?.transport?.ws;
+    if (ws) {
+      ws.addEventListener("close", (e) => dbg("WS CLOSE code=" + e.code + " reason=" + e.reason));
+      ws.addEventListener("error", (e) => dbg("WS ERROR"));
+    }
+    // версия клиента в дебаге
+    dbg("CLIENT v0.0.0.11");
   } catch (e) {
     console.error(e);
     dbg("JOIN FAIL: " + (e?.message || e));
@@ -321,8 +330,15 @@ document.addEventListener("keydown", (ev) => {
   if (ev.code === "KeyE") {
     const cur = room.state.phase;
     const next = cur === "hub" ? "arena" : "hub";
-    dbg("E: send phase " + cur + "->" + next);
-    room.send("phase", { phase: next });
+    const ws = room?.connection?.transport?.ws;
+    const wsState = ws ? ["CONNECTING","OPEN","CLOSING","CLOSED"][ws.readyState] : "?";
+    dbg("E: phase " + cur + "->" + next + " [ws=" + wsState + "]");
+    try {
+      room.send("phase", { phase: next });
+      dbg("E: send() returned OK");
+    } catch (err) {
+      dbg("E: send() THREW: " + err.message);
+    }
   }
 });
 
