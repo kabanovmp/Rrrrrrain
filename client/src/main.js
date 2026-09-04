@@ -430,8 +430,18 @@ canvas.addEventListener("mousedown", (ev) => {
   if (!has && myPlayer.itemsInBody.length === 0) return;
   const spellId = HAND_TYPES[hand === "left" ? myPlayer.leftHandType : myPlayer.rightHandType]?.spell
                 || "FIREBALL";
-  const dir = new THREE.Vector3();
-  camera.getWorldDirection(dir);
+  // НАПРАВЛЕНИЕ — напрямую из yaw/pitch контроллера, не через матрицу камеры.
+  // Матрица камеры обновляется в update() и может быть устаревшей на mousedown —
+  // особенно на macOS/трекпаде, где события могут приходить между кадрами.
+  // Кроме того, handsRoot — child камеры, это может влиять на getWorldDirection.
+  const yaw = controller.yaw;
+  const pitch = controller.pitch;
+  const cosPitch = Math.cos(pitch);
+  const dir = new THREE.Vector3(
+    -Math.sin(yaw) * cosPitch,
+     Math.sin(pitch),
+    -Math.cos(yaw) * cosPitch
+  );
   const origin = controller.position.clone().add(new THREE.Vector3(0, 0.4, 0));
   room.send("cast", {
     spell: spellId, dx: dir.x, dy: dir.y, dz: dir.z,
