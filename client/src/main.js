@@ -244,6 +244,7 @@ function setupRoomHandlers() {
   });
 
   room.state.listen("phase", (v) => {
+    dbg("phase changed to " + v);
     hubGroup.visible = v === "hub";
     arenaGroup.visible = v !== "hub";
     if (v === "arena" && myPlayer) controller.setPosition(0, 2, 0);
@@ -305,20 +306,22 @@ document.addEventListener("keydown", (ev) => {
   if (ev.code === "Escape") controller.releasePointer();
   if (ev.code === "KeyR" && myPlayer?.isGhost) room.send("respawn", {});
   if (ev.code === "KeyF") {
-    dbg("F pressed, pickups=" + pickupMeshes.size);
-    let bestId = null, bestD = Infinity;
+    let bestId = null, bestD = Infinity, closestD = Infinity;
     pickupMeshes.forEach((m, id) => {
       const pk = room.state.pickups.get(id);
       if (!pk || pk.taken) return;
       const d = m.position.distanceTo(controller.position);
-      if (d < 3 && d < bestD) { bestD = d; bestId = id; }
+      if (d < closestD) closestD = d;
+      if (d < 5 && d < bestD) { bestD = d; bestId = id; }
     });
+    dbg("F: closest=" + closestD.toFixed(1) + "m, sending=" + (bestId || "NONE (need <5m)"));
     if (bestId) room.send("pickup", { id: bestId });
   }
   if (ev.code === "KeyE") {
     const cur = room.state.phase;
-    dbg("E pressed, phase=" + cur);
-    room.send("phase", { phase: cur === "hub" ? "arena" : "hub" });
+    const next = cur === "hub" ? "arena" : "hub";
+    dbg("E: send phase " + cur + "->" + next);
+    room.send("phase", { phase: next });
   }
 });
 

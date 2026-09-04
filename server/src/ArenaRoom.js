@@ -61,9 +61,11 @@ export class ArenaRoom extends Room {
     this.onMessage("pickup", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       const item = this.state.pickups.get(msg.id);
+      console.log(`[pickup] from=${client.sessionId} id=${msg.id} found=${!!item} taken=${item?.taken} kind=${item?.kind}`);
       if (!p || !item || item.taken) return;
       const dx = item.pos.x - p.pos.x, dy = item.pos.y - p.pos.y, dz = item.pos.z - p.pos.z;
-      if (dx*dx+dy*dy+dz*dz > 9) return;
+      const d2 = dx*dx+dy*dy+dz*dz;
+      if (d2 > 25) { console.log(`[pickup] too far: d=${Math.sqrt(d2).toFixed(1)}m`); return; }
       item.taken = true;
       if (item.kind === "HAND") {
         if (!p.hasLeftHand)  { p.hasLeftHand = true;  p.leftHandType = item.handType; }
@@ -86,7 +88,8 @@ export class ArenaRoom extends Room {
       this.broadcast("fx", { type: "respawn", target: client.sessionId });
     });
 
-    this.onMessage("phase", (_c, msg) => {
+    this.onMessage("phase", (client, msg) => {
+      console.log(`[phase] from=${client.sessionId} requested=${msg?.phase} current=${this.state.phase}`);
       if (msg.phase === "arena" || msg.phase === "hub" || msg.phase === "portal_ready") {
         this.state.phase = msg.phase;
         if (msg.phase === "arena") this.startArena();
