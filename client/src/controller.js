@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import { WORLD } from "@mhfps/shared";
 
-// First-person controller with pointer-lock + WASD + dash.
-// Player is a "smoke cloud" — floats, no gravity yet.
+// FPS controller: gravity + jump, no flight. Pointer-lock.
+const GRAVITY = 20;
+const JUMP_V = 8;
 
 export class FpsController {
   constructor(camera, canvas) {
@@ -12,6 +13,7 @@ export class FpsController {
     this.yaw = 0;
     this.pitch = 0;
     this.vel = new THREE.Vector3();
+    this.grounded = true;
     this.dashTimer = 0;
     this.dashCd = 0;
 
@@ -31,10 +33,10 @@ export class FpsController {
   }
 
   enable() { this.canvas.requestPointerLock(); }
-  setPosition(x, y, z) { this.position.set(x, y, z); this.vel.set(0, 0, 0); }
+  releasePointer() { if (document.pointerLockElement === this.canvas) document.exitPointerLock(); }
+  setPosition(x, y, z) { this.position.set(x, y, z); this.vel.set(0, 0, 0); this.grounded = true; }
 
   update(dt, myPlayer) {
-    // Movement input
     const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right   = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const move = new THREE.Vector3();
@@ -42,15 +44,11 @@ export class FpsController {
     if (this.keys.KeyS) move.sub(forward);
     if (this.keys.KeyD) move.add(right);
     if (this.keys.KeyA) move.sub(right);
-    if (this.keys.Space) move.y += 1;
-    if (this.keys.KeyC || this.keys.ControlLeft) move.y -= 1;
     if (move.lengthSq() > 0) move.normalize();
 
-    // Legs affect ground speed; without legs — fly speed only
     const hasLegs = myPlayer?.hasLegs ?? 0;
     const baseSpeed = hasLegs >= 2 ? WORLD.BASE_MOVE_SPEED : WORLD.BASE_FLY_SPEED;
 
-    // Dash
     if (this.keys.ShiftLeft && this.dashCd <= 0 && move.lengthSq() > 0) {
       this.dashTimer = WORLD.DASH_DURATION;
       this.dashCd = WORLD.DASH_COOLDOWN;
@@ -61,19 +59,29 @@ export class FpsController {
 
     this.vel.x = move.x * speed;
     this.vel.z = move.z * speed;
-    this.vel.y = move.y * speed * 0.7;
+
+    // gravity + jump
+    if (this.grounded && this.keys.Space) {
+      this.vel.y = JUMP_V;
+      this.grounded = false;
+    }
+    if (!this.grounded) {
+      this.vel.y -= GRAVITY * dt;
+    }
 
     this.position.addScaledVector(this.vel, dt);
-    // clamp inside a big soft box
+
     const R = 100;
     if (this.position.x > R) this.position.x = R;
     if (this.position.x < -R) this.position.x = -R;
     if (this.position.z > R) this.position.z = R;
     if (this.position.z < -R) this.position.z = -R;
-    if (this.position.y < 1.0) this.position.y = 1.0;
-    if (this.position.y > 30) this.position.y = 30;
+    if (this.position.y <= 1.6) {
+      this.position.y = 1.6;
+      this.vel.y = 0;
+      this.grounded = true;
+    }
 
-    // Apply to camera
     this.camera.position.copy(this.position);
     this.camera.rotation.order = "YXZ";
     this.camera.rotation.y = this.yaw;
