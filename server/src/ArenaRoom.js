@@ -1,7 +1,7 @@
 import colyseus from "colyseus";
 import { GameState, Player, Enemy, Pickup, Vec3 } from "./schema.js";
 const { Room } = colyseus.default || colyseus;
-import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom } from "../../shared/index.js";
+import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom } from "../shared/index.js";
 
 const TICK_MS = 1000 / NET.TICK_RATE;
 
