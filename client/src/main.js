@@ -251,6 +251,7 @@ function setupRoomHandlers() {
     if (v === "hub" && myPlayer) controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.3);
   });
 
+  room.onMessage("srv_dbg", (msg) => { dbg("[SRV] " + msg.msg); });
   room.onMessage("fx", (msg) => {
     if (msg.type === "shot") spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color, msg.dx, msg.dy, msg.dz);
     else if (msg.type === "wave") spawnWaveFx(msg.x, msg.y, msg.z, msg.r);

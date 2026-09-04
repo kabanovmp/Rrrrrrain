@@ -62,6 +62,7 @@ export class ArenaRoom extends Room {
       const p = this.state.players.get(client.sessionId);
       const item = this.state.pickups.get(msg.id);
       console.log(`[pickup] from=${client.sessionId} id=${msg.id} found=${!!item} taken=${item?.taken} kind=${item?.kind}`);
+      this.broadcast("srv_dbg", { msg: `pickup id=${msg.id} found=${!!item} taken=${item?.taken}` });
       if (!p || !item || item.taken) return;
       const dx = item.pos.x - p.pos.x, dy = item.pos.y - p.pos.y, dz = item.pos.z - p.pos.z;
       const d2 = dx*dx+dy*dy+dz*dz;
@@ -90,6 +91,7 @@ export class ArenaRoom extends Room {
 
     this.onMessage("phase", (client, msg) => {
       console.log(`[phase] from=${client.sessionId} requested=${msg?.phase} current=${this.state.phase}`);
+      this.broadcast("srv_dbg", { msg: `phase req=${msg?.phase} cur=${this.state.phase}` });
       if (msg.phase === "arena" || msg.phase === "hub" || msg.phase === "portal_ready") {
         this.state.phase = msg.phase;
         if (msg.phase === "arena") this.startArena();
@@ -107,6 +109,7 @@ export class ArenaRoom extends Room {
     p.pos.z = (Math.random() - 0.5) * 4;
     this.state.players.set(client.sessionId, p);
     console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
+    client.send("srv_dbg", { msg: `SERVER v0.0.0.9 joined, sessionId=${client.sessionId}` });
   }
 
   onLeave(client) {
