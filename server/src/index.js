@@ -5,7 +5,7 @@ import express from "express";
 import { createServer } from "http";
 const { Server } = colyseus.default || colyseus;
 import { ArenaRoom } from "./ArenaRoom.js";
-import { NET } from "../../shared/index.js";
+import { NET } from "../shared/index.js";
 
 const PORT = Number(process.env.PORT || 2567);
 
