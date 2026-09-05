@@ -36,6 +36,143 @@ hintText.style.cssText = "position:fixed;top:35%;left:50%;transform:translateX(-
 document.body.appendChild(hintText);
 let hintTimer = 0;
 
+// ── UI-панель инвентаря СУНДУКА ────────────────────────
+const chestPanel = document.createElement("div");
+chestPanel.id = "chestPanel";
+chestPanel.style.cssText = [
+  "position:fixed",
+  "left:50%",
+  "top:50%",
+  "transform:translate(-50%,-50%)",
+  "z-index:30",
+  "display:none",
+  "font-family:'Trebuchet MS',sans-serif",
+  "background:linear-gradient(180deg,#2a1a10 0%,#1a0f08 100%)",
+  "border:3px solid #6a4a28",
+  "border-radius:10px",
+  "box-shadow:0 0 40px rgba(255,170,50,0.5),inset 0 0 20px rgba(0,0,0,0.6)",
+  "padding:18px 22px",
+  "min-width:420px",
+  "max-width:640px",
+  "color:#f0d090",
+].join(";");
+chestPanel.innerHTML = `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #6a4a28;">
+    <div style="font-size:22px;font-weight:bold;letter-spacing:2px;text-shadow:0 0 8px rgba(255,170,50,0.6);">СУНДУК</div>
+    <div id="chestCounter" style="font-size:14px;color:#d0b070;">0 / 12</div>
+    <div id="chestClose" style="cursor:pointer;font-size:20px;color:#d0b070;padding:2px 10px;border:1px solid #6a4a28;border-radius:4px;">✕ ESC</div>
+  </div>
+  <div id="chestGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;"></div>
+  <div style="margin-top:12px;font-size:12px;color:#8a7050;text-align:center;">Клик по ячейке — забрать. ESC или отойди — закрыть.</div>
+`;
+document.body.appendChild(chestPanel);
+let openChestIndex = -1; // -1 = закрыт
+
+// FIRE/ICE/BONE → визуальный ключ магии в ладони
+function handTypeToVisual(ht) {
+  return ({ FIRE: "fireball", ICE: "ice", BONE: "bone" })[ht] || "fireball";
+}
+
+// ── Панель снаряжения (TAB, hold) ────────────────────
+const loadoutPanel = document.createElement("div");
+loadoutPanel.id = "loadoutPanel";
+loadoutPanel.style.cssText = [
+  "position:fixed", "left:50%", "top:50%", "transform:translate(-50%,-50%)",
+  "z-index:29", "display:none", "font-family:'Trebuchet MS',sans-serif",
+  "background:linear-gradient(180deg,#1a1210 0%,#0b0806 100%)",
+  "border:3px solid #6a4a28", "border-radius:10px",
+  "box-shadow:0 0 40px rgba(255,170,50,0.4),inset 0 0 20px rgba(0,0,0,0.6)",
+  "padding:18px 24px", "min-width:560px", "color:#f0d090",
+].join(";");
+loadoutPanel.innerHTML = `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #6a4a28;">
+    <div style="font-size:22px;font-weight:bold;letter-spacing:2px;text-shadow:0 0 8px rgba(255,170,50,0.6);">СНАРЯЖЕНИЕ</div>
+    <div id="loadoutHp" style="font-size:16px;color:#e0c090;">HP: –</div>
+    <div style="font-size:12px;color:#8a7050;">держи TAB</div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <div id="lpHands"></div>
+    <div id="lpPassives"></div>
+  </div>
+`;
+document.body.appendChild(loadoutPanel);
+let loadoutOpen = false;
+function showLoadoutPanel() {
+  if (loadoutOpen) return;
+  loadoutOpen = true;
+  loadoutPanel.style.display = "block";
+  renderLoadoutPanel();
+}
+function hideLoadoutPanel() {
+  loadoutOpen = false;
+  loadoutPanel.style.display = "none";
+}
+function handTypeName(ht) {
+  return ({ FIRE: "Огненная", ICE: "Ледяная", BONE: "Костяная" })[ht] || "—";
+}
+function handTypeColorHex(ht) {
+  return ({ FIRE: "#ff5522", ICE: "#66ccff", BONE: "#d0c0a0" })[ht] || "#8a7050";
+}
+function spellName(ht) {
+  return ({ FIRE: "Fireball", ICE: "Icebolt", BONE: "Bone Shard" })[ht] || "—";
+}
+function itemInfo(id) {
+  const it = ITEMS.find(x => x.id === id);
+  if (!it) return { name: id || "—", effect: "—", color: "#8a7050", glyph: "?" };
+  return { name: it.name || it.id, effect: it.effect || "—",
+           color: "#" + (it.color || 0x8a7050).toString(16).padStart(6, "0"),
+           glyph: it.glyph || "?" };
+}
+function handSlotHtml(label, ht) {
+  const empty = !ht;
+  const color = handTypeColorHex(ht);
+  return `<div style="background:linear-gradient(180deg,#1a0f08,#0a0503);border:2px solid #3a2818;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:center;${empty?"opacity:0.55;":"box-shadow:inset 0 0 10px " + color + "33;"}">
+    <div style="width:44px;height:44px;border-radius:50%;background:radial-gradient(circle at 40% 40%, ${color}, #000);box-shadow:0 0 12px ${color}80;"></div>
+    <div style="flex:1;">
+      <div style="font-size:11px;color:#8a7050;letter-spacing:1px;">${label}</div>
+      <div style="font-size:16px;color:${empty?"#666":color};font-weight:bold;">${empty?"Пусто":handTypeName(ht)}</div>
+      <div style="font-size:12px;color:#c0a070;">${empty?"":spellName(ht)}</div>
+    </div>
+  </div>`;
+}
+function passiveSlotHtml(id, isSpare = false) {
+  const empty = !id;
+  const info = itemInfo(id);
+  return `<div style="background:linear-gradient(180deg,#1a0f08,#0a0503);border:2px solid ${empty?"#3a2818":info.color};border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:center;${empty?"opacity:0.55;":""}">
+    <div style="width:44px;height:44px;border-radius:8px;background:${empty?"#1a0f08":info.color+"33"};border:1px solid ${info.color};display:flex;align-items:center;justify-content:center;color:${info.color};font-size:24px;">${empty?"":info.glyph}</div>
+    <div style="flex:1;">
+      <div style="font-size:11px;color:#8a7050;letter-spacing:1px;">${isSpare?"ЗАПАС":"ПАССИВ (надето)"}</div>
+      <div style="font-size:16px;color:${empty?"#666":info.color};font-weight:bold;">${empty?"Пусто":info.name}</div>
+      <div style="font-size:12px;color:#c0a070;">${empty?"":info.effect}</div>
+    </div>
+  </div>`;
+}
+function renderLoadoutPanel() {
+  if (!myPlayer) return;
+  const hpEl = document.getElementById("loadoutHp");
+  hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • ПРИЗРАК" : "");
+  const hands = document.getElementById("lpHands");
+  const legHtml = `<div style="background:linear-gradient(180deg,#1a0f08,#0a0503);border:2px solid #3a2818;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:center;${myPlayer.hasLegs>0?"box-shadow:inset 0 0 10px #66ff9933;":"opacity:0.55;"}">
+    <div style="width:44px;height:44px;border-radius:6px;background:#0a1a10;border:1px solid #66ff99;color:#66ff99;display:flex;align-items:center;justify-content:center;font-size:22px;">⚚</div>
+    <div style="flex:1;"><div style="font-size:11px;color:#8a7050;letter-spacing:1px;">НОГИ</div>
+      <div style="font-size:16px;color:${myPlayer.hasLegs>0?"#66ff99":"#666"};font-weight:bold;">${myPlayer.hasLegs}/2</div>
+      <div style="font-size:12px;color:#c0a070;">Скорость бега</div></div>
+  </div>`;
+  hands.innerHTML =
+    handSlotHtml("ЛЕВАЯ РУКА", myPlayer.hasLeftHand ? myPlayer.leftHandType : "") +
+    handSlotHtml("ПРАВАЯ РУКА", myPlayer.hasRightHand ? myPlayer.rightHandType : "") +
+    legHtml;
+  const passives = document.getElementById("lpPassives");
+  let html = passiveSlotHtml(myPlayer.passiveItemId || "");
+  const spares = [...(myPlayer.itemsInBody || [])];
+  if (spares.length === 0) {
+    html += passiveSlotHtml("", true);
+  } else {
+    spares.forEach(id => { html += passiveSlotHtml(id, true); });
+  }
+  passives.innerHTML = html;
+}
+
 // Чат (внизу слева)
 const chatBox = document.createElement("div");
 chatBox.style.cssText = "position:fixed;left:12px;bottom:60px;width:420px;max-height:200px;overflow:hidden;pointer-events:none;z-index:15;display:flex;flex-direction:column;justify-content:flex-end;font-family:sans-serif;font-size:14px;";
@@ -189,20 +326,14 @@ let colorIdxCounter = 0;
 // Пикапы = пьедесталы
 const pickupMeshes = new Map();
 function makePickupMesh(pk) {
-  // Определяем какой тип заклинания
-  let spellType = "fireball";
+  // Определяем визуальный тип
   if (pk.kind === "HAND") {
-    const spell = HAND_TYPES[pk.handType]?.spell || "FIREBALL";
-    spellType = spell === "FIREBALL" ? "fireball"
-              : spell === "ICE" ? "ice"
-              : spell === "CHAIN_LIGHTNING" ? "chain"
-              : "fireball";
-  } else if (pk.kind === "LEG") {
-    spellType = "chain";
-  } else {
-    spellType = "ice";
+    const spellType = ({ FIRE: "fireball", ICE: "ice", BONE: "bone" })[pk.handType] || "fireball";
+    return createPedestalMesh("HAND", spellType);
   }
-  return createPedestalMesh(pk.kind, spellType);
+  if (pk.kind === "LEG") return createPedestalMesh("LEG", "chain");
+  if (pk.kind === "ITEM") return createPedestalMesh("ACCESSORY", "bone");
+  return createPedestalMesh("HAND", "fireball");
 }
 
 
@@ -408,26 +539,19 @@ function setupRoomHandlers() {
         // Руки: обновить видимость + заклинания в ладонях
         // Руки всегда видны, меняется только заклинание в ладони
         if (p.hasLeftHand) {
-          const spell = HAND_TYPES[p.leftHandType]?.spell;
-          const st = spell === "FIREBALL" ? "fireball"
-                   : spell === "ICE" ? "ice"
-                   : spell === "CHAIN_LIGHTNING" ? "chain" : "fireball";
-          setSpellInHand(handsRoot, -1, st);
+          setSpellInHand(handsRoot, -1, handTypeToVisual(p.leftHandType));
         } else {
           setSpellInHand(handsRoot, -1, null);
         }
         if (p.hasRightHand) {
-          const spell = HAND_TYPES[p.rightHandType]?.spell;
-          const st = spell === "FIREBALL" ? "fireball"
-                   : spell === "ICE" ? "ice"
-                   : spell === "CHAIN_LIGHTNING" ? "chain" : "fireball";
-          setSpellInHand(handsRoot, 1, st);
+          setSpellInHand(handsRoot, 1, handTypeToVisual(p.rightHandType));
         } else {
           setSpellInHand(handsRoot, 1, null);
         }
 
-        if (p.hp < 3 && p.hp > 0) crackHud.classList.add("on");
-        if (p.hp >= 3) crackHud.classList.remove("on");
+        const maxHp = p.maxHp || 3;
+        if (p.hp < maxHp && p.hp > 0) crackHud.classList.add("on");
+        if (p.hp >= maxHp) crackHud.classList.remove("on");
         if (p.isGhost) {
           deadHud.classList.add("on");
           crackHud.classList.remove("on");
@@ -478,8 +602,7 @@ function setupRoomHandlers() {
       entry.targetY = e.pos.y - yOff;
       entry.targetZ = e.pos.z;
       if (!e.alive && entry.wasAlive) {
-        // Звук смерти
-        playSound("enemy_death");
+        // Звук смерти шлётся через fx enemy_die — не дублируем
         m.visible = false;
         entry.wasAlive = false;
       }
@@ -548,8 +671,8 @@ function setupRoomHandlers() {
   room.onMessage("fx", (msg) => {
     if (msg.type === "shot") {
       spawnShotFx(msg.x, msg.y + 0.6, msg.z, msg.color, msg.dx, msg.dy, msg.dz);
-      // Звук каста — по цвету угадываем тип
-      if (msg.color === 0xff4400 || msg.color === 0xff5a1f) playSound("fireball_cast");
+      // Звук каста — по цвету определяем тип (цвета из SPELLS)
+      if (msg.color === 0xff5a1f || msg.color === 0xff4400) playSound("fireball_cast");
       else if (msg.color === 0x66ccff) playSound("ice_cast");
       else playSound("chain_cast");
     }
@@ -660,6 +783,17 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.code === "Escape") controller.releasePointer();
+  // R — респавн, если вы призрак
+  if (ev.code === "KeyR") {
+    if (myPlayer && myPlayer.isGhost) room.send("respawn");
+    return;
+  }
+  // Tab — панель снаряжения (hold to show)
+  if (ev.code === "Tab") {
+    ev.preventDefault();
+    showLoadoutPanel();
+    return;
+  }
   // R-респ убран — теперь в дебаг-панели
   if (ev.code === "KeyF") {
     // 1) На арене или в хабе — пикапы приоритетнее
@@ -707,11 +841,8 @@ document.addEventListener("keydown", (ev) => {
           playSound("pickup");
         }
       } else if (c.kind === "chest") {
-        const chest = room.state.hubChests[c.i];
-        if (chest && chest.contents.length > 0) {
-          room.send("hub_take", { source: "chest", index: c.i, item: chest.contents.length - 1 });
-          playSound("pickup");
-        }
+        // По F возле сундука — открываем UI-панель с набором предметов
+        openChestPanel(c.i);
       } else if (c.kind === "altar") {
         // По F возле алтаря: если у меня есть рука — положить, иначе забрать (если что-то есть)
         const list = room.state.hubReforgeSlots;
@@ -737,6 +868,10 @@ document.addEventListener("keydown", (ev) => {
   if (ev.code === "Space") {
     playSound("jump");
   }
+});
+
+document.addEventListener("keyup", (ev) => {
+  if (ev.code === "Tab") { ev.preventDefault(); hideLoadoutPanel(); }
 });
 
 function sendInput() {
@@ -901,6 +1036,175 @@ function slotLabel(kind, handType, itemId) {
   return "предмет";
 }
 
+// ── ИНВЕНТАРЬ СУНДУКА ────────────────────────────────
+function parseChestItem(raw) {
+  // Формат "KIND:SUB" (HAND:FIRE, LEG:, ITEM:SIGIL_DASH)
+  const [kind, sub] = String(raw).split(":");
+  return { kind, sub: sub || "" };
+}
+function chestItemLabel(raw) {
+  const { kind, sub } = parseChestItem(raw);
+  if (kind === "HAND") {
+    const t = ({ FIRE: "ОГНЕННАЯ", ICE: "ЛЕДЯНАЯ", BONE: "КОСТЯНАЯ" })[sub] || sub;
+    return `Рука: ${t}`;
+  }
+  if (kind === "LEG") return "Нога";
+  if (kind === "ITEM") return sub === "SIGIL_DASH" ? "Сигил: Рывок" : sub || "Предмет";
+  return "Предмет";
+}
+function chestItemColor(raw) {
+  const { kind, sub } = parseChestItem(raw);
+  if (kind === "HAND") {
+    return { FIRE: "#ff5522", ICE: "#66ccff", BONE: "#d0c0a0" }[sub] || "#c0a070";
+  }
+  if (kind === "LEG") return "#a0c060";
+  if (kind === "ITEM") return "#c080ff";
+  return "#c0a070";
+}
+function drawChestIcon(ctx, raw, size) {
+  const { kind, sub } = parseChestItem(raw);
+  const cx = size / 2, cy = size / 2;
+  const col = chestItemColor(raw);
+  ctx.clearRect(0, 0, size, size);
+  ctx.save();
+  if (kind === "HAND") {
+    // Ладонь: круг + 4 пальца + бase
+    ctx.fillStyle = col;
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    // Ладонь
+    ctx.beginPath();
+    ctx.roundRect(cx - 16, cy - 8, 32, 26, 6);
+    ctx.fill(); ctx.stroke();
+    // 4 пальца
+    for (let i = -1.5; i <= 1.5; i++) {
+      ctx.beginPath();
+      ctx.roundRect(cx + i * 8 - 3, cy - 22, 6, 18, 3);
+      ctx.fill(); ctx.stroke();
+    }
+    // Б. палец
+    ctx.beginPath();
+    ctx.roundRect(cx + 14, cy - 4, 8, 16, 3);
+    ctx.fill(); ctx.stroke();
+    // Свечение в ладони
+    const g = ctx.createRadialGradient(cx, cy + 4, 2, cx, cy + 4, 14);
+    g.addColorStop(0, col);
+    g.addColorStop(1, "transparent");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy + 4, 14, 0, Math.PI * 2); ctx.fill();
+  } else if (kind === "LEG") {
+    // Стилизованный сапог
+    ctx.fillStyle = col;
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 8, cy - 22);
+    ctx.lineTo(cx + 6, cy - 22);
+    ctx.lineTo(cx + 6, cy + 12);
+    ctx.lineTo(cx + 20, cy + 12);
+    ctx.lineTo(cx + 20, cy + 22);
+    ctx.lineTo(cx - 8, cy + 22);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else if (kind === "ITEM") {
+    // Кристалл/сигил: ромб с внутренним свечением
+    ctx.fillStyle = col;
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 22);
+    ctx.lineTo(cx + 16, cy);
+    ctx.lineTo(cx, cy + 22);
+    ctx.lineTo(cx - 16, cy);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    // Грани света
+    ctx.strokeStyle = "rgba(255,255,255,0.6)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 22); ctx.lineTo(cx, cy + 22);
+    ctx.moveTo(cx - 16, cy); ctx.lineTo(cx + 16, cy);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = "#666";
+    ctx.fillRect(cx - 12, cy - 12, 24, 24);
+  }
+  ctx.restore();
+}
+function renderChestPanel() {
+  if (openChestIndex < 0 || !room) return;
+  const chest = room.state.hubChests[openChestIndex];
+  if (!chest) return closeChestPanel();
+  const grid = document.getElementById("chestGrid");
+  const counter = document.getElementById("chestCounter");
+  const n = chest.contents.length;
+  const CAP = 12; // логический лимит ячеек для сетки 4х3
+  counter.textContent = `${n} / ${CAP}`;
+  grid.innerHTML = "";
+  const total = Math.max(CAP, Math.ceil(n / 4) * 4);
+  for (let i = 0; i < total; i++) {
+    const cell = document.createElement("div");
+    cell.style.cssText = [
+      "aspect-ratio:1",
+      "background:linear-gradient(180deg,#1a0f08 0%,#0a0503 100%)",
+      "border:2px solid #3a2818",
+      "border-radius:6px",
+      "display:flex",
+      "flex-direction:column",
+      "align-items:center",
+      "justify-content:center",
+      "position:relative",
+      i < n ? "cursor:pointer" : "opacity:0.4",
+      i < n ? "box-shadow:inset 0 0 8px rgba(255,170,50,0.3)" : "",
+    ].join(";");
+    if (i < n) {
+      const raw = chest.contents[i];
+      // Канвас-иконка
+      const cnv = document.createElement("canvas");
+      cnv.width = 64; cnv.height = 64;
+      cnv.style.cssText = "width:56px;height:56px;image-rendering:crisp-edges;";
+      drawChestIcon(cnv.getContext("2d"), raw, 64);
+      cell.appendChild(cnv);
+      // Подпись
+      const label = document.createElement("div");
+      label.style.cssText = "font-size:11px;color:#e0c090;margin-top:2px;text-align:center;line-height:1.1;padding:0 2px;";
+      label.textContent = chestItemLabel(raw);
+      cell.appendChild(label);
+      // Клик — забрать
+      cell.addEventListener("click", () => {
+        room.send("hub_take", { source: "chest", index: openChestIndex, item: i });
+        playSound("pickup");
+        // Перерендер по onChange придёт автоматом через ~100мс; оптимистично:
+        setTimeout(renderChestPanel, 120);
+      });
+      cell.addEventListener("mouseenter", () => { cell.style.borderColor = "#d4a020"; });
+      cell.addEventListener("mouseleave", () => { cell.style.borderColor = "#3a2818"; });
+    }
+    grid.appendChild(cell);
+  }
+}
+function openChestPanel(i) {
+  if (openChestIndex === i) return;
+  openChestIndex = i;
+  chestPanel.style.display = "block";
+  // Освободить курсор мыши
+  if (document.pointerLockElement) document.exitPointerLock();
+  renderChestPanel();
+}
+function closeChestPanel() {
+  if (openChestIndex < 0) return;
+  openChestIndex = -1;
+  chestPanel.style.display = "none";
+}
+document.getElementById("chestClose").addEventListener("click", closeChestPanel);
+// ESC — закрыть панель если открыта (также освобождает pointer lock по-браузерному)
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Escape" && openChestIndex >= 0) {
+    closeChestPanel();
+    e.stopPropagation();
+  }
+});
+
 let fellFlashUntil = 0;
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -1005,16 +1309,25 @@ function animate() {
     updateArenaPortal(arenaGroup, room.state.phase === "portal_ready", tSec);
     updateHubPortal(hubGroup, tSec);
     animateDangerZones(arenaGroup, tSec);
-  // Открытие ближайшего сундука в хабе
+  // Открытие ближайшего сундука в хабе + автозакрытие UI если отошли
   if (room && room.state.phase === "hub") {
     hubChestMeshes.forEach((g, i) => {
       const d = g.position.distanceTo(controller.position);
       const open = d < 3;
       setChestOpen(g, open, dt);
     });
+    if (openChestIndex >= 0) {
+      const g = hubChestMeshes[openChestIndex];
+      if (!g || g.position.distanceTo(controller.position) > 4) closeChestPanel();
+    }
+    // Лайв-рендер открытой панели (по onChange всегда ненадёжно)
+    if (openChestIndex >= 0 && (performance.now() & 15) === 0) renderChestPanel();
   } else {
     hubChestMeshes.forEach(g => setChestOpen(g, false, dt));
+    if (openChestIndex >= 0) closeChestPanel();
   }
+  // TAB — живой рендер панели снаряжения
+  if (loadoutOpen) renderLoadoutPanel();
     // Алтарь-переработчик
     if (hubGroup.userData.hubAltar && room.state.hubReforgeSlots) {
       updateHubAltar(hubGroup.userData.hubAltar, [...room.state.hubReforgeSlots], tSec);
@@ -1078,7 +1391,7 @@ setInterval(() => {
   const wv = room.state.wave;
   const chg = `${room.state.portalCharge}/${room.state.portalTarget}`;
   const pl = room.state.players.size;
-  const hp = myPlayer ? `HP:${myPlayer.hp}/3` : "";
+  const hp = myPlayer ? `HP:${myPlayer.hp}/${myPlayer.maxHp || 3}` : "";
   const dt = deathTimer > 0 ? `  RESPAWN in ${deathTimer.toFixed(1)}s (или R)` : "";
   status.textContent = `${hp}  фаза:${ph}  волна:${wv}  портал:${chg}  игроки:${pl}${dt}`;
 }, 250);

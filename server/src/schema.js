@@ -20,6 +20,7 @@ export class Player extends Schema {
     this.leftHandType = "";
     this.rightHandType = "";
     this.itemsInBody = new ArraySchema();
+    this.passiveItemId = "";
     this.name = "";
   }
 }
@@ -36,6 +37,7 @@ type("number")(Player.prototype, "hasLegs");
 type("string")(Player.prototype, "leftHandType");
 type("string")(Player.prototype, "rightHandType");
 type(["string"])(Player.prototype, "itemsInBody");
+type("string")(Player.prototype, "passiveItemId");
 type("string")(Player.prototype, "name");
 
 export class Enemy extends Schema {
@@ -106,7 +108,7 @@ export class GameState extends Schema {
     this.pickups = new MapSchema();
     this.wave = 0;
     this.portalCharge = 0;
-    this.portalTarget = 20;
+    this.portalTarget = 12;
     this.phase = "hub"; // "hub" | "arena" | "portal_ready"
     // Debug (синхронно всем)
     this.dbgGodMode = false;

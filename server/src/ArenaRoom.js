@@ -36,7 +36,7 @@ export class ArenaRoom extends Room {
       const spellId = msg.spell;
       const spell = SPELLS[spellId];
       if (!spell) return;
-      const dmgMult = p.isGhost ? COMBAT.GHOST_STAT_MULT : 1;
+      const dmgMult = (p.isGhost ? COMBAT.GHOST_STAT_MULT : 1) * this.playerDamageMult(p);
       if (spell.isAoe) {
         this.state.enemies.forEach(e => {
           if (!e.alive) return;
@@ -75,15 +75,16 @@ export class ArenaRoom extends Room {
         else if (!p.hasRightHand) { p.hasRightHand = true; p.rightHandType = item.handType; }
       } else if (item.kind === "LEG") {
         p.hasLegs = Math.min(2, p.hasLegs + 1);
-      } else {
-        p.itemsInBody.push(item.itemId);
+      } else if (item.kind === "ITEM") {
+        this.equipItem(p, item.itemId);
       }
     });
 
     this.onMessage("respawn", (client) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
-      p.hp = 3;  // v0.0.0.5: 3 HP
+      p.maxHp = this.playerMaxHp(p);
+      p.hp = p.maxHp;
       p.isGhost = false;
       p.pos.x = (Math.random() - 0.5) * 4;
       p.pos.y = 1.6;
@@ -101,10 +102,10 @@ export class ArenaRoom extends Room {
       if (typeof msg.spawnMul === "number") s.dbgSpawnMul = Math.max(0, Math.min(10, msg.spawnMul));
       if (msg.action === "respawn") {
         const p = this.state.players.get(client.sessionId);
-        if (p) { p.hp = Math.max(3, p.maxHp || 3); p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: client.sessionId }); }
+        if (p) { p.maxHp = this.playerMaxHp(p); p.hp = p.maxHp; p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: client.sessionId }); }
       }
       if (msg.action === "respawnAll") {
-        this.state.players.forEach((p, sid) => { p.hp = Math.max(3, p.maxHp || 3); p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: sid }); });
+        this.state.players.forEach((p, sid) => { p.maxHp = this.playerMaxHp(p); p.hp = p.maxHp; p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: sid }); });
       }
       if (msg.action === "killAllEnemies") {
         this.state.enemies.forEach(e => { if (e.alive) this.damageEnemy(e, 9999); });
@@ -112,6 +113,10 @@ export class ArenaRoom extends Room {
       if (msg.action === "giveHands") {
         const p = this.state.players.get(client.sessionId);
         if (p) { p.hasLeftHand = true; p.hasRightHand = true; p.leftHandType = "FIRE"; p.rightHandType = "ICE"; p.hasLegs = 2; }
+      }
+      if (msg.action === "givePassive") {
+        const p = this.state.players.get(client.sessionId);
+        if (p) this.equipItem(p, msg.itemId || "BLOODSTONE");
       }
       if (msg.action === "resetRun") {
         this.state.phase = "hub";
@@ -125,7 +130,9 @@ export class ArenaRoom extends Room {
           pl.hasRightHand = false; pl.rightHandType = "";
           pl.hasLegs = 0;
           pl.itemsInBody.clear();
-          pl.hp = pl.maxHp || 3; pl.isGhost = false;
+          pl.passiveItemId = "";
+          pl.maxHp = COMBAT.PLAYER_MAX_HP;
+          pl.hp = pl.maxHp; pl.isGhost = false;
         });
       }
       if (msg.action === "tpHub") { this.state.phase = "hub"; }
@@ -215,12 +222,36 @@ export class ArenaRoom extends Room {
   onJoin(client, opts) {
     const p = new Player();
     p.name = (opts?.name || "sgustok").slice(0, 20);
-    p.hp = 3;  // v0.0.0.5: 3 HP
+    p.maxHp = COMBAT.PLAYER_MAX_HP;
+    p.hp = p.maxHp;
     p.pos.x = (Math.random() - 0.5) * 4;
     p.pos.y = 1.6;
     p.pos.z = (Math.random() - 0.5) * 4;
     this.state.players.set(client.sessionId, p);
     console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
+  }
+
+  // Расчёт maxHp с учётом надетой пассивки
+  playerMaxHp(p) {
+    let hp = COMBAT.PLAYER_MAX_HP;
+    if (p.passiveItemId === "BLOODSTONE") hp += 2;
+    return hp;
+  }
+  // Множитель урона (заклинаний) с учётом пассивки
+  playerDamageMult(p) {
+    if (p.passiveItemId === "EMBER_SIGIL") return 1.5;
+    return 1;
+  }
+  // Надеть пассивку: первый надевается, последующие идут в itemsInBody (запас)
+  equipItem(p, itemId) {
+    if (!itemId) return;
+    if (!p.passiveItemId) {
+      p.passiveItemId = itemId;
+      p.maxHp = this.playerMaxHp(p);
+      p.hp = Math.min(p.maxHp, p.hp + (itemId === "BLOODSTONE" ? 2 : 0));
+    } else {
+      p.itemsInBody.push(itemId);
+    }
   }
 
   onLeave(client) {
@@ -276,7 +307,7 @@ export class ArenaRoom extends Room {
   }
 
   // При возврате в хаб — снимаем с игроков всё, что они подобрали на арене,
-  // и раскладываем в слоты/сундуки. Игроки в хабе стартуют голыми (правило: "хаб пустой, без оружия").
+  // и раскладываем в слоты/сундуки. Пассивку и HP сбрасываем; в хабе игрок голый и живой.
   autoDepositPlayerInventory() {
     this.state.players.forEach(p => {
       if (p.hasLeftHand) {
@@ -295,6 +326,13 @@ export class ArenaRoom extends Room {
         const it = p.itemsInBody.pop();
         this.depositToHub("ITEM", "", it);
       }
+      if (p.passiveItemId) {
+        this.depositToHub("ITEM", "", p.passiveItemId);
+        p.passiveItemId = "";
+      }
+      p.maxHp = COMBAT.PLAYER_MAX_HP;
+      p.hp = p.maxHp;
+      p.isGhost = false;
     });
   }
 
@@ -306,7 +344,7 @@ export class ArenaRoom extends Room {
     } else if (kind === "LEG") {
       p.hasLegs = Math.min(2, (p.hasLegs || 0) + 1);
     } else if (kind === "ITEM") {
-      if (itemId) p.itemsInBody.push(itemId);
+      this.equipItem(p, itemId);
     }
   }
 
@@ -318,12 +356,14 @@ export class ArenaRoom extends Room {
   // Стартовые пикапы для АРЕНЫ: всегда минимум 1 HAND на команду
   spawnArenaPickups() {
     const R = WORLD.ARENA_RADIUS * 0.35;
-    // Гарантированно: FIRE-HAND (базовая), ICE-HAND, 1 LEG, 1 ITEM — 4 пикапа на открытие арены
+    // Гарантированно: FIRE-HAND, ICE-HAND, BONE-HAND, 1 LEG, 1 ITEM (случайная пассивка)
+    const passive = pickRandom(ITEMS);
     const kinds = [
       { kind: "HAND", handType: "FIRE" },
       { kind: "HAND", handType: "ICE" },
+      { kind: "HAND", handType: "BONE" },
       { kind: "LEG" },
-      { kind: "ITEM", itemId: "SIGIL_DASH" },
+      { kind: "ITEM", itemId: passive.id },
     ];
     for (let i = 0; i < kinds.length; i++) {
       const a = (i / kinds.length) * Math.PI * 2;

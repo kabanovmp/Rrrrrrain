@@ -58,6 +58,8 @@ export class FpsController {
     // Дебаг: множитель скорости
     const mul = window.room?.state?.dbgSpeedMul;
     if (mul && mul !== 1) speed *= mul;
+    // Пассивка SWIFTBOOT — +30% скорости
+    if (myPlayer?.passiveItemId === "SWIFTBOOT") speed *= 1.3;
     this.dashCd = Math.max(0, this.dashCd - dt);
 
     this.vel.x = move.x * speed;

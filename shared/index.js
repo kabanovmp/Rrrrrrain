@@ -22,7 +22,7 @@ export const WORLD = {
 
 // 1.5-hit system: 2 HP total, first hit cracks, second hit kills.
 export const COMBAT = {
-  PLAYER_MAX_HP: 2,
+  PLAYER_MAX_HP: 3,
   ENEMY_MAX_HP: 2,
   ARMORED_ENEMY_MAX_HP: 4,       // 3 hits to break armor + 1 for kill
   GHOST_STAT_MULT: 0.1,          // ×10 меньше
@@ -30,17 +30,17 @@ export const COMBAT = {
   RESPAWN_INVULN_S: 1.5,
 };
 
-// Cast definitions — какими бывают заклинания в руках (MVP: 3 hand types + 3 spells).
+// Cast definitions — 3 hand types (FIRE / ICE / BONE), каждый со своим спеллом.
 export const HAND_TYPES = {
-  FIRE:   { id: "FIRE",   color: 0xff5a1f, name: "Огненная лапа",   spell: "FIREBALL"   },
-  BONE:   { id: "BONE",   color: 0xe6d8b0, name: "Костяная лапа",   spell: "BONE_SHARD" },
-  SMOKE:  { id: "SMOKE",  color: 0x7d5cff, name: "Дымное щупальце", spell: "PUSH_WAVE"  },
+  FIRE: { id: "FIRE", color: 0xff5a1f, name: "Огненная",  spell: "FIREBALL" },
+  ICE:  { id: "ICE",  color: 0x66ccff, name: "Ледяная",   spell: "ICEBOLT" },
+  BONE: { id: "BONE", color: 0xe6d8b0, name: "Костяная",  spell: "BONE_SHARD" },
 };
 
 export const SPELLS = {
-  FIREBALL:   { cooldown: 0.35, projectileSpeed: 40, damage: 1, radius: 0.6, color: 0xff6a2a, life: 2.0 },
+  FIREBALL:   { cooldown: 0.35, projectileSpeed: 40, damage: 1, radius: 0.6, color: 0xff5a1f, life: 2.0 },
+  ICEBOLT:    { cooldown: 0.30, projectileSpeed: 48, damage: 1, radius: 0.4, color: 0x66ccff, life: 1.8 },
   BONE_SHARD: { cooldown: 0.20, projectileSpeed: 55, damage: 1, radius: 0.3, color: 0xffe0a0, life: 1.5 },
-  PUSH_WAVE:  { cooldown: 0.60, projectileSpeed: 0,  damage: 1, radius: 6.0, color: 0xa080ff, life: 0.35, isAoe: true },
 };
 
 // Enemies — DOOM 1 inspired
@@ -52,23 +52,19 @@ export const ENEMY_TYPES = {
   COLOSSUS:  { id: "COLOSSUS",  hp: 10, speed: 1.2, size: 8.0, scale: 30.0, damage: 1, sprite: "colossus",  colorTint: 0xffffff, boss: true     },
 };
 
-// MVP items with hidden tiers. Effects are unknown to player by design.
+// Пассивные предметы (надето — постоянный бафф). На MVP: 3 штуки.
+// Первый найденный = надетый (по текущей реализации). Надетый пассив — items[0].
 export const ITEMS = [
-  { id: "RING_QUICK",     tier: "common",   effect: "cast_cooldown_-15%",        color: 0xffdd44 },
-  { id: "RING_LIFESTEAL", tier: "rare",     effect: "5%_heal_on_kill",           color: 0xff3355 },
-  { id: "BAND_SHIELD",    tier: "common",   effect: "one_time_damage_absorb",    color: 0x88aaff },
-  { id: "GEM_CHAIN",      tier: "rare",     effect: "spells_chain_to_2_enemies", color: 0xaa66ff },
-  { id: "SIGIL_DASH",     tier: "common",   effect: "dash_cd_-40%",              color: 0x33ffcc },
-  { id: "MOTE_ECHO",      tier: "rare",     effect: "every_3rd_cast_free",       color: 0xffffff },
-  { id: "IDOL_CHAIR",     tier: "common",   effect: "spawn_chair_on_cast",       color: 0xaa8844 },
-  { id: "IDOL_HOMING",    tier: "rare",     effect: "spawned_objects_home",      color: 0xff88ff },
-  { id: "BONE_HEART",     tier: "legendary",effect: "revive_once_per_run",       color: 0xffffff },
-  { id: "TALON_HOOK",     tier: "common",   effect: "grappling_hook_hand",       color: 0x66ccff },
+  { id: "BLOODSTONE",  tier: "common", name: "Кровавый камень", effect: "+2 макс. HP",      color: 0xdd2244, glyph: "◇" },
+  { id: "SWIFTBOOT",   tier: "common", name: "Скороход",         effect: "+30% скорость",   color: 0x66ff99, glyph: "△" },
+  { id: "EMBER_SIGIL", tier: "common", name: "Сигил Углей",     effect: "+50% урон",         color: 0xff9922, glyph: "✦" },
 ];
+// Мап для быстрого поиска по id
+export const ITEMS_BY_ID = Object.fromEntries(ITEMS.map(i => [i.id, i]));
 
 // Level structure (MVP: 1 arena + hub)
 export const LEVELS = [
-  { id: "ARENA_1", waves: 3, colossusAt: 3, portalCharge: 20 }, // 20 blood units needed
+  { id: "ARENA_1", waves: 3, colossusAt: 3, portalCharge: 12 }, // 12 blood units needed
 ];
 
 export function pickRandom(arr, rng = Math.random) {

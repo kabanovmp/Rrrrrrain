@@ -8,8 +8,9 @@ import * as THREE from "three";
 import { getTexture } from "./assets.js";
 
 const SPELL_COLOR = {
-  fireball: 0xff4400,
+  fireball: 0xff5a1f,
   ice:      0x66ccff,
+  bone:     0xffe0a0,
   chain:    0xffdd44,
 };
 
