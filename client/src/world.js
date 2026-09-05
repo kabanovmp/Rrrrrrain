@@ -57,20 +57,15 @@ export function setupHub(group) {
   );
   group.add(bigStars);
 
-  // ── Пол: каменная плита с текстурой ─────────────────────
-  const floorTex = generateStoneWallTexture();
-  const floorTex2 = floorTex.clone();
-  floorTex2.needsUpdate = true;
-  floorTex2.wrapS = THREE.RepeatWrapping;
-  floorTex2.wrapT = THREE.RepeatWrapping;
-  floorTex2.repeat.set(6, 6);
+  // ── Пол: НЕВИДИМЫЙ (мы в космосе) ──────────────────
+  // Физика остаётся — игрок не провалится (гравитация останавливается в контроллере на y=1.6).
+  // Визуально пола нет — под ногами видны звёзды.
   const floor = new THREE.Mesh(
     new THREE.CylinderGeometry(R, R * 1.05, 0.3, 48),
-    new THREE.MeshStandardMaterial({
-      map: floorTex2, color: 0x6a5c4a, roughness: 0.9, metalness: 0.05,
-    })
+    new THREE.MeshBasicMaterial({ visible: false })
   );
   floor.position.y = -0.15;
+  floor.userData.isFloor = true; // оставляем для raycast/физики если понадобится
   group.add(floor);
 
   // АЛТАРЬ-ПЕРЕРАБОТЧИК в центре
@@ -80,21 +75,8 @@ export function setupHub(group) {
   group.add(altar);
   group.userData.hubAltar = altar;
 
-  // ── ХАБ — ОТКРЫТАЯ ПЛОЩАДКА (без стен, без потолка) ───────
-  // Край — отвесная пропасть; падение = смерть + респаун
-  // Каменный бортик-карниз, чтобы визуально читался край
-  const rimTex = generateStoneWallTexture();
-  rimTex.wrapS = THREE.RepeatWrapping;
-  rimTex.wrapT = THREE.RepeatWrapping;
-  rimTex.repeat.set(24, 1);
-  const rim = new THREE.Mesh(
-    new THREE.TorusGeometry(R * 1.0, 0.35, 8, 64),
-    new THREE.MeshStandardMaterial({ map: rimTex, color: 0x6a5c4a, roughness: 0.9 })
-  );
-  rim.rotation.x = Math.PI / 2;
-  rim.position.y = 0.1;
-  group.add(rim);
-  // (skyDome убран — он закрывал звёзды. Фон даёт skySphere R=200 выше)
+  // ── ХАБ — КОСМИЧЕСКАЯ ПЛОЩАДКА (без пола, без стен) ───────
+  // (rim/skyDome убраны — мы в космосе, края нет, только звёзды вокруг)
 
 
   // ── ПОРТАЛ НА АРЕНУ (край хаба) ───────────────────────────
