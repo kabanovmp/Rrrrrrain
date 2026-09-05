@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen } from "./world.js";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen } from "./world.js";
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
 import { createHandsGroup, animateHands, setSpellInHand, showHandDamage, fadeHandCracks } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
@@ -417,81 +417,170 @@ function refreshSlotContent(i, s) {
   }
 }
 
-// FX
+// FX — все fx-меши используют общие (shared) geometry, а материалы клонируются с одного базового шаблона.
+// Это убирает GC-спайки при массовых попаданиях (главная причина 0 FPS).
 const shots = [];
+const MAX_SHOT_FX = 120;                // жёсткий потолок; старые выбрасываются
+const FX_GEOM = {
+  sphereSmall: new THREE.SphereGeometry(0.35, 8, 6),
+  sphereHalo:  new THREE.SphereGeometry(0.8, 8, 6),
+  sphereFlash: new THREE.SphereGeometry(0.6, 10, 6),
+  sphereChip:  new THREE.SphereGeometry(0.09, 5, 3),
+  ringShot:    new THREE.RingGeometry(0.3, 0.8, 12),
+  ringSmoke:   new THREE.RingGeometry(0.2, 1.2, 16),
+  ringWave:    new THREE.RingGeometry(0.2, 1.0, 20),
+  // Кристаллический ледяной шип (ICE)
+  iceShard:    new THREE.OctahedronGeometry(0.45, 0),
+  // Наконечник костяной молнии (BONE) — маленькая головка
+  boneHead:    new THREE.ConeGeometry(0.25, 0.6, 6),
+};
+const FX_MAT_TPL = {
+  basic:  new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  halo:   new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, depthWrite: false }),
+  ring:   new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }),
+  chip:   new THREE.MeshBasicMaterial({ color: 0x992222 }),
+  flash:  new THREE.MeshBasicMaterial({ color: 0xff8833, transparent: true, opacity: 0.9 }),
+  smoke:  new THREE.MeshBasicMaterial({ color: 0x666666, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
+  wave:   new THREE.MeshBasicMaterial({ color: 0xa080ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide }),
+};
+function pushShot(entry) {
+  shots.push(entry);
+  // Лимит: если переполнили — старейший убираем немедленно
+  if (shots.length > MAX_SHOT_FX) {
+    const old = shots.shift();
+    if (old && old.mesh) {
+      scene.remove(old.mesh);
+      if (old.mesh.userData && old.mesh.userData.disposeExtras) old.mesh.userData.disposeExtras();
+      // материал клон, geometry общая — диспозим только материал
+      disposeMatOnly(old.mesh);
+    }
+  }
+}
+function disposeMatOnly(obj) {
+  obj.traverse?.(o => {
+    if (o.material) {
+      if (Array.isArray(o.material)) o.material.forEach(mt => mt.dispose?.());
+      else o.material.dispose?.();
+    }
+  });
+  if (obj.material && !obj.traverse) {
+    if (Array.isArray(obj.material)) obj.material.forEach(mt => mt.dispose?.());
+    else obj.material.dispose?.();
+  }
+}
+// Цвета из SPELLS: FIRE=0xff5a1f, ICE=0x66ccff, BONE=0xffe0a0.
+// Разветвляем визуал по цвету, чтобы не менять протокол.
 function spawnShotFx(x, y, z, color, dx = 0, dy = 0, dz = 0) {
   const speed = 40;
-  // Без PointLight! Динамические света убивают ФПС в THREE.js (рекомпиляция шейдеров).
-  // Замена: светящийся MeshBasicMaterial (не нуждается в освещении) + halo-сфера.
-  const m = new THREE.Mesh(
-    new THREE.SphereGeometry(0.35, 10, 6),
-    new THREE.MeshBasicMaterial({ color })
-  );
-  m.position.set(x, y, z);
-  // Ореол вокруг — большая прозрачная сфера
-  const halo = new THREE.Mesh(
-    new THREE.SphereGeometry(0.8, 8, 6),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25, depthWrite: false })
-  );
-  m.add(halo);
-  scene.add(m);
-  shots.push({ mesh: m, ttl: 1.2, maxTtl: 1.2, vx: dx * speed, vy: dy * speed, vz: dz * speed });
-
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.3, 0.8, 16),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false })
-  );
+  const vx = dx * speed, vy = dy * speed, vz = dz * speed;
+  if (color === 0x66ccff) {
+    spawnIceShardFx(x, y, z, color, vx, vy, vz);
+  } else if (color === 0xffe0a0) {
+    spawnLightningFx(x, y, z, color, vx, vy, vz);
+  } else {
+    spawnFireballFx(x, y, z, color, vx, vy, vz);
+  }
+  // Общее кольцо вспышки в точке каста (остаётся)
+  const matRing = FX_MAT_TPL.ring.clone(); matRing.color.setHex(color);
+  const ring = new THREE.Mesh(FX_GEOM.ringShot, matRing);
   ring.position.set(x, y, z);
   ring.lookAt(camera.position);
   scene.add(ring);
-  shots.push({ mesh: ring, ttl: 0.35, maxTtl: 0.35, vx: 0, vy: 0, vz: 0 });
+  pushShot({ mesh: ring, ttl: 0.25, maxTtl: 0.25, vx: 0, vy: 0, vz: 0 });
 }
-// Красивый эффект смерти врага: вспышка + частицы + восходящий дым
+
+// ── FIRE: шар с ореолом (было раньше)
+function spawnFireballFx(x, y, z, color, vx, vy, vz) {
+  const matBody = FX_MAT_TPL.basic.clone(); matBody.color.setHex(color);
+  const m = new THREE.Mesh(FX_GEOM.sphereSmall, matBody);
+  m.position.set(x, y, z);
+  const matHalo = FX_MAT_TPL.halo.clone(); matHalo.color.setHex(color);
+  const halo = new THREE.Mesh(FX_GEOM.sphereHalo, matHalo);
+  m.add(halo);
+  scene.add(m);
+  pushShot({ mesh: m, ttl: 1.2, maxTtl: 1.2, vx, vy, vz });
+}
+
+// ── ICE: вращающийся кристаллический шип с бледным свечением
+function spawnIceShardFx(x, y, z, color, vx, vy, vz) {
+  const mat = FX_MAT_TPL.basic.clone(); mat.color.setHex(0xffffff);
+  const m = new THREE.Mesh(FX_GEOM.iceShard, mat);
+  m.position.set(x, y, z);
+  // цветной halo вокруг
+  const haloMat = FX_MAT_TPL.halo.clone(); haloMat.color.setHex(color);
+  const halo = new THREE.Mesh(FX_GEOM.sphereHalo, haloMat);
+  halo.scale.setScalar(0.7);
+  m.add(halo);
+  scene.add(m);
+  pushShot({ mesh: m, ttl: 1.2, maxTtl: 1.2, vx, vy, vz, spin: 8 });
+}
+
+// ── BONE: конус-головка + зигзаг-хвост (молния)
+// Хвост — одна общая BufferGeometry на каждый выстрел (маленькая), материал общий клонируемый
+function spawnLightningFx(x, y, z, color, vx, vy, vz) {
+  // головка
+  const headMat = FX_MAT_TPL.basic.clone(); headMat.color.setHex(color);
+  const head = new THREE.Mesh(FX_GEOM.boneHead, headMat);
+  head.position.set(x, y, z);
+  // ориентируем конус по направлению полёта
+  const dirLen = Math.hypot(vx, vy, vz) || 1;
+  head.lookAt(x + vx / dirLen, y + vy / dirLen, z + vz / dirLen);
+  head.rotateX(Math.PI / 2); // конус по-умолчанию вверх — повернем
+  scene.add(head);
+  pushShot({ mesh: head, ttl: 1.5, maxTtl: 1.5, vx, vy, vz });
+
+  // зигзаг-луч позади головки (короткий хвост, быстро гаснет)
+  const segs = 6;
+  const pts = new Float32Array(segs * 3);
+  const nx = -vx / dirLen, ny = -vy / dirLen, nz = -vz / dirLen;
+  const perpAx = ny, perpAy = -nx, perpAz = 0; // примерный перпендикуляр
+  for (let i = 0; i < segs; i++) {
+    const t = i / (segs - 1);
+    const dist = t * 2.2; // общая длина хвоста
+    const wob = i === 0 || i === segs - 1 ? 0 : (Math.random() - 0.5) * 0.55;
+    pts[i * 3    ] = nx * dist + perpAx * wob;
+    pts[i * 3 + 1] = ny * dist + perpAy * wob;
+    pts[i * 3 + 2] = nz * dist + perpAz * wob;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pts, 3));
+  const lineMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95, linewidth: 2 });
+  const line = new THREE.Line(geo, lineMat);
+  head.add(line); // зигзаг двигается вместе с головкой
+  // аккуратный dispose — для line geometry уникальна, привязана к head.userData
+  head.userData.disposeExtras = () => { geo.dispose(); lineMat.dispose(); };
+}
+// Эффект смерти: общая geometry, меньше частиц
 function spawnDeathBurst(x, y, z, kind) {
   const isColossus = kind === "COLOSSUS";
   const scale = isColossus ? 2.6 : 1;
-  // Ядро — яркая вспышка
-  const flash = new THREE.Mesh(
-    new THREE.SphereGeometry(0.6 * scale, 12, 8),
-    new THREE.MeshBasicMaterial({ color: 0xff8833, transparent: true, opacity: 0.9 })
-  );
-  flash.position.set(x, y, z);
+  const flash = new THREE.Mesh(FX_GEOM.sphereFlash, FX_MAT_TPL.flash.clone());
+  flash.position.set(x, y, z); flash.scale.setScalar(scale);
   scene.add(flash);
-  shots.push({ mesh: flash, ttl: 0.35, maxTtl: 0.35, vx: 0, vy: 0, vz: 0 });
-  // Частицы (кровь/искры) — уменьшено для производительности
-  const cnt = isColossus ? 12 : 6;
+  pushShot({ mesh: flash, ttl: 0.35, maxTtl: 0.35, vx: 0, vy: 0, vz: 0 });
+  const cnt = isColossus ? 8 : 4;
   for (let i = 0; i < cnt; i++) {
-    const c = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09 * scale, 6, 4),
-      new THREE.MeshBasicMaterial({ color: 0x992222 })
-    );
-    c.position.set(x, y, z);
+    const c = new THREE.Mesh(FX_GEOM.sphereChip, FX_MAT_TPL.chip.clone());
+    c.position.set(x, y, z); c.scale.setScalar(scale);
     const a = Math.random() * Math.PI * 2;
     const s = 2 + Math.random() * 4;
     const vy = 1.5 + Math.random() * 3;
     scene.add(c);
-    shots.push({
+    pushShot({
       mesh: c, ttl: 0.9, maxTtl: 0.9,
       vx: Math.cos(a) * s, vy, vz: Math.sin(a) * s, gravity: 6,
     });
   }
-  // Дымовое кольцо
-  const smoke = new THREE.Mesh(
-    new THREE.RingGeometry(0.2, 1.2 * scale, 20),
-    new THREE.MeshBasicMaterial({ color: 0x666666, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
-  );
-  smoke.position.set(x, y + 0.05, z);
+  const smoke = new THREE.Mesh(FX_GEOM.ringSmoke, FX_MAT_TPL.smoke.clone());
+  smoke.position.set(x, y + 0.05, z); smoke.scale.setScalar(scale);
   smoke.rotation.x = -Math.PI / 2;
   scene.add(smoke);
-  shots.push({ mesh: smoke, ttl: 1.1, maxTtl: 1.1, vx: 0, vy: 0.4, vz: 0 });
+  pushShot({ mesh: smoke, ttl: 1.1, maxTtl: 1.1, vx: 0, vy: 0.4, vz: 0 });
 }
 
 function spawnWaveFx(x, y, z, r) {
-  const m = new THREE.Mesh(
-    new THREE.RingGeometry(0.2, r, 24),
-    new THREE.MeshBasicMaterial({ color: 0xa080ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
-  );
-  m.position.set(x, y, z);
+  const m = new THREE.Mesh(FX_GEOM.ringWave, FX_MAT_TPL.wave.clone());
+  m.position.set(x, y, z); m.scale.setScalar(r / 1.0);
   m.rotation.x = -Math.PI / 2;
   scene.add(m);
   shots.push({ mesh: m, ttl: 0.8, maxTtl: 0.8, vx: 0, vy: 0, vz: 0 });
@@ -850,7 +939,19 @@ document.addEventListener("keydown", (ev) => {
       playSound("pickup");
       return;
     }
-    // 2) В хабе — слоты, сундуки, алтарь
+    // 2) На арене: активация портала если рядом и ещё не активен
+    if (room.state.phase === "arena" && !room.state.portalActive) {
+      const pos = getArenaPortalPos(arenaGroup);
+      if (pos) {
+        const d = Math.hypot(controller.position.x - pos.x, controller.position.z - pos.z);
+        if (d < 3.5) {
+          room.send("activate_portal");
+          playSound("pickup");
+          return;
+        }
+      }
+    }
+    // 3) В хабе — слоты, сундуки, алтарь
     if (room.state.phase === "hub") {
       // Ближайший слот
       let bestSlot = -1, bsD = 3;
@@ -991,7 +1092,7 @@ function handlePortalTriggers(dt) {
     const pos = getArenaPortalPos(arenaGroup);
     if (pos) {
       const d = Math.hypot(controller.position.x - pos.x, controller.position.z - pos.z);
-      if (d < 2.5) {
+      if (d < 3.5) {
         inZone = true;
         target = "arena";
         if (cur === "portal_ready") { ready = true; msg = { phase: "hub" }; }
@@ -1018,7 +1119,16 @@ function handlePortalTriggers(dt) {
     }
   } else if (inZone && !ready) {
     portalHoldTime = 0;
-    hintText.textContent = "портал ещё не заряжен — бей врагов";
+    // Арена: портал ещё не активирован — подсказка на F
+    if (cur === "arena" && !room.state.portalActive) {
+      hintText.textContent = "[F] активировать телепортер";
+    } else if (cur === "arena" && room.state.portalActive) {
+      const cur2 = Math.floor(room.state.portalCharge);
+      const tot = Math.floor(room.state.portalTarget);
+      hintText.textContent = `заряжается: ${cur2}/${tot}s`;
+    } else {
+      hintText.textContent = "портал ещё не заряжен";
+    }
     hintText.style.opacity = 1;
     hintTimer = 0.3;
   } else {
@@ -1350,7 +1460,13 @@ function animate() {
   animateTorches(activeGroup, dt);
   if (room) {
     const tSec = performance.now() * 0.001;
-    updateArenaPortal(arenaGroup, room.state.phase === "portal_ready", tSec);
+    // Перемещаем портал в точку от сервера (случайная каждый забег)
+    setArenaPortalPosition(arenaGroup, room.state.portalX || 0, room.state.portalZ || 0);
+    let pstate = "idle";
+    if (room.state.phase === "portal_ready") pstate = "ready";
+    else if (room.state.portalActive) pstate = "charging";
+    const ratio = room.state.portalTarget > 0 ? (room.state.portalCharge / room.state.portalTarget) : 0;
+    updateArenaPortal(arenaGroup, pstate, tSec, ratio);
     updateHubPortal(hubGroup, tSec);
     animateDangerZones(arenaGroup, tSec);
   // Открытие ближайшего сундука в хабе + автозакрытие UI если отошли
@@ -1396,11 +1512,17 @@ function animate() {
       s.mesh.position.z += s.vz * dt;
     }
     if (s.gravity) { s.vy -= s.gravity * dt; }
+    if (s.spin) { s.mesh.rotation.x += s.spin * dt; s.mesh.rotation.y += s.spin * 0.7 * dt; }
     if (s.mesh.material) {
       s.mesh.material.opacity = Math.max(0, s.ttl / s.maxTtl);
       s.mesh.material.transparent = true;
     }
-    if (s.ttl <= 0) { scene.remove(s.mesh); disposeGroup(s.mesh); shots.splice(i, 1); }
+    if (s.ttl <= 0) {
+      scene.remove(s.mesh);
+      if (s.mesh.userData && s.mesh.userData.disposeExtras) s.mesh.userData.disposeExtras();
+      disposeMatOnly(s.mesh);
+      shots.splice(i, 1);
+    }
   }
 
   if (deathTimer > 0) {
@@ -1433,9 +1555,18 @@ setInterval(() => {
   if (!room) return;
   const ph = room.state.phase;
   const wv = room.state.wave;
-  const chg = `${room.state.portalCharge}/${room.state.portalTarget}`;
+  let portalStr;
+  if (ph === "arena" && !room.state.portalActive) {
+    portalStr = "найди и [F]";
+  } else if (ph === "arena" && room.state.portalActive) {
+    portalStr = `${Math.floor(room.state.portalCharge)}/${Math.floor(room.state.portalTarget)}s`;
+  } else if (ph === "portal_ready") {
+    portalStr = "ГОТОВ";
+  } else {
+    portalStr = "—";
+  }
   const pl = room.state.players.size;
   const hp = myPlayer ? `HP:${myPlayer.hp}/${myPlayer.maxHp || 3}` : "";
   const dt = deathTimer > 0 ? `  RESPAWN in ${deathTimer.toFixed(1)}s (или R)` : "";
-  status.textContent = `${hp}  фаза:${ph}  волна:${wv}  портал:${chg}  игроки:${pl}${dt}`;
+  status.textContent = `${hp}  фаза:${ph}  волна:${wv}  портал:${portalStr}  игроки:${pl}${dt}`;
 }, 250);

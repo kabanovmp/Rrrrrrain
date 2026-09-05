@@ -584,31 +584,64 @@ function addTorch(group, x, y, z, tall = false) {
 // ═══════════════════════════════════════════════════════════════════
 // Обновление состояния портала на арене.
 // ready=true — ярко светится, можно входить. ready=false — тусклый.
-export function updateArenaPortal(arenaGroup, ready, tSec) {
+// state: "idle" (спит, матовый камень) | "charging" (активирован, заряжается, луч вверх) | "ready" (готов)
+export function updateArenaPortal(arenaGroup, state, tSec, chargeRatio = 0) {
   const p = arenaGroup.userData.portal;
   if (!p) return;
   const water = p.userData.water;
   const arch = p.userData.arch;
   const base = p.userData.base;
-  if (ready) {
-    // Ярко-фиолетовый пульс
-    const pulse = 0.8 + Math.sin(tSec * 4) * 0.2;
-    water.material.color.setHex(0x8844ff);
-    water.material.opacity = 0.85 * pulse;
-    arch.material.emissive.setHex(0xaa66ff);
-    arch.material.emissiveIntensity = 1.2 * pulse;
-    base.material.color.setHex(0xaa66ff);
-    base.material.opacity = 0.7 * pulse;
-  } else {
-    water.material.color.setHex(0x220044);
-    water.material.opacity = 0.5;
-    arch.material.emissive.setHex(0x442288);
-    arch.material.emissiveIntensity = 0.15;
-    base.material.color.setHex(0x442266);
-    base.material.opacity = 0.3;
+  // Лениво создаём луч вверх (RoR2 beam) при первом вызове
+  if (!p.userData.beam) {
+    const beamGeo = new THREE.CylinderGeometry(0.9, 1.4, 60, 12, 1, true);
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xaa66ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+    const beam = new THREE.Mesh(beamGeo, beamMat);
+    beam.position.y = 30;
+    p.add(beam);
+    p.userData.beam = beam;
   }
-  // Медленно вращается вода
+  const beam = p.userData.beam;
+  if (state === "idle") {
+    // Спящий: тёмный камень, ведва заметный, надо найти
+    water.material.color.setHex(0x1a1420);
+    water.material.opacity = 0.35;
+    arch.material.emissive.setHex(0x221122);
+    arch.material.emissiveIntensity = 0.05;
+    base.material.color.setHex(0x201820);
+    base.material.opacity = 0.55;
+    beam.material.opacity = 0;
+  } else if (state === "charging") {
+    // Копит энергию: цвет грется, луч растёт от chargeRatio
+    const pulse = 0.7 + Math.sin(tSec * 6) * 0.3;
+    const cr = Math.max(0, Math.min(1, chargeRatio));
+    water.material.color.setHex(0x664488);
+    water.material.opacity = 0.7 * pulse;
+    arch.material.emissive.setHex(0x8844ff);
+    arch.material.emissiveIntensity = 0.5 + 0.8 * cr;
+    base.material.color.setHex(0x8844ff);
+    base.material.opacity = 0.5 + 0.4 * cr;
+    beam.material.opacity = 0.15 + 0.35 * cr * pulse;
+  } else if (state === "ready") {
+    // Полный яркий пульс + столб света
+    const pulse = 0.85 + Math.sin(tSec * 5) * 0.15;
+    water.material.color.setHex(0xaa66ff);
+    water.material.opacity = 0.95 * pulse;
+    arch.material.emissive.setHex(0xcc88ff);
+    arch.material.emissiveIntensity = 1.4 * pulse;
+    base.material.color.setHex(0xcc88ff);
+    base.material.opacity = 0.85 * pulse;
+    beam.material.opacity = 0.55 * pulse;
+  }
   water.rotation.z = tSec * 0.5;
+  beam.rotation.y = tSec * 0.3;
+}
+
+// Переместить меш портала в заданную точку на арене
+export function setArenaPortalPosition(arenaGroup, x, z) {
+  const p = arenaGroup.userData.portal;
+  if (!p) return;
+  p.position.x = x;
+  p.position.z = z;
 }
 
 // Позиция портала на арене (для проверки дистанции)

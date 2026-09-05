@@ -9,6 +9,12 @@ const FLY_MIN_Y = 4.0;         // летающие не опускаются н�
 const MELEE_RANGE = 2.0;       // ближе только по горизонтали
 const ATTACK_COOLDOWN = 2.0;   // 1 удар в 2 сек
 
+// СПАВНЕР ВОЛН: свежие враги каждые SPAWN_INTERVAL_SEC всегда, даже при активном портале
+const SPAWN_INTERVAL_SEC = 8;
+const MAX_ALIVE_ENEMIES = 25;   // потолок — чтобы не затопить арену
+// ПОРТАЛ: как в RoR2 — спрятан на арене, активация по F, потом таймер зарядки
+const PORTAL_INTERACT_RANGE = 3.5;
+
 export class ArenaRoom extends Room {
   onCreate() {
     this.maxClients = NET.MAX_PLAYERS;
@@ -16,6 +22,7 @@ export class ArenaRoom extends Room {
     this.projectiles = [];
     this.enemySeq = 0;
     this.pickupSeq = 0;
+    this.waveTimer = 0;              // таймер между волнами (волны всегда)
     this.spawnInitialPickups();
     this.setupHubStorage();
     this.setSimulationInterval(dt => this.tick(dt / 1000), TICK_MS);
@@ -122,6 +129,7 @@ export class ArenaRoom extends Room {
         this.state.phase = "hub";
         this.state.wave = 0;
         this.state.portalCharge = 0;
+        this.state.portalActive = false;
         this.state.enemies.clear();
         this.projectiles.length = 0;
         // Игрокам сбросить руки/ноги/предметы, но хаб (hubSlots, hubChests) не трогаем
@@ -140,6 +148,20 @@ export class ArenaRoom extends Room {
     });
 
     // ── HUB: взять из слота или сундука ─────────────────────
+    this.onMessage("activate_portal", (client) => {
+      if (this.state.phase !== "arena") return;
+      if (this.state.portalActive) return;
+      const p0 = this.state.players.get(client.sessionId);
+      if (!p0 || p0.isGhost || p0.hp <= 0) return;
+      const dx = p0.pos.x - this.state.portalX;
+      const dz = p0.pos.z - this.state.portalZ;
+      if (dx * dx + dz * dz > PORTAL_INTERACT_RANGE * PORTAL_INTERACT_RANGE) return;
+      this.state.portalActive = true;
+      this.state.portalCharge = 0;
+      this.spawnWaveOfType("IMP", 4);
+      this.broadcast("fx", { type: "portal_activated", x: this.state.portalX, y: 0, z: this.state.portalZ });
+    });
+
     this.onMessage("hub_take", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
@@ -387,11 +409,19 @@ export class ArenaRoom extends Room {
   startArena() {
     this.state.wave = 1;
     this.state.portalCharge = 0;
+    this.state.portalActive = false;
+    // Портал — случайная точка на арене, не в центре (надо найти)
+    const R = WORLD.ARENA_RADIUS * 0.55;
+    const ang = Math.random() * Math.PI * 2;
+    const dist = R * (0.5 + Math.random() * 0.9);
+    this.state.portalX = Math.sin(ang) * dist;
+    this.state.portalZ = Math.cos(ang) * dist;
+    this.waveTimer = 0;
     // Очистить старые пикапы арены
     this.state.pickups.clear();
     this.spawnArenaPickups();
     this.state.enemies.clear();
-    // v0.0.0.5: первая волна — только 3 IMP, без летающих
+    // Первая волна — IMP, чтобы было с кем играть пока ищешь портал
     this.spawnWaveOfType("IMP", 3);
   }
 
@@ -423,22 +453,22 @@ export class ArenaRoom extends Room {
     }
   }
 
-  spawnWave(waveNum) {
-    // v0.0.0.5: постепенное усложнение
+  spawnWave(waveNum, aggressive = false) {
     const frontAngle = this.getPlayerFrontAngle();
-    if (waveNum === 2) {
-      // волна 2: 4 IMP + 1 PINKY
-      for (let i = 0; i < 4; i++) this.addEnemyAt("IMP", frontAngle + (Math.random()-0.5) * Math.PI);
-      this.addEnemyAt("PINKY", frontAngle + (Math.random()-0.5) * Math.PI);
-    } else if (waveNum >= 3) {
-      // волна 3+: добавляются CACO (летающие)
-      const mul = this.state.dbgSpawnMul == null ? 1 : this.state.dbgSpawnMul;
-      const count = Math.max(0, Math.round((3 + waveNum) * mul));
-      for (let i = 0; i < count; i++) {
-        const roll = Math.random();
-        const type = roll < 0.5 ? "IMP" : roll < 0.8 ? "PINKY" : "CACO";
-        this.addEnemyAt(type, frontAngle + (Math.random()-0.5) * Math.PI);
+    const mul = this.state.dbgSpawnMul == null ? 1 : this.state.dbgSpawnMul;
+    // Базовый размер волны растёт с номером волны; под активным порталом в 1.5×
+    let base = Math.min(10, 3 + Math.floor(waveNum / 2));
+    if (aggressive) base = Math.ceil(base * 1.5);
+    const count = Math.max(1, Math.round(base * mul));
+    for (let i = 0; i < count; i++) {
+      let type = "IMP";
+      const roll = Math.random();
+      if (waveNum >= 3) {
+        type = roll < 0.5 ? "IMP" : roll < 0.8 ? "PINKY" : "CACO";
+      } else if (waveNum === 2) {
+        type = roll < 0.8 ? "IMP" : "PINKY";
       }
+      this.addEnemyAt(type, frontAngle + (Math.random() - 0.5) * Math.PI);
     }
   }
 
@@ -476,8 +506,7 @@ export class ArenaRoom extends Room {
     if (e.hp <= 0) {
       e.alive = false;
       this.broadcast("fx", { type: "enemy_die", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: e.enemyType });
-      this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + 1);
-      if (this.state.portalCharge >= this.state.portalTarget) this.state.phase = "portal_ready";
+      // Зарядка портала теперь таймерная (в tick), а не от убийств
       const idEntry = [...this.state.enemies.entries()].find(([, v]) => v === e);
       if (idEntry) setTimeout(() => this.state.enemies.delete(idEntry[0]), 400);
     }
@@ -533,9 +562,41 @@ export class ArenaRoom extends Room {
       const dz = nearest.pos.z - e.pos.z;
       const horizD = Math.max(0.001, Math.sqrt(dx*dx+dz*dz));
 
-      // ВАЖНО: пересоздаём Vec3, чтобы Colyseus точно засинкал изменение
-      const newX = e.pos.x + (dx / horizD) * t.speed * dt;
-      const newZ = e.pos.z + (dz / horizD) * t.speed * dt;
+      // Летающие держат горизонтальную дистанцию и кружат, а не садятся на голову
+      const FLY_STANDOFF = 5.5; // минимальная горизонт. дистанция до цели
+      let moveX = 0, moveZ = 0;
+      if (t.flying) {
+        if (horizD > FLY_STANDOFF + 0.5) {
+          // далеко — летим к игроку
+          moveX = (dx / horizD) * t.speed * dt;
+          moveZ = (dz / horizD) * t.speed * dt;
+        } else if (horizD < FLY_STANDOFF - 0.5) {
+          // слишком близко (вкл. ровно над игроком где horizD~0) — отлетаем
+          // если horizD почти 0, выбираем случайное направление
+          let awayX = -dx / horizD, awayZ = -dz / horizD;
+          if (horizD < 0.6) {
+            if (e._escapeAng == null) e._escapeAng = Math.random() * Math.PI * 2;
+            awayX = Math.sin(e._escapeAng);
+            awayZ = Math.cos(e._escapeAng);
+          } else {
+            e._escapeAng = null;
+          }
+          moveX = awayX * t.speed * dt;
+          moveZ = awayZ * t.speed * dt;
+        } else {
+          // в кольце — кружим вокруг игрока (перпендикуляр к вектору на игрока)
+          if (e._orbitDir == null) e._orbitDir = Math.random() < 0.5 ? 1 : -1;
+          const perpX = -dz / horizD * e._orbitDir;
+          const perpZ =  dx / horizD * e._orbitDir;
+          moveX = perpX * t.speed * dt;
+          moveZ = perpZ * t.speed * dt;
+        }
+      } else {
+        moveX = (dx / horizD) * t.speed * dt;
+        moveZ = (dz / horizD) * t.speed * dt;
+      }
+      const newX = e.pos.x + moveX;
+      const newZ = e.pos.z + moveZ;
       let newY;
       if (t.flying) {
         // Летающие держат высоту, слегка колышутся
@@ -561,14 +622,30 @@ export class ArenaRoom extends Room {
       }
     });
 
-    // Волны
+    // ── Спавн волн: всегда по таймеру, независимо от портала ─────────
     if (this.state.phase === "arena") {
+      // Зарядка портала по времени (когда активирован)
+      if (this.state.portalActive && this.state.portalCharge < this.state.portalTarget) {
+        this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + dt);
+        if (this.state.portalCharge >= this.state.portalTarget) {
+          this.state.phase = "portal_ready";
+          this.broadcast("fx", { type: "portal_ready", x: this.state.portalX, y: 0, z: this.state.portalZ });
+        }
+      }
+
+      // Считаем живых
       let aliveCount = 0;
       this.state.enemies.forEach(e => { if (e.alive) aliveCount++; });
-      if (aliveCount === 0 && this.state.wave > 0) {
+
+      // Таймер волн: тикает всегда
+      this.waveTimer -= dt;
+      if (this.waveTimer <= 0 && aliveCount < MAX_ALIVE_ENEMIES) {
+        this.waveTimer = SPAWN_INTERVAL_SEC;
+        // Чем дольше забег (чем больше wave), тем толстее волна
         this.state.wave += 1;
-        if (this.state.wave === 4) this.spawnColossus();
-        else this.spawnWave(this.state.wave);
+        // Если портал активирован — подливаем агрессивнее (мешаем заряжать)
+        const aggressive = this.state.portalActive;
+        this.spawnWave(this.state.wave, aggressive);
       }
     }
   }

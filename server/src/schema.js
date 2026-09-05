@@ -107,8 +107,11 @@ export class GameState extends Schema {
     this.enemies = new MapSchema();
     this.pickups = new MapSchema();
     this.wave = 0;
-    this.portalCharge = 0;
-    this.portalTarget = 12;
+    this.portalCharge = 0;      // текущая зарядка в секундах (растёт только когда portalActive=true)
+    this.portalTarget = 45;     // нужно секунд для полной зарядки
+    this.portalActive = false;  // активировало ли кто-то портал (клавиша F)
+    this.portalX = 0;           // координаты портала на арене (случайные каждый забег)
+    this.portalZ = 0;
     this.phase = "hub"; // "hub" | "arena" | "portal_ready"
     // Debug (синхронно всем)
     this.dbgGodMode = false;
@@ -127,6 +130,9 @@ type({ map: Pickup })(GameState.prototype, "pickups");
 type("number")(GameState.prototype, "wave");
 type("number")(GameState.prototype, "portalCharge");
 type("number")(GameState.prototype, "portalTarget");
+type("boolean")(GameState.prototype, "portalActive");
+type("number")(GameState.prototype, "portalX");
+type("number")(GameState.prototype, "portalZ");
 type("string")(GameState.prototype, "phase");
 type("boolean")(GameState.prototype, "dbgGodMode");
 type("number")(GameState.prototype, "dbgSpeedMul");
