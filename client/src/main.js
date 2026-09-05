@@ -70,7 +70,7 @@ let openChestIndex = -1; // -1 = закрыт
 
 // FIRE/ICE/BONE → визуальный ключ магии в ладони
 function handTypeToVisual(ht) {
-  return ({ FIRE: "fireball", ICE: "ice", BONE: "bone" })[ht] || "fireball";
+  return ({ FIRE: "fireball", ICE: "ice", BONE: "bone", CHAIN: "chain" })[ht] || "fireball";
 }
 
 // ── Панель снаряжения (TAB, hold) ────────────────────
@@ -108,13 +108,13 @@ function hideLoadoutPanel() {
   loadoutPanel.style.display = "none";
 }
 function handTypeName(ht) {
-  return ({ FIRE: "Огненная", ICE: "Ледяная", BONE: "Костяная" })[ht] || "—";
+  return ({ FIRE: "Огненная", ICE: "Ледяная", BONE: "Костяная", CHAIN: "Грозовая" })[ht] || "—";
 }
 function handTypeColorHex(ht) {
-  return ({ FIRE: "#ff5522", ICE: "#66ccff", BONE: "#d0c0a0" })[ht] || "#8a7050";
+  return ({ FIRE: "#ff5522", ICE: "#66ccff", BONE: "#d0c0a0", CHAIN: "#9be7ff" })[ht] || "#8a7050";
 }
 function spellName(ht) {
-  return ({ FIRE: "Fireball", ICE: "Icebolt", BONE: "Bone Shard" })[ht] || "—";
+  return ({ FIRE: "Fireball", ICE: "Icebolt", BONE: "Bone Shard", CHAIN: "Chain Lightning" })[ht] || "—";
 }
 function itemInfo(id) {
   const it = ITEMS.find(x => x.id === id);
@@ -363,7 +363,7 @@ const pickupMeshes = new Map();
 function makePickupMesh(pk) {
   // Определяем визуальный тип
   if (pk.kind === "HAND") {
-    const spellType = ({ FIRE: "fireball", ICE: "ice", BONE: "bone" })[pk.handType] || "fireball";
+    const spellType = ({ FIRE: "fireball", ICE: "ice", BONE: "bone", CHAIN: "chain" })[pk.handType] || "fireball";
     return createPedestalMesh("HAND", spellType);
   }
   if (pk.kind === "LEG") return createPedestalMesh("LEG", "chain");
@@ -559,6 +559,47 @@ function spawnLightningFx(x, y, z, color, vx, vy, vz) {
   // аккуратный dispose — для line geometry уникальна, привязана к head.userData
   head.userData.disposeExtras = () => { geo.dispose(); lineMat.dispose(); };
 }
+// ЦЕПНАЯ МОЛНИЯ: ломаная линия через точки (от игрока через всех врагов в цепи)
+function spawnChainLightningFx(points, color) {
+  if (!points || points.length < 2) return;
+  // Сегменты между соседними точками — каждый с лёгким зигзагом
+  const allPts = [];
+  const segsPerJump = 5;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const dx = b.x - a.x, dy = b.y - a.y + 0.6, dz = b.z - a.z; // поднимаем к голове
+    const len = Math.hypot(dx, dy, dz) || 1;
+    const px = -dz / len, py = 0, pz = dx / len; // перпендикуляр
+    for (let s = 0; s <= segsPerJump; s++) {
+      const t = s / segsPerJump;
+      const wob = (s === 0 || s === segsPerJump) ? 0 : (Math.random() - 0.5) * 0.8;
+      allPts.push(
+        a.x + dx * t + px * wob,
+        a.y + 0.6 + (dy - 0.6) * t + py * wob,
+        a.z + dz * t + pz * wob
+      );
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(allPts), 3));
+  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 1.0, linewidth: 3 });
+  const line = new THREE.Line(geo, mat);
+  scene.add(line);
+  pushShot({
+    mesh: line, ttl: 0.35, maxTtl: 0.35, vx: 0, vy: 0, vz: 0,
+    disposeExtras: () => { geo.dispose(); mat.dispose(); },
+  });
+  // Вспышки в каждой точке цепи (враге — где ударило)
+  for (let i = 1; i < points.length; i++) {
+    const matF = FX_MAT_TPL.flash.clone(); matF.color.setHex(color);
+    const flash = new THREE.Mesh(FX_GEOM.sphereFlash, matF);
+    flash.position.set(points[i].x, points[i].y + 0.6, points[i].z);
+    flash.scale.setScalar(0.5);
+    scene.add(flash);
+    pushShot({ mesh: flash, ttl: 0.25, maxTtl: 0.25, vx: 0, vy: 0, vz: 0 });
+  }
+}
+
 // Эффект смерти: общая geometry, меньше частиц
 function spawnDeathBurst(x, y, z, kind) {
   const isColossus = kind === "COLOSSUS";
@@ -814,6 +855,10 @@ function setupRoomHandlers() {
       if (msg.color === 0xff5a1f || msg.color === 0xff4400) playSound("fireball_cast");
       else if (msg.color === 0x66ccff) playSound("ice_cast");
       else playSound("chain_cast");
+    }
+    else if (msg.type === "chain") {
+      spawnChainLightningFx(msg.points, msg.color);
+      playSound("chain_cast");
     }
     else if (msg.type === "wave") {
       spawnWaveFx(msg.x, msg.y, msg.z, msg.r);

@@ -11,7 +11,7 @@ const SPELL_COLOR = {
   fireball: 0xff5a1f,
   ice:      0x66ccff,
   bone:     0xffe0a0,
-  chain:    0xffdd44,
+  chain:    0x9be7ff,
 };
 
 export function createHandsGroup() {

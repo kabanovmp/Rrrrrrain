@@ -44,7 +44,52 @@ export class ArenaRoom extends Room {
       const spell = SPELLS[spellId];
       if (!spell) return;
       const dmgMult = (p.isGhost ? COMBAT.GHOST_STAT_MULT : 1) * this.playerDamageMult(p);
-      if (spell.isAoe) {
+      if (spell.isChain) {
+        // ЦЕПНАЯ МОЛНИЯ: мгновенный хит, прыгает от врага к врагу
+        const dir = { x: msg.dx || 0, y: msg.dy || 0, z: msg.dz || 0 };
+        const origin = {
+          x: typeof msg.ox === "number" ? msg.ox : p.pos.x,
+          y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
+          z: typeof msg.oz === "number" ? msg.oz : p.pos.z,
+        };
+        // Первая цель — ближайший враг в конусе взгляда
+        let firstEnemy = null, firstDist = Infinity;
+        this.state.enemies.forEach(e => {
+          if (!e.alive) return;
+          const dx = e.pos.x - origin.x, dy = e.pos.y - origin.y, dz = e.pos.z - origin.z;
+          const dist2 = dx*dx + dy*dy + dz*dz;
+          if (dist2 > spell.initialRange * spell.initialRange) return;
+          const dist = Math.sqrt(dist2);
+          const dot = (dx * dir.x + dy * dir.y + dz * dir.z) / (dist || 1);
+          if (dot < spell.initialConeCos) return;
+          if (dist < firstDist) { firstDist = dist; firstEnemy = e; }
+        });
+        if (!firstEnemy) return;
+        // Цепочка: прыгаем от текущей цели к ближайшему ещё не битому
+        const hitIds = new Set();
+        const chain = []; // для fx: координаты точек
+        chain.push({ x: origin.x, y: origin.y, z: origin.z });
+        let cur = firstEnemy;
+        let dmg = spell.damage * dmgMult;
+        for (let jump = 0; jump < spell.maxJumps; jump++) {
+          this.damageEnemy(cur, dmg);
+          hitIds.add(cur);
+          chain.push({ x: cur.pos.x, y: cur.pos.y, z: cur.pos.z });
+          // Следующая цель
+          let next = null, nd = Infinity;
+          this.state.enemies.forEach(e => {
+            if (!e.alive || hitIds.has(e)) return;
+            const dx = e.pos.x - cur.pos.x, dy = e.pos.y - cur.pos.y, dz = e.pos.z - cur.pos.z;
+            const d2 = dx*dx + dy*dy + dz*dz;
+            if (d2 > spell.jumpRange * spell.jumpRange) return;
+            if (d2 < nd) { nd = d2; next = e; }
+          });
+          if (!next) break;
+          cur = next;
+          dmg *= spell.falloff;
+        }
+        this.broadcast("fx", { type: "chain", color: spell.color, points: chain });
+      } else if (spell.isAoe) {
         this.state.enemies.forEach(e => {
           if (!e.alive) return;
           const dx = e.pos.x - p.pos.x, dy = e.pos.y - p.pos.y, dz = e.pos.z - p.pos.z;
@@ -124,7 +169,7 @@ export class ArenaRoom extends Room {
       if (msg.action === "giveWeapon") {
         // msg.hand = "left"|"right", msg.type = "FIRE"|"ICE"|"BONE"
         const p = this.state.players.get(client.sessionId);
-        const validTypes = ["FIRE", "ICE", "BONE"];
+        const validTypes = ["FIRE", "ICE", "BONE", "CHAIN"];
         if (p && validTypes.includes(msg.type)) {
           if (msg.hand === "right") { p.hasRightHand = true; p.rightHandType = msg.type; }
           else { p.hasLeftHand = true; p.leftHandType = msg.type; }
