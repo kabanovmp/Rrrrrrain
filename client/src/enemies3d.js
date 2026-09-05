@@ -8,7 +8,39 @@
 // Замена текстур: assets.js → enemy_* keys.
 
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { getTexture } from "./assets.js";
+
+// ── GLB-кэш для врагов ────────────────────────────────────────
+const GLB_URLS = {
+  IMP: "/models/monsters/imp.glb",
+  PINKY: "/models/monsters/pinky.glb",
+  CACO: "/models/monsters/caco.glb",
+};
+const glbCache = new Map();   // typeId -> { scene, animations }
+const glbLoading = new Map(); // typeId -> Promise
+const gltfLoader = new GLTFLoader();
+
+function loadEnemyGlb(typeId) {
+  if (glbCache.has(typeId)) return Promise.resolve(glbCache.get(typeId));
+  if (glbLoading.has(typeId)) return glbLoading.get(typeId);
+  const url = GLB_URLS[typeId];
+  if (!url) return Promise.reject(new Error("no glb for " + typeId));
+  const p = new Promise((res, rej) => {
+    gltfLoader.load(url, gltf => {
+      glbCache.set(typeId, { scene: gltf.scene, animations: gltf.animations || [] });
+      res(glbCache.get(typeId));
+    }, undefined, err => rej(err));
+  });
+  glbLoading.set(typeId, p);
+  return p;
+}
+
+// Предпрогрев моделей (вызывать из main.js после setup)
+export function preloadEnemyModels() {
+  Object.keys(GLB_URLS).forEach(t => loadEnemyGlb(t).catch(() => {}));
+}
 
 // ── Параметры по типам ─────────────────────────────────────────────
 // Яркие контрастные цвета, чтобы враг был виден даже при слабом свете.
@@ -57,6 +89,49 @@ export function createEnemy3D(typeId) {
     roughness: 0.7, metalness: 0.0,
     flatShading: false,
   });
+
+  // Если есть GLB — вставляем плейсхолдер (маленький куб как fallback) и асинхронно вайтаем в модель
+  if (GLB_URLS[typeId]) {
+    const holder = new THREE.Group();
+    group.add(holder);
+    group.userData.glbHolder = holder;
+    group.userData.hasGlb = true;
+    loadEnemyGlb(typeId).then(({ scene, animations }) => {
+      // Клонируем скелет (скиннед), чтобы каждый враг анимировался независимо
+      const cloned = SkeletonUtils.clone(scene);
+      // Авто-подгонка высоты под spec.height
+      const box = new THREE.Box3().setFromObject(cloned);
+      const size = new THREE.Vector3(); box.getSize(size);
+      const targetH = spec.height;
+      const s = size.y > 0.001 ? (targetH / size.y) : 1;
+      cloned.scale.setScalar(s);
+      // Опускаем низ модели в Y=0 (если модель центрирована)
+      const boxAfter = new THREE.Box3().setFromObject(cloned);
+      cloned.position.y -= boxAfter.min.y;
+      // Летающие — поднимаем на 1.5м
+      if (typeId === "CACO") cloned.position.y += 1.5;
+      // Модель смотрит в +Z в блендере, а наш forward — −Z → поворачиваем на 180
+      cloned.rotation.y = Math.PI;
+      holder.add(cloned);
+
+      // Анимация: Run > Walk > Idle
+      if (animations && animations.length) {
+        const mixer = new THREE.AnimationMixer(cloned);
+        const pick = (names) => animations.find(c => names.some(n => c.name.toLowerCase().includes(n)));
+        const runClip = pick(["run"]) || pick(["walk"]) || pick(["idle"]) || animations[0];
+        if (runClip) mixer.clipAction(runClip).play();
+        group.userData.mixer = mixer;
+      }
+    }).catch(err => {
+      console.warn("[GLB] fallback to procedural for", typeId, err);
+      // Fallback — процедурный меш внутрь плейсхолдера
+      const proc = new THREE.Group();
+      buildBiped(proc, spec, bodyMat, typeId);
+      holder.add(proc);
+      group.userData.hasGlb = false;
+    });
+    return group;
+  }
 
   if (typeId === "CACO") {
     return buildCaco(group, spec, bodyMat);
@@ -346,6 +421,12 @@ function addHorns(group, style, headR, yTop, mat) {
 export function animateEnemy(mesh, dt, moving = true) {
   const u = mesh.userData;
   const t = performance.now() * 0.001;
+
+  // GLB-враги: тикаем скелетную анимацию и выходим
+  if (u.hasGlb) {
+    if (u.mixer) u.mixer.update(dt);
+    return;
+  }
 
   if (u.typeId === "CACO") {
     // Летающий: плавное покачивание
