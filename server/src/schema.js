@@ -72,6 +72,32 @@ type("string")(Pickup.prototype, "itemId");
 type("string")(Pickup.prototype, "handType");
 type("boolean")(Pickup.prototype, "taken");
 
+export class HubSlot extends Schema {
+  constructor() {
+    super();
+    this.pos = new Vec3();
+    this.kind = "";       // "" | "HAND" | "LEG" | "ITEM"
+    this.handType = "";   // FIREBALL_HAND / ICE_HAND / CHAIN_LIGHTNING_HAND
+    this.itemId = "";
+    this.empty = true;
+  }
+}
+type(Vec3)(HubSlot.prototype, "pos");
+type("string")(HubSlot.prototype, "kind");
+type("string")(HubSlot.prototype, "handType");
+type("string")(HubSlot.prototype, "itemId");
+type("boolean")(HubSlot.prototype, "empty");
+
+export class HubChest extends Schema {
+  constructor() {
+    super();
+    this.pos = new Vec3();
+    this.contents = new ArraySchema(); // строки "HAND:FIREBALL_HAND", "LEG:", "ITEM:xxx"
+  }
+}
+type(Vec3)(HubChest.prototype, "pos");
+type(["string"])(HubChest.prototype, "contents");
+
 export class GameState extends Schema {
   constructor() {
     super();
@@ -88,6 +114,9 @@ export class GameState extends Schema {
     this.dbgDamageMul = 1.0;
     this.dbgSpawnMul = 1.0;
     this.dbgInfiniteAmmo = false;
+    this.hubSlots = new ArraySchema();
+    this.hubChests = new ArraySchema();
+    this.hubReforgeSlots = new ArraySchema(); // до 3 строк типа "HAND:FIREBALL_HAND"
   }
 }
 type({ map: Player })(GameState.prototype, "players");
@@ -102,3 +131,6 @@ type("number")(GameState.prototype, "dbgSpeedMul");
 type("number")(GameState.prototype, "dbgDamageMul");
 type("number")(GameState.prototype, "dbgSpawnMul");
 type("boolean")(GameState.prototype, "dbgInfiniteAmmo");
+type([HubSlot])(GameState.prototype, "hubSlots");
+type([HubChest])(GameState.prototype, "hubChests");
+type(["string"])(GameState.prototype, "hubReforgeSlots");

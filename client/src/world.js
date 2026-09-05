@@ -68,7 +68,12 @@ export function setupHub(group) {
   floor.position.y = -0.15;
   group.add(floor);
 
-  // Пентаграмма убрана — пол в центре чистый
+  // АЛТАРЬ-ПЕРЕРАБОТЧИК в центре
+  const altar = createHubAltarMesh();
+  altar.position.set(0, 0, 0);
+  altar.userData.isHubAltar = true;
+  group.add(altar);
+  group.userData.hubAltar = altar;
 
   // ── ПОРТАЛ НА АРЕНУ (край хаба) ───────────────────────────
   const hubPortal = new THREE.Group();
@@ -631,6 +636,252 @@ function makeRuneTexture() {
 // ═══════════════════════════════════════════════════════════════════
 // УТИЛИТА: очистка группы
 // ═══════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// ХАБОВОЕ ХРАНИЛИЩЕ: слоты, сундуки, алтарь-переработчик
+// ═══════════════════════════════════════════════════════════════════
+
+// Постамент-слот (пустой vs с содержимым)
+export function createHubSlotMesh() {
+  const g = new THREE.Group();
+  // База (тёмный камень)
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.55, 0.65, 0.9, 12),
+    new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.85, flatShading: true })
+  );
+  base.position.y = 0.45;
+  g.add(base);
+  // Верхняя плита
+  const top = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.62, 0.55, 0.12, 12),
+    new THREE.MeshStandardMaterial({ color: 0x3a3540, roughness: 0.7, flatShading: true })
+  );
+  top.position.y = 0.96;
+  g.add(top);
+  // Подсветка "пусто" — тусклое кольцо снизу
+  const emptyRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.65, 0.85, 16),
+    new THREE.MeshBasicMaterial({ color: 0x3355aa, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false })
+  );
+  emptyRing.rotation.x = -Math.PI / 2;
+  emptyRing.position.y = 0.02;
+  g.add(emptyRing);
+  // Слот для контента (создаётся/удаляется по мере надобности)
+  g.userData.contentMount = new THREE.Group();
+  g.userData.contentMount.position.y = 1.15;
+  g.add(g.userData.contentMount);
+  g.userData.emptyRing = emptyRing;
+  return g;
+}
+
+// Создать 3D-визуал контента слота
+export function makeSlotContent(kind, handType) {
+  const g = new THREE.Group();
+  if (kind === "HAND") {
+    const color = handType === "FIRE" ? 0xff4400
+                : handType === "ICE" ? 0x66ccff
+                : handType === "BONE" ? 0xddccaa
+                : 0xaaaaaa;
+    const orb = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.28, 0),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.7, flatShading: true })
+    );
+    orb.position.y = 0.3;
+    g.add(orb);
+    // Ореол
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(0.45, 10, 6),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.2, depthWrite: false })
+    );
+    halo.position.y = 0.3;
+    g.add(halo);
+    g.userData.rotate = orb;
+  } else if (kind === "LEG") {
+    // Сапог: параллелепипед
+    const boot = new THREE.Mesh(
+      new THREE.BoxGeometry(0.45, 0.3, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x664422, roughness: 0.7, flatShading: true })
+    );
+    boot.position.y = 0.2;
+    g.add(boot);
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.13, 0.15, 0.4, 8),
+      new THREE.MeshStandardMaterial({ color: 0x554422, roughness: 0.7, flatShading: true })
+    );
+    shaft.position.set(0, 0.5, -0.15);
+    g.add(shaft);
+    g.userData.rotate = g;
+  } else if (kind === "ITEM") {
+    // Кольцо/талисман
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.22, 0.06, 8, 20),
+      new THREE.MeshStandardMaterial({ color: 0xffcc44, emissive: 0x774400, emissiveIntensity: 0.5, roughness: 0.4, metalness: 0.7 })
+    );
+    ring.position.y = 0.28;
+    ring.rotation.x = Math.PI / 2;
+    g.add(ring);
+    g.userData.rotate = ring;
+  }
+  return g;
+}
+
+export function createHubChestMesh() {
+  const g = new THREE.Group();
+  // Тело
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(1.4, 0.9, 0.9),
+    new THREE.MeshStandardMaterial({ color: 0x4a2f18, roughness: 0.85, flatShading: true })
+  );
+  body.position.y = 0.45;
+  g.add(body);
+  // Крышка
+  const lid = new THREE.Mesh(
+    new THREE.BoxGeometry(1.45, 0.25, 0.95),
+    new THREE.MeshStandardMaterial({ color: 0x5a3820, roughness: 0.7, flatShading: true })
+  );
+  lid.position.y = 1.02;
+  g.add(lid);
+  // Замок
+  const lock = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 0.25, 0.1),
+    new THREE.MeshStandardMaterial({ color: 0xd4a020, emissive: 0x442200, emissiveIntensity: 0.5, metalness: 0.6, roughness: 0.4 })
+  );
+  lock.position.set(0, 0.85, 0.5);
+  g.add(lock);
+  // Металлические полосы
+  for (const zx of [-0.4, 0.4]) {
+    const strap = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 1.0, 0.96),
+      new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.7, roughness: 0.5 })
+    );
+    strap.position.set(zx, 0.5, 0);
+    g.add(strap);
+  }
+  // Подсветка при непустом
+  const glow = new THREE.Mesh(
+    new THREE.RingGeometry(0.8, 1.1, 20),
+    new THREE.MeshBasicMaterial({ color: 0xffaa22, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })
+  );
+  glow.rotation.x = -Math.PI / 2;
+  glow.position.y = 0.02;
+  g.add(glow);
+  g.userData.glow = glow;
+  // Счётчик содержимого (text-sprite)
+  const cvs = document.createElement("canvas");
+  cvs.width = 128; cvs.height = 128;
+  const ctx = cvs.getContext("2d");
+  const tex = new THREE.CanvasTexture(cvs);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+  spr.scale.set(0.7, 0.7, 1);
+  spr.position.y = 1.6;
+  g.add(spr);
+  g.userData.countSprite = spr;
+  g.userData.countCtx = ctx;
+  g.userData.countTex = tex;
+  return g;
+}
+
+// Обновить счётчик содержимого сундука
+export function updateChestCount(mesh, n) {
+  const ctx = mesh.userData.countCtx;
+  const tex = mesh.userData.countTex;
+  if (!ctx) return;
+  ctx.clearRect(0, 0, 128, 128);
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.beginPath(); ctx.arc(64, 64, 44, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = n > 0 ? "#ffcc44" : "#888";
+  ctx.font = "bold 60px sans-serif";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(String(n), 64, 68);
+  tex.needsUpdate = true;
+  if (mesh.userData.glow) mesh.userData.glow.material.opacity = n > 0 ? 0.5 : 0.05;
+}
+
+// Алтарь-переработчик (в центре хаба, ярко-фиолетовый)
+export function createHubAltarMesh() {
+  const g = new THREE.Group();
+  // Основа-платформа
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.6, 1.8, 0.4, 8),
+    new THREE.MeshStandardMaterial({ color: 0x2a1a3a, roughness: 0.8, flatShading: true })
+  );
+  base.position.y = 0.2;
+  g.add(base);
+  // Средняя часть
+  const mid = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.0, 1.4, 0.5, 8),
+    new THREE.MeshStandardMaterial({ color: 0x3a2050, roughness: 0.7, flatShading: true })
+  );
+  mid.position.y = 0.65;
+  g.add(mid);
+  // Верхняя чаша
+  const bowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.1, 0.9, 0.35, 8),
+    new THREE.MeshStandardMaterial({ color: 0x5a3080, roughness: 0.6, emissive: 0x2a0050, emissiveIntensity: 0.4, flatShading: true })
+  );
+  bowl.position.y = 1.05;
+  g.add(bowl);
+  // Три подсветки — точки, куда «кладут» руки
+  const slotPositions = [];
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + Math.PI / 2;
+    const x = Math.cos(a) * 0.55;
+    const z = Math.sin(a) * 0.55;
+    const slot = new THREE.Mesh(
+      new THREE.CircleGeometry(0.22, 16),
+      new THREE.MeshBasicMaterial({ color: 0xaa55ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
+    );
+    slot.rotation.x = -Math.PI / 2;
+    slot.position.set(x, 1.24, z);
+    g.add(slot);
+    slotPositions.push({ x, z, y: 1.24, mesh: slot, content: null });
+  }
+  g.userData.reforgeSlots = slotPositions;
+  // Луч в небо (визуально ярко)
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.35, 6, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xcc88ff, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false })
+  );
+  beam.position.y = 4.2;
+  g.add(beam);
+  g.userData.beam = beam;
+  return g;
+}
+
+export function updateHubAltar(altar, slotContents, tSec) {
+  if (!altar || !altar.userData.reforgeSlots) return;
+  const slots = altar.userData.reforgeSlots;
+  const pulse = 0.5 + Math.sin(tSec * 2) * 0.3;
+  for (let i = 0; i < slots.length; i++) {
+    const raw = slotContents[i];
+    const desiredKind = raw ? String(raw).split(":")[0] : null;
+    const desiredHt = raw ? String(raw).split(":")[1] : null;
+    // Если уже есть визуал того же типа — оставить, иначе пересоздать
+    const cur = slots[i].content;
+    const key = desiredKind ? `${desiredKind}:${desiredHt||''}` : null;
+    if (cur && cur.userData.key !== key) { altar.remove(cur); slots[i].content = null; }
+    if (!cur || cur.userData.key !== key) {
+      if (desiredKind) {
+        const mesh = makeSlotContent(desiredKind, desiredHt);
+        mesh.userData.key = key;
+        mesh.position.set(slots[i].x, slots[i].y, slots[i].z);
+        mesh.scale.set(0.65, 0.65, 0.65);
+        altar.add(mesh);
+        slots[i].content = mesh;
+      }
+    }
+    if (slots[i].content && slots[i].content.userData.rotate) {
+      slots[i].content.userData.rotate.rotation.y += 0.02;
+      slots[i].content.position.y = slots[i].y + Math.sin(tSec * 3 + i) * 0.05;
+    }
+    slots[i].mesh.material.opacity = 0.4 + pulse * 0.35;
+  }
+  // Луч ярче когда все 3 слота заняты
+  if (altar.userData.beam) {
+    const filled = slotContents.filter(x => x).length;
+    altar.userData.beam.material.opacity = 0.12 + (filled / 3) * 0.4;
+  }
+}
+
 export function disposeGroup(obj) {
   obj.traverse(o => {
     if (o.geometry) o.geometry.dispose?.();

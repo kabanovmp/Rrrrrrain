@@ -1,5 +1,5 @@
 import colyseus from "colyseus";
-import { GameState, Player, Enemy, Pickup, Vec3 } from "./schema.js";
+import { GameState, Player, Enemy, Pickup, Vec3, HubSlot, HubChest } from "./schema.js";
 const { Room } = colyseus.default || colyseus;
 import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom } from "../../shared/index.js";
 
@@ -17,6 +17,7 @@ export class ArenaRoom extends Room {
     this.enemySeq = 0;
     this.pickupSeq = 0;
     this.spawnInitialPickups();
+    this.setupHubStorage();
     this.setSimulationInterval(dt => this.tick(dt / 1000), TICK_MS);
 
     this.onMessage("input", (client, msg) => {
@@ -112,10 +113,83 @@ export class ArenaRoom extends Room {
         const p = this.state.players.get(client.sessionId);
         if (p) { p.hasLeftHand = true; p.hasRightHand = true; p.leftHandType = "FIRE"; p.rightHandType = "ICE"; p.hasLegs = 2; }
       }
+      if (msg.action === "resetRun") {
+        this.state.phase = "hub";
+        this.state.wave = 0;
+        this.state.portalCharge = 0;
+        this.state.enemies.clear();
+        this.projectiles.length = 0;
+        // Игрокам сбросить руки/ноги/предметы, но хаб (hubSlots, hubChests) не трогаем
+        this.state.players.forEach(pl => {
+          pl.hasLeftHand = false; pl.leftHandType = "";
+          pl.hasRightHand = false; pl.rightHandType = "";
+          pl.hasLegs = 0;
+          pl.itemsInBody.clear();
+          pl.hp = pl.maxHp || 3; pl.isGhost = false;
+        });
+      }
       if (msg.action === "tpHub") { this.state.phase = "hub"; }
       if (msg.action === "tpArena") { this.state.phase = "arena"; if (this.startArena) this.startArena(); }
     });
 
+    // ── HUB: взять из слота или сундука ─────────────────────
+    this.onMessage("hub_take", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      if (this.state.phase !== "hub") return;
+      if (msg.source === "slot") {
+        const slot = this.state.hubSlots[msg.index];
+        if (!slot || slot.empty) return;
+        this.grantToPlayer(p, slot.kind, slot.handType, slot.itemId);
+        slot.kind = ""; slot.handType = ""; slot.itemId = ""; slot.empty = true;
+      } else if (msg.source === "chest") {
+        const chest = this.state.hubChests[msg.index];
+        if (!chest || chest.contents.length === 0) return;
+        const idx = Math.max(0, Math.min(chest.contents.length - 1, msg.item | 0));
+        const raw = chest.contents[idx];
+        const [kind, val] = String(raw).split(":");
+        const handType = kind === "HAND" ? (val || "") : "";
+        const itemId = kind === "ITEM" ? (val || "") : "";
+        this.grantToPlayer(p, kind, handType, itemId);
+        chest.contents.splice(idx, 1);
+      }
+    });
+
+    // ── HUB: reforge (положить/забрать/скрафтить) ────────────
+    this.onMessage("hub_reforge", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      if (this.state.phase !== "hub") return;
+      const list = this.state.hubReforgeSlots;
+      if (msg.op === "put_hand") {
+        // положить руку из руки (левой если есть, иначе правой)
+        if (list.length >= 3) return;
+        let ht = "";
+        if (p.hasLeftHand) { ht = p.leftHandType; p.hasLeftHand = false; p.leftHandType = ""; }
+        else if (p.hasRightHand) { ht = p.rightHandType; p.hasRightHand = false; p.rightHandType = ""; }
+        else return;
+        list.push("HAND:" + ht);
+      } else if (msg.op === "take") {
+        if (list.length === 0) return;
+        const raw = list.pop();
+        const [kind, val] = String(raw).split(":");
+        this.grantToPlayer(p, kind, kind === "HAND" ? val : "", kind === "ITEM" ? val : "");
+      } else if (msg.op === "craft") {
+        // 3 одинаковые руки → редкая (по правилу: FIRE+FIRE+FIRE → ICE, ICE×3 → BONE, BONE×3 → FIRE)
+        if (list.length < 3) return;
+        const parts = list.map(x => String(x).split(":"));
+        if (!parts.every(([k]) => k === "HAND")) return;
+        const type = parts[0][1];
+        if (!parts.every(([, t]) => t === type)) return;
+        const rotate = { "FIRE": "ICE", "ICE": "BONE", "BONE": "FIRE" };
+        const upgraded = rotate[type] || "FIRE";
+        list.clear();
+        // Кладём результат в первый свободный слот хаба или в сундук 0
+        this.depositToHub("HAND", upgraded, "");
+      }
+    });
+
+    // ── DEBUG: сброс забегов (не трогает хаб) ────────────────
     this.onMessage("chat", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
@@ -126,9 +200,14 @@ export class ArenaRoom extends Room {
 
     this.onMessage("phase", (_c, msg) => {
       if (msg.phase === "arena" || msg.phase === "hub" || msg.phase === "portal_ready") {
+        const prev = this.state.phase;
         this.state.phase = msg.phase;
         if (msg.phase === "arena") this.startArena();
-        if (msg.phase === "hub") this.resetArena();
+        if (msg.phase === "hub") {
+          this.resetArena();
+          // При возврате в хаб — авто-депозит всего, что игроки держат в руках (кроме первой пары)
+          if (prev !== "hub") this.autoDepositPlayerInventory();
+        }
       }
     });
   }
@@ -149,21 +228,109 @@ export class ArenaRoom extends Room {
     console.log(`[room] leave ${client.sessionId}. total=${this.state.players.size}`);
   }
 
-  spawnInitialPickups() {
-    const hubItems = [
-      { kind: "HAND", handType: "FIRE",  angle: 0.0 },
-      { kind: "HAND", handType: "BONE",  angle: Math.PI * 0.5 },
-      { kind: "LEG",                     angle: Math.PI },
-      { kind: "LEG",                     angle: Math.PI * 1.5 },
-      { kind: "ITEM", itemId: "SIGIL_DASH",  angle: Math.PI * 0.25 },
-      { kind: "ITEM", itemId: "RING_QUICK",  angle: Math.PI * 0.75 },
-      { kind: "ITEM", itemId: "BAND_SHIELD", angle: Math.PI * 1.25 },
-    ];
-    const HR = WORLD.HUB_RADIUS * 0.6;
-    for (const it of hubItems) this.addPickup({
-      kind: it.kind, itemId: it.itemId || "", handType: it.handType || "",
-      x: Math.cos(it.angle) * HR, y: 1.2, z: Math.sin(it.angle) * HR,
+  setupHubStorage() {
+    // 20 постаментов по кругу
+    const R = WORLD.HUB_RADIUS * 0.65;
+    for (let i = 0; i < 20; i++) {
+      const a = (i / 20) * Math.PI * 2;
+      const s = new HubSlot();
+      s.pos.x = Math.cos(a) * R;
+      s.pos.y = 1.0;
+      s.pos.z = Math.sin(a) * R;
+      s.empty = true;
+      this.state.hubSlots.push(s);
+    }
+    // 4 сундука в углах хаба (по диагонали)
+    const CR = WORLD.HUB_RADIUS * 0.85;
+    const chestAngles = [Math.PI / 4, Math.PI * 3 / 4, Math.PI * 5 / 4, Math.PI * 7 / 4];
+    for (const a of chestAngles) {
+      const c = new HubChest();
+      c.pos.x = Math.cos(a) * CR;
+      c.pos.y = 0.6;
+      c.pos.z = Math.sin(a) * CR;
+      this.state.hubChests.push(c);
+    }
+  }
+
+  // Положить пикап в первый свободный слот, иначе в первый непустой сундук
+  depositToHub(kind, handType, itemId) {
+    for (const s of this.state.hubSlots) {
+      if (s.empty) {
+        s.kind = kind || "";
+        s.handType = handType || "";
+        s.itemId = itemId || "";
+        s.empty = false;
+        return true;
+      }
+    }
+    // Все слоты заняты — в сундук с минимальным содержимым
+    let best = null, bestLen = Infinity;
+    for (const c of this.state.hubChests) {
+      if (c.contents.length < bestLen) { bestLen = c.contents.length; best = c; }
+    }
+    if (best) {
+      best.contents.push((kind || "") + ":" + (kind === "HAND" ? (handType || "") : (kind === "ITEM" ? (itemId || "") : "")));
+      return true;
+    }
+    return false;
+  }
+
+  // При возврате в хаб — снимаем с игроков всё, что они подобрали на арене,
+  // и раскладываем в слоты/сундуки. Игроки в хабе стартуют голыми (правило: "хаб пустой, без оружия").
+  autoDepositPlayerInventory() {
+    this.state.players.forEach(p => {
+      if (p.hasLeftHand) {
+        this.depositToHub("HAND", p.leftHandType, "");
+        p.hasLeftHand = false; p.leftHandType = "";
+      }
+      if (p.hasRightHand) {
+        this.depositToHub("HAND", p.rightHandType, "");
+        p.hasRightHand = false; p.rightHandType = "";
+      }
+      while (p.hasLegs > 0) {
+        this.depositToHub("LEG", "", "");
+        p.hasLegs--;
+      }
+      while (p.itemsInBody.length > 0) {
+        const it = p.itemsInBody.pop();
+        this.depositToHub("ITEM", "", it);
+      }
     });
+  }
+
+  grantToPlayer(p, kind, handType, itemId) {
+    if (kind === "HAND") {
+      if (!p.hasLeftHand) { p.hasLeftHand = true; p.leftHandType = handType || "FIRE"; }
+      else if (!p.hasRightHand) { p.hasRightHand = true; p.rightHandType = handType || "FIRE"; }
+      // если обе руки заняты — тихо игнорим (в реализации UI можно показать подсказку)
+    } else if (kind === "LEG") {
+      p.hasLegs = Math.min(2, (p.hasLegs || 0) + 1);
+    } else if (kind === "ITEM") {
+      if (itemId) p.itemsInBody.push(itemId);
+    }
+  }
+
+  spawnInitialPickups() {
+    // Хаб стартует пустым — постаменты слотов создаются в setupHubStorage,
+    // руки/предметы попадают в них только через забеги в арене.
+  }
+
+  // Стартовые пикапы для АРЕНЫ (при первом заходе на арену выпадают "с неба")
+  spawnArenaPickups() {
+    // Первая рука — гарантированно HAND (если ни у кого её нет)
+    const anyHand = [...this.state.players.values()].some(p => p.hasLeftHand || p.hasRightHand);
+    const R = WORLD.ARENA_RADIUS * 0.4;
+    const kinds = anyHand
+      ? [{ kind: "HAND", handType: "ICE" }, { kind: "LEG" }, { kind: "ITEM", itemId: "SIGIL_DASH" }]
+      : [{ kind: "HAND", handType: "FIRE" }, { kind: "HAND", handType: "ICE" }, { kind: "LEG" }, { kind: "ITEM", itemId: "SIGIL_DASH" }];
+    for (let i = 0; i < kinds.length; i++) {
+      const a = (i / kinds.length) * Math.PI * 2;
+      const k = kinds[i];
+      this.addPickup({
+        kind: k.kind, itemId: k.itemId || "", handType: k.handType || "",
+        x: Math.cos(a) * R, y: 1.2, z: Math.sin(a) * R,
+      });
+    }
   }
 
   addPickup({ kind, itemId, handType, x, y, z }) {
@@ -178,6 +345,9 @@ export class ArenaRoom extends Room {
   startArena() {
     this.state.wave = 1;
     this.state.portalCharge = 0;
+    // Очистить старые пикапы арены
+    this.state.pickups.clear();
+    this.spawnArenaPickups();
     this.state.enemies.clear();
     // v0.0.0.5: первая волна — только 3 IMP, без летающих
     this.spawnWaveOfType("IMP", 3);

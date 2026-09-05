@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, updateHubPortal, getHubPortalPos, animateDangerZones } from "./world.js";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar } from "./world.js";
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
 import { createHandsGroup, animateHands, setSpellInHand, showHandDamage, fadeHandCracks } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
@@ -203,6 +203,61 @@ function makePickupMesh(pk) {
     spellType = "ice";
   }
   return createPedestalMesh(pk.kind, spellType);
+}
+
+
+// ── Хабовое хранилище: 3D-меши слотов/сундуков ─────────
+const hubSlotMeshes = [];   // index → group
+const hubChestMeshes = [];  // index → group
+let hubStorageInitDone = false;
+
+function ensureHubStorageInit() {
+  if (hubStorageInitDone || !room || !room.state) return;
+  const slots = room.state.hubSlots;
+  const chests = room.state.hubChests;
+  if (!slots || !chests || slots.length === 0 || chests.length === 0) return;
+  slots.forEach((s, i) => {
+    const g = createHubSlotMesh();
+    g.position.set(s.pos.x, 0, s.pos.z);
+    hubGroup.add(g);
+    hubSlotMeshes[i] = g;
+    refreshSlotContent(i, s);
+    if (typeof s.onChange === "function") s.onChange(() => refreshSlotContent(i, s));
+  });
+  chests.forEach((c, i) => {
+    const g = createHubChestMesh();
+    g.position.set(c.pos.x, 0, c.pos.z);
+    hubGroup.add(g);
+    hubChestMeshes[i] = g;
+    updateChestCount(g, c.contents.length);
+    if (c.contents && typeof c.contents.onChange === "function") {
+      c.contents.onChange(() => updateChestCount(g, c.contents.length));
+    }
+    if (c.contents && typeof c.contents.onAdd === "function") {
+      c.contents.onAdd(() => updateChestCount(g, c.contents.length));
+    }
+    if (c.contents && typeof c.contents.onRemove === "function") {
+      c.contents.onRemove(() => updateChestCount(g, c.contents.length));
+    }
+  });
+  hubStorageInitDone = true;
+}
+
+function refreshSlotContent(i, s) {
+  const g = hubSlotMeshes[i];
+  if (!g) return;
+  const mount = g.userData.contentMount;
+  while (mount.children.length) {
+    const c = mount.children[0];
+    mount.remove(c); disposeGroup(c);
+  }
+  if (!s.empty) {
+    const content = makeSlotContent(s.kind, s.handType);
+    mount.add(content);
+    g.userData.emptyRing.material.opacity = 0.15;
+  } else {
+    g.userData.emptyRing.material.opacity = 0.35;
+  }
 }
 
 // FX
@@ -458,6 +513,13 @@ function setupRoomHandlers() {
     const m = pickupMeshes.get(id); if (m) { hubGroup.remove(m); disposeGroup(m); pickupMeshes.delete(id); }
   });
 
+  // Инициализация хаб-хранилища (после того как схема пришла)
+  ensureHubStorageInit();
+  room.onStateChange((_state) => {
+    if (!hubStorageInitDone) ensureHubStorageInit();
+  });
+
+
   // ── Фаза (хаб/арена) ──────────────────────────────────────
   room.state.listen("phase", (v) => {
     hubGroup.visible = v === "hub";
@@ -597,6 +659,7 @@ document.addEventListener("keydown", (ev) => {
   if (ev.code === "Escape") controller.releasePointer();
   // R-респ убран — теперь в дебаг-панели
   if (ev.code === "KeyF") {
+    // 1) На арене или в хабе — пикапы приоритетнее
     let bestId = null, bestD = Infinity;
     pickupMeshes.forEach((m, id) => {
       const pk = room.state.pickups.get(id);
@@ -607,6 +670,64 @@ document.addEventListener("keydown", (ev) => {
     if (bestId) {
       room.send("pickup", { id: bestId });
       playSound("pickup");
+      return;
+    }
+    // 2) В хабе — слоты, сундуки, алтарь
+    if (room.state.phase === "hub") {
+      // Ближайший слот
+      let bestSlot = -1, bsD = 3;
+      hubSlotMeshes.forEach((g, i) => {
+        const d = g.position.distanceTo(controller.position);
+        if (d < bsD) { bsD = d; bestSlot = i; }
+      });
+      // Ближайший сундук
+      let bestChest = -1, bcD = 3;
+      hubChestMeshes.forEach((g, i) => {
+        const d = g.position.distanceTo(controller.position);
+        if (d < bcD) { bcD = d; bestChest = i; }
+      });
+      // Алтарь (центр)
+      const altarD = Math.hypot(controller.position.x, controller.position.z);
+      const nearAltar = altarD < 3;
+      // Приоритет: ближайшее из трёх
+      const cands = [];
+      if (bestSlot >= 0) cands.push({ kind: "slot", i: bestSlot, d: bsD });
+      if (bestChest >= 0) cands.push({ kind: "chest", i: bestChest, d: bcD });
+      if (nearAltar) cands.push({ kind: "altar", d: altarD });
+      cands.sort((a, b) => a.d - b.d);
+      const c = cands[0];
+      if (!c) return;
+      if (c.kind === "slot") {
+        const slot = room.state.hubSlots[c.i];
+        if (slot && !slot.empty) {
+          room.send("hub_take", { source: "slot", index: c.i });
+          playSound("pickup");
+        }
+      } else if (c.kind === "chest") {
+        const chest = room.state.hubChests[c.i];
+        if (chest && chest.contents.length > 0) {
+          room.send("hub_take", { source: "chest", index: c.i, item: chest.contents.length - 1 });
+          playSound("pickup");
+        }
+      } else if (c.kind === "altar") {
+        // По F возле алтаря: если у меня есть рука — положить, иначе забрать (если что-то есть)
+        const list = room.state.hubReforgeSlots;
+        if (myPlayer && (myPlayer.hasLeftHand || myPlayer.hasRightHand) && list.length < 3) {
+          room.send("hub_reforge", { op: "put_hand" });
+          playSound("pickup");
+        } else if (list.length > 0) {
+          room.send("hub_reforge", { op: "take" });
+          playSound("pickup");
+        }
+      }
+    }
+  }
+  // G — скрафтить в алтаре (если стоишь рядом и 3 руки одного типа)
+  if (ev.code === "KeyG" && room.state.phase === "hub") {
+    const altarD = Math.hypot(controller.position.x, controller.position.z);
+    if (altarD < 3 && room.state.hubReforgeSlots.length === 3) {
+      room.send("hub_reforge", { op: "craft" });
+      playSound("teleport");
     }
   }
   // E-телепорт убран — телепортация только через порталы или дебаг-панель
@@ -727,6 +848,68 @@ function handlePortalTriggers(dt) {
   }
 }
 
+
+// Подсказка о взаимодействии с хаб-объектами
+function updateHubInteractionHint() {
+  if (!room || !myPlayer || room.state.phase !== "hub") return;
+  // Проверяем ближайший объект хаба
+  let nearest = null, nd = 2.8;
+  hubSlotMeshes.forEach((g, i) => {
+    const d = g.position.distanceTo(controller.position);
+    if (d < nd) {
+      const slot = room.state.hubSlots[i];
+      if (!slot) return;
+      nd = d;
+      nearest = slot.empty
+        ? { text: `постамент #${i+1}: пусто`, faint: true }
+        : { text: `[F] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}` };
+    }
+  });
+  hubChestMeshes.forEach((g, i) => {
+    const d = g.position.distanceTo(controller.position);
+    if (d < nd) {
+      const chest = room.state.hubChests[i];
+      if (!chest) return;
+      nd = d;
+      nearest = chest.contents.length > 0
+        ? { text: `[F] взять из сундука (осталось: ${chest.contents.length})` }
+        : { text: "сундук пуст", faint: true };
+    }
+  });
+  const altarD = Math.hypot(controller.position.x, controller.position.z);
+  if (altarD < nd) {
+    nd = altarD;
+    const list = room.state.hubReforgeSlots;
+    const filled = list.length;
+    if (filled === 3) {
+      // Проверим готовность крафта
+      const parts = [...list].map(x => String(x).split(":"));
+      const same = parts.every(([k]) => k === "HAND") && parts.every(([, t]) => t === parts[0][1]);
+      nearest = same
+        ? { text: `алтарь: [G] переработать 3×${parts[0][1]} → редкое` }
+        : { text: "алтарь: положены разные — [F] забрать, нужны 3 одинаковых" };
+    } else if (filled > 0) {
+      nearest = { text: `алтарь: ${filled}/3 · [F] положить/забрать` };
+    } else if (myPlayer.hasLeftHand || myPlayer.hasRightHand) {
+      nearest = { text: "алтарь: [F] положить руку (нужно 3 одинаковых)" };
+    } else {
+      nearest = { text: "алтарь-переработчик: 3 одинаковых руки → редкая", faint: true };
+    }
+  }
+  if (nearest) {
+    hintText.textContent = nearest.text;
+    hintText.style.opacity = nearest.faint ? 0.6 : 1.0;
+    hintTimer = 0.2;
+  }
+}
+
+function slotLabel(kind, handType, itemId) {
+  if (kind === "HAND") return `руку (${handType || "?"})`;
+  if (kind === "LEG") return "ногу";
+  if (kind === "ITEM") return `предмет (${itemId || "?"})`;
+  return "предмет";
+}
+
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   controller.update(dt, myPlayer);
@@ -810,6 +993,11 @@ function animate() {
     updateArenaPortal(arenaGroup, room.state.phase === "portal_ready", tSec);
     updateHubPortal(hubGroup, tSec);
     animateDangerZones(arenaGroup, tSec);
+    // Алтарь-переработчик
+    if (hubGroup.userData.hubAltar && room.state.hubReforgeSlots) {
+      updateHubAltar(hubGroup.userData.hubAltar, [...room.state.hubReforgeSlots], tSec);
+    }
+    updateHubInteractionHint();
     handlePortalTriggers(dt);
   }
 
