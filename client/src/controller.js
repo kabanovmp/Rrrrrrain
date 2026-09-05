@@ -18,8 +18,23 @@ export class FpsController {
     this.dashCd = 0;
 
     this.keys = {};
-    document.addEventListener("keydown", (e) => (this.keys[e.code] = true));
+    document.addEventListener("keydown", (e) => {
+      // Перехват Ctrl+W — браузер обычно не даёт, но в pointer-lock шанс есть
+      if (e.ctrlKey && (e.code === "KeyW" || e.code === "KeyR" || e.code === "KeyT")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      this.keys[e.code] = true;
+    }, true);
     document.addEventListener("keyup",   (e) => (this.keys[e.code] = false));
+    // Warn при попытке закрыть вкладку — если всё-таки прошло
+    window.addEventListener("beforeunload", (e) => {
+      if (document.pointerLockElement) {
+        e.preventDefault();
+        e.returnValue = "Выйти из игры?";
+        return "Выйти из игры?";
+      }
+    });
 
     canvas.addEventListener("click", () => canvas.requestPointerLock());
     document.addEventListener("mousemove", (e) => {
