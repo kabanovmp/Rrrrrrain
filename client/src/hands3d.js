@@ -140,6 +140,56 @@ function createOneHand(skinMat, armorMat, side) {
 }
 
 // ── Показать/скрыть заклинание в ладони ───────────────────────────
+// Трещины на руках (вместо красного экрана)
+export function showHandDamage(handsGroup, ttl = 1.2) {
+  for (const key of ["left", "right"]) {
+    const hand = handsGroup.userData[key + "Hand"];
+    if (!hand) continue;
+    let crack = hand.userData.crack;
+    if (!crack) {
+      const cnv = document.createElement("canvas");
+      cnv.width = cnv.height = 128;
+      const ctx = cnv.getContext("2d");
+      ctx.clearRect(0, 0, 128, 128);
+      ctx.strokeStyle = "rgba(200,30,30,0.95)";
+      ctx.shadowColor = "rgba(255,60,60,0.8)";
+      ctx.shadowBlur = 3;
+      ctx.lineWidth = 2;
+      for (let n = 0; n < 5; n++) {
+        let x = 40 + Math.random() * 50, y = 20 + Math.random() * 80;
+        ctx.beginPath(); ctx.moveTo(x, y);
+        for (let s = 0; s < 4; s++) {
+          x += (Math.random() - 0.5) * 30;
+          y += (Math.random() - 0.5) * 30;
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      const tex = new THREE.CanvasTexture(cnv);
+      tex.needsUpdate = true;
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.95, depthWrite: false });
+      crack = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.15), mat);
+      crack.position.set(0, 0.045, 0.09);
+      crack.rotation.x = -Math.PI / 2 + 0.3;
+      hand.add(crack);
+      hand.userData.crack = crack;
+    }
+    crack.material.opacity = 0.95;
+    crack.userData.ttl = ttl;
+  }
+}
+
+export function fadeHandCracks(handsGroup, dt) {
+  for (const key of ["left", "right"]) {
+    const hand = handsGroup.userData[key + "Hand"];
+    const crack = hand?.userData?.crack;
+    if (!crack) continue;
+    crack.userData.ttl = (crack.userData.ttl || 0) - dt;
+    if (crack.userData.ttl <= 0) crack.material.opacity = 0;
+    else crack.material.opacity = Math.min(0.95, crack.userData.ttl);
+  }
+}
+
 export function setSpellInHand(handsGroup, side, spellType) {
   const key = side === -1 ? "left" : "right";
   const hand = side === -1 ? handsGroup.userData.leftHand : handsGroup.userData.rightHand;

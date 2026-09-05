@@ -90,6 +90,32 @@ export class ArenaRoom extends Room {
       this.broadcast("fx", { type: "respawn", target: client.sessionId });
     });
 
+    this.onMessage("debug", (client, msg) => {
+      if (!msg || typeof msg !== "object") return;
+      const s = this.state;
+      if (typeof msg.god === "boolean") s.dbgGodMode = msg.god;
+      if (typeof msg.infAmmo === "boolean") s.dbgInfiniteAmmo = msg.infAmmo;
+      if (typeof msg.speedMul === "number") s.dbgSpeedMul = Math.max(0.1, Math.min(10, msg.speedMul));
+      if (typeof msg.damageMul === "number") s.dbgDamageMul = Math.max(0.1, Math.min(20, msg.damageMul));
+      if (typeof msg.spawnMul === "number") s.dbgSpawnMul = Math.max(0, Math.min(10, msg.spawnMul));
+      if (msg.action === "respawn") {
+        const p = this.state.players.get(client.sessionId);
+        if (p) { p.hp = p.maxHp || 2; p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: client.sessionId }); }
+      }
+      if (msg.action === "respawnAll") {
+        this.state.players.forEach((p, sid) => { p.hp = p.maxHp || 2; p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: sid }); });
+      }
+      if (msg.action === "killAllEnemies") {
+        this.state.enemies.forEach(e => { if (e.alive) this.damageEnemy(e, 9999); });
+      }
+      if (msg.action === "giveHands") {
+        const p = this.state.players.get(client.sessionId);
+        if (p) { p.hasLeftHand = true; p.hasRightHand = true; p.leftHandType = "FIRE"; p.rightHandType = "ICE"; p.hasLegs = 2; }
+      }
+      if (msg.action === "tpHub") { this.state.phase = "hub"; }
+      if (msg.action === "tpArena") { this.state.phase = "arena"; if (this.startArena) this.startArena(); }
+    });
+
     this.onMessage("chat", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
@@ -177,7 +203,9 @@ export class ArenaRoom extends Room {
 
   spawnWaveOfType(typeId, count) {
     const frontAngle = this.getPlayerFrontAngle();
-    for (let i = 0; i < count; i++) {
+    const mul = this.state.dbgSpawnMul == null ? 1 : this.state.dbgSpawnMul;
+    const finalCount = Math.max(0, Math.round(count * mul));
+    for (let i = 0; i < finalCount; i++) {
       const spread = (Math.random() - 0.5) * (Math.PI * 2 / 3);
       this.addEnemyAt(typeId, frontAngle + spread);
     }
@@ -192,7 +220,8 @@ export class ArenaRoom extends Room {
       this.addEnemyAt("PINKY", frontAngle + (Math.random()-0.5) * Math.PI);
     } else if (waveNum >= 3) {
       // волна 3+: добавляются CACO (летающие)
-      const count = 3 + waveNum;
+      const mul = this.state.dbgSpawnMul == null ? 1 : this.state.dbgSpawnMul;
+      const count = Math.max(0, Math.round((3 + waveNum) * mul));
       for (let i = 0; i < count; i++) {
         const roll = Math.random();
         const type = roll < 0.5 ? "IMP" : roll < 0.8 ? "PINKY" : "CACO";
@@ -229,11 +258,12 @@ export class ArenaRoom extends Room {
 
   damageEnemy(e, dmg) {
     if (!e.alive) return;
-    e.hp -= dmg;
+    e.hp -= dmg * (this.state.dbgDamageMul || 1);
     // Звук попадания
     this.broadcast("fx", { type: "hit_enemy", x: e.pos.x, y: e.pos.y, z: e.pos.z });
     if (e.hp <= 0) {
       e.alive = false;
+      this.broadcast("fx", { type: "enemy_die", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: e.enemyType });
       this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + 1);
       if (this.state.portalCharge >= this.state.portalTarget) this.state.phase = "portal_ready";
       const idEntry = [...this.state.enemies.entries()].find(([, v]) => v === e);
@@ -243,6 +273,7 @@ export class ArenaRoom extends Room {
 
   damagePlayer(p, dmg, sessionId, fromX = 0, fromZ = 0) {
     if (p.hp <= 0 || p.isGhost) return;
+    if (this.state.dbgGodMode) return;
     p.hp -= dmg;
     if (p.hp <= 0) {
       p.isGhost = true;

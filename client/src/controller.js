@@ -55,6 +55,9 @@ export class FpsController {
     }
     let speed = baseSpeed;
     if (this.dashTimer > 0) { speed = WORLD.DASH_SPEED; this.dashTimer -= dt; }
+    // Дебаг: множитель скорости
+    const mul = window.room?.state?.dbgSpeedMul;
+    if (mul && mul !== 1) speed *= mul;
     this.dashCd = Math.max(0, this.dashCd - dt);
 
     this.vel.x = move.x * speed;

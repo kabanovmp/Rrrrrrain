@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Rrrrrrain — v0.0.0.24</title>
+  <title>Rrrrrrain — v0.0.0.25</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #eee; font-family: 'Courier New', monospace; }
@@ -43,9 +43,36 @@
   <div id="crosshair" style="display:none"></div>
   <div id="status"></div>
   <div id="dead">ты призрак · воскрешение через дебаг-панель (~)</div>
+  <div id="debug-panel" style="display:none;position:fixed;top:20px;right:20px;width:280px;background:rgba(10,10,15,0.92);border:1px solid #445;border-radius:6px;padding:14px;color:#dde;font-family:'Courier New',monospace;font-size:12px;z-index:100;pointer-events:auto;">
+    <div style="font-weight:bold;color:#8bf;margin-bottom:8px;border-bottom:1px solid #445;padding-bottom:6px;">DEBUG (~ — закрыть)</div>
+    <div style="opacity:.6;margin-bottom:8px;font-size:10px;">все настройки синхронны между игроками</div>
+    <label style="display:flex;align-items:center;margin-bottom:6px;gap:8px;"><input type="checkbox" id="dbg-god"> бессмертие</label>
+    <label style="display:flex;align-items:center;margin-bottom:6px;gap:8px;"><input type="checkbox" id="dbg-ammo"> бесконечные касты</label>
+    <div style="margin:8px 0;">
+      скорость: <span id="dbg-speed-v">1.0</span>x<br>
+      <input type="range" id="dbg-speed" min="0.5" max="5" step="0.5" value="1" style="width:100%;">
+    </div>
+    <div style="margin:8px 0;">
+      урон: <span id="dbg-dmg-v">1.0</span>x<br>
+      <input type="range" id="dbg-dmg" min="0.5" max="10" step="0.5" value="1" style="width:100%;">
+    </div>
+    <div style="margin:8px 0;">
+      спавн врагов: <span id="dbg-spawn-v">1.0</span>x<br>
+      <input type="range" id="dbg-spawn" min="0" max="5" step="0.5" value="1" style="width:100%;">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;">
+      <button data-act="respawn" class="dbg-btn">воскресить</button>
+      <button data-act="respawnAll" class="dbg-btn">всех</button>
+      <button data-act="killAllEnemies" class="dbg-btn">убить врагов</button>
+      <button data-act="giveHands" class="dbg-btn">выдать руки</button>
+      <button data-act="tpHub" class="dbg-btn">в хаб</button>
+      <button data-act="tpArena" class="dbg-btn">на арену</button>
+    </div>
+  </div>
+  <style>.dbg-btn { background:#334; color:#dde; border:1px solid #556; padding:6px; cursor:pointer; font-size:11px; font-family:inherit; border-radius:3px; } .dbg-btn:hover { background:#445; }</style>
   <div id="menu">
     <h1>RRRRRRAIN</h1>
-    <p>кооп-прототип · v0.0.0.24</p>
+    <p>кооп-прототип · v0.0.0.25</p>
     <div class="row">
       <input id="name" placeholder="твоё имя" value="sgustok" maxlength="20" />
     </div>

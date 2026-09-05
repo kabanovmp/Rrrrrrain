@@ -82,6 +82,12 @@ export class GameState extends Schema {
     this.portalCharge = 0;
     this.portalTarget = 20;
     this.phase = "hub"; // "hub" | "arena" | "portal_ready"
+    // Debug (синхронно всем)
+    this.dbgGodMode = false;
+    this.dbgSpeedMul = 1.0;
+    this.dbgDamageMul = 1.0;
+    this.dbgSpawnMul = 1.0;
+    this.dbgInfiniteAmmo = false;
   }
 }
 type({ map: Player })(GameState.prototype, "players");
@@ -91,3 +97,8 @@ type("number")(GameState.prototype, "wave");
 type("number")(GameState.prototype, "portalCharge");
 type("number")(GameState.prototype, "portalTarget");
 type("string")(GameState.prototype, "phase");
+type("boolean")(GameState.prototype, "dbgGodMode");
+type("number")(GameState.prototype, "dbgSpeedMul");
+type("number")(GameState.prototype, "dbgDamageMul");
+type("number")(GameState.prototype, "dbgSpawnMul");
+type("boolean")(GameState.prototype, "dbgInfiniteAmmo");

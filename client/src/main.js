@@ -3,7 +3,7 @@ import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
 import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, updateHubPortal, getHubPortalPos } from "./world.js";
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
-import { createHandsGroup, animateHands, setSpellInHand } from "./hands3d.js";
+import { createHandsGroup, animateHands, setSpellInHand, showHandDamage, fadeHandCracks } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
 import { createPedestalMesh, animatePedestal } from "./pedestal.js";
 import { FpsController } from "./controller.js";
@@ -85,6 +85,53 @@ function addChatMessage(name, text, self = false) {
   // Ограничение на число видимых
   while (chatBox.children.length > 10) chatBox.children[0].remove();
 }
+// ── ДЕБАГ-ПАНЕЛЬ ──────────────────────────────────────
+const debugPanel = document.getElementById("debug-panel");
+let debugOpen = false;
+function toggleDebugPanel() {
+  debugOpen = !debugOpen;
+  debugPanel.style.display = debugOpen ? "block" : "none";
+  if (debugOpen) { if (window.controller?.releasePointer) window.controller.releasePointer(); }
+  else { if (window.controller?.enable) window.controller.enable(); }
+}
+function sendDebug(payload) {
+  if (window.room) window.room.send("debug", payload);
+}
+// Привязка обработчиков (после DOMContentLoaded — но HTML уже в памяти)
+(function initDebugPanel() {
+  const god = document.getElementById("dbg-god");
+  const ammo = document.getElementById("dbg-ammo");
+  const speed = document.getElementById("dbg-speed");
+  const dmg = document.getElementById("dbg-dmg");
+  const spawn = document.getElementById("dbg-spawn");
+  if (!god) return;
+  god.addEventListener("change", () => sendDebug({ god: god.checked }));
+  ammo.addEventListener("change", () => sendDebug({ infAmmo: ammo.checked }));
+  speed.addEventListener("input", () => {
+    document.getElementById("dbg-speed-v").textContent = speed.value;
+    sendDebug({ speedMul: parseFloat(speed.value) });
+  });
+  dmg.addEventListener("input", () => {
+    document.getElementById("dbg-dmg-v").textContent = dmg.value;
+    sendDebug({ damageMul: parseFloat(dmg.value) });
+  });
+  spawn.addEventListener("input", () => {
+    document.getElementById("dbg-spawn-v").textContent = spawn.value;
+    sendDebug({ spawnMul: parseFloat(spawn.value) });
+  });
+  document.querySelectorAll(".dbg-btn").forEach(b => {
+    b.addEventListener("click", () => sendDebug({ action: b.dataset.act }));
+  });
+})();
+// Синхронизация панели с серверным состоянием (вызвать после подключения)
+function syncDebugPanelFromState(state) {
+  const g = document.getElementById("dbg-god"); if (g) g.checked = !!state.dbgGodMode;
+  const a = document.getElementById("dbg-ammo"); if (a) a.checked = !!state.dbgInfiniteAmmo;
+  const sp = document.getElementById("dbg-speed"); if (sp && state.dbgSpeedMul) { sp.value = state.dbgSpeedMul; document.getElementById("dbg-speed-v").textContent = state.dbgSpeedMul; }
+  const dm = document.getElementById("dbg-dmg"); if (dm && state.dbgDamageMul) { dm.value = state.dbgDamageMul; document.getElementById("dbg-dmg-v").textContent = state.dbgDamageMul; }
+  const sw = document.getElementById("dbg-spawn"); if (sw && state.dbgSpawnMul != null) { sw.value = state.dbgSpawnMul; document.getElementById("dbg-spawn-v").textContent = state.dbgSpawnMul; }
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -187,6 +234,46 @@ function spawnShotFx(x, y, z, color, dx = 0, dy = 0, dz = 0) {
   scene.add(ring);
   shots.push({ mesh: ring, ttl: 0.35, maxTtl: 0.35, vx: 0, vy: 0, vz: 0 });
 }
+// Красивый эффект смерти врага: вспышка + частицы + восходящий дым
+function spawnDeathBurst(x, y, z, kind) {
+  const isColossus = kind === "COLOSSUS";
+  const scale = isColossus ? 2.6 : 1;
+  // Ядро — яркая вспышка
+  const flash = new THREE.Mesh(
+    new THREE.SphereGeometry(0.6 * scale, 12, 8),
+    new THREE.MeshBasicMaterial({ color: 0xff8833, transparent: true, opacity: 0.9 })
+  );
+  flash.position.set(x, y, z);
+  scene.add(flash);
+  shots.push({ mesh: flash, ttl: 0.35, maxTtl: 0.35, vx: 0, vy: 0, vz: 0 });
+  // Частицы (кровь/искры)
+  const cnt = isColossus ? 24 : 12;
+  for (let i = 0; i < cnt; i++) {
+    const c = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09 * scale, 6, 4),
+      new THREE.MeshBasicMaterial({ color: 0x992222 })
+    );
+    c.position.set(x, y, z);
+    const a = Math.random() * Math.PI * 2;
+    const s = 2 + Math.random() * 4;
+    const vy = 1.5 + Math.random() * 3;
+    scene.add(c);
+    shots.push({
+      mesh: c, ttl: 0.9, maxTtl: 0.9,
+      vx: Math.cos(a) * s, vy, vz: Math.sin(a) * s, gravity: 6,
+    });
+  }
+  // Дымовое кольцо
+  const smoke = new THREE.Mesh(
+    new THREE.RingGeometry(0.2, 1.2 * scale, 20),
+    new THREE.MeshBasicMaterial({ color: 0x666666, transparent: true, opacity: 0.55, side: THREE.DoubleSide })
+  );
+  smoke.position.set(x, y + 0.05, z);
+  smoke.rotation.x = -Math.PI / 2;
+  scene.add(smoke);
+  shots.push({ mesh: smoke, ttl: 1.1, maxTtl: 1.1, vx: 0, vy: 0.4, vz: 0 });
+}
+
 function spawnWaveFx(x, y, z, r) {
   const m = new THREE.Mesh(
     new THREE.RingGeometry(0.2, r, 24),
@@ -202,6 +289,7 @@ function spawnWaveFx(x, y, z, r) {
 // КОНТРОЛЛЕР, СЕТЬ
 // ═══════════════════════════════════════════════════════════════════
 const controller = new FpsController(camera, canvas);
+window.controller = controller;
 let client, room, selfId, myPlayer = null, lastHpSeen = 3;
 let deathTimer = 0;
 let ambientLoop = null;
@@ -219,6 +307,11 @@ document.getElementById("play").addEventListener("click", async () => {
     initAudio(); // разбудить AudioContext сразу после клика
     client = new Client(url);
     room = await client.joinOrCreate(NET.ROOM_NAME, { name });
+    window.room = room;
+    // Панель синхронизируется при первом получении состояния
+    room.onStateChange.once((state) => syncDebugPanelFromState(state));
+    // Обновления тоже маппать
+    room.onStateChange((state) => { if (!debugOpen) syncDebugPanelFromState(state); });
     selfId = room.sessionId;
     menu.style.display = "none";
     crosshair.style.display = "block";
@@ -400,6 +493,8 @@ function setupRoomHandlers() {
       playSound("fireball_impact", { volume: 0.35 });
     }
     else if (msg.type === "hurt" && msg.target === selfId) {
+      // Трещины на руках вместо красного экрана
+      if (handsRoot) showHandDamage(handsRoot, 1.5);
       flashCracks();
       if (typeof msg.fromX === "number" && myPlayer) {
         const dx = msg.fromX - myPlayer.pos.x;
@@ -411,6 +506,10 @@ function setupRoomHandlers() {
     else if (msg.type === "hit_enemy") {
       // Сервер шлёт для звука попадания
       playSound("enemy_hit");
+    }
+    else if (msg.type === "enemy_die") {
+      spawnDeathBurst(msg.x, msg.y, msg.z, msg.kind);
+      playSound("enemy_death");
     }
     else if (msg.type === "death" && msg.target === selfId) {
       deadHud.classList.add("on");
@@ -489,6 +588,12 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (chatOpen) return; // пока открыт чат — остальные вводы игнорируем
+  // Тильда — дебаг-панель
+  if (ev.code === "Backquote") {
+    toggleDebugPanel();
+    ev.preventDefault();
+    return;
+  }
   if (ev.code === "Escape") controller.releasePointer();
   // R-респ убран — теперь в дебаг-панели
   if (ev.code === "KeyF") {
@@ -711,6 +816,7 @@ function animate() {
       s.mesh.position.y += s.vy * dt;
       s.mesh.position.z += s.vz * dt;
     }
+    if (s.gravity) { s.vy -= s.gravity * dt; }
     if (s.mesh.material) {
       s.mesh.material.opacity = Math.max(0, s.ttl / s.maxTtl);
       s.mesh.material.transparent = true;
@@ -725,14 +831,15 @@ function animate() {
   }
   if (dmgTimer > 0) {
     dmgTimer -= dt;
-    dmgOverlay.style.opacity = Math.max(0, dmgTimer / 0.6);
-    dmgOverlay.style.background = `radial-gradient(circle at ${50 + Math.sin(dmgAngle)*45}% ${50 - Math.cos(dmgAngle)*45}%, rgba(255,20,20,0.6) 0%, transparent 40%)`;
+    // Красный экранный overlay убран — трещины на руках вместо этого (в hands3d)
+    dmgOverlay.style.opacity = 0;
   } else {
     dmgOverlay.style.opacity = 0;
   }
 
   // ── Анимация рук ─────────────────────────────────────
   animateHands(handsRoot, dt, { moving: moved });
+  fadeHandCracks(handsRoot, dt);
 
   drawRadar();
   renderer.render(scene, camera);
