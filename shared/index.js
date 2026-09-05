@@ -3,7 +3,7 @@
 
 export const NET = {
   TICK_RATE: 20,                 // server broadcast Hz
-  PLAYER_SEND_HZ: 20,            // client input send rate
+  PLAYER_SEND_HZ: 30,            // client input send rate (повышено для меньшего рассинхрона yaw)
   ROOM_NAME: "arena",
   MAX_PLAYERS: 8,
 };

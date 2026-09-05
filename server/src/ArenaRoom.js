@@ -607,7 +607,7 @@ export class ArenaRoom extends Room {
       }
     }
     // Звук попадания
-    this.broadcast("fx", { type: "hit_enemy", x: e.pos.x, y: e.pos.y, z: e.pos.z });
+    this.broadcast("fx", { type: "hit_enemy", x: e.pos.x, y: e.pos.y, z: e.pos.z, dmg: actualDmg });
     if (e.hp <= 0) {
       e.alive = false;
       this.broadcast("fx", { type: "enemy_die", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: e.enemyType });
@@ -630,6 +630,7 @@ export class ArenaRoom extends Room {
     // В хабе урона нет (мобы не атакуют)
     if (this.state.phase !== "arena" && this.state.phase !== "portal_ready") return;
     p.hp -= dmg;
+    p._lastDmgAt = Date.now(); // для HP-регенерации вне боя
     if (p.hp <= 0) {
       p.hp = 0;
       // Считаем других ЖИВЫХ игроков на арене (не призраков, с HP > 0), кроме меня
@@ -676,6 +677,18 @@ export class ArenaRoom extends Room {
   }
 
   tick(dt) {
+    // HP-регенерация вне боя: +1 HP/с после 5с без урона
+    const nowMs = Date.now();
+    this.state.players.forEach(p => {
+      if (p.isGhost || p.hp <= 0 || p.hp >= p.maxHp) return;
+      const last = p._lastDmgAt || 0;
+      if (nowMs - last < 5000) return;
+      p._regenAcc = (p._regenAcc || 0) + dt;
+      if (p._regenAcc >= 1.0) {
+        p._regenAcc -= 1.0;
+        p.hp = Math.min(p.maxHp, p.hp + 1);
+      }
+    });
     // Снаряды
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];

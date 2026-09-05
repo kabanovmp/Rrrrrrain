@@ -280,7 +280,95 @@ function sendDebug(payload) {
   });
   const fly = document.getElementById("dbg-fly");
   if (fly) fly.addEventListener("change", () => sendDebug({ fly: fly.checked }));
+  // Локальные ползунки: дальность и пикселизация
+  const far = document.getElementById("dbg-far");
+  const farV = document.getElementById("dbg-far-v");
+  if (far && farV) {
+    const savedFar = parseInt(localStorage.getItem("rain_far") || "500", 10);
+    far.value = String(savedFar); farV.textContent = String(savedFar);
+    if (window.__setRenderFar) window.__setRenderFar(savedFar);
+    far.addEventListener("input", () => {
+      const v = parseInt(far.value, 10);
+      farV.textContent = String(v);
+      localStorage.setItem("rain_far", String(v));
+      if (window.__setRenderFar) window.__setRenderFar(v);
+    });
+  }
+  const pix = document.getElementById("dbg-pix");
+  const pixV = document.getElementById("dbg-pix-v");
+  if (pix && pixV) {
+    const savedPix = parseInt(localStorage.getItem("rain_pix") || "1", 10);
+    pix.value = String(savedPix); pixV.textContent = String(savedPix);
+    if (window.__setPixelScale) window.__setPixelScale(savedPix);
+    pix.addEventListener("input", () => {
+      const v = parseInt(pix.value, 10);
+      pixV.textContent = String(v);
+      localStorage.setItem("rain_pix", String(v));
+      if (window.__setPixelScale) window.__setPixelScale(v);
+    });
+  }
 })();
+
+// ==== HUD: HP-бар, damage numbers, cooldown-индикаторы ====
+function updateHpBar(hp, maxHp) {
+  const fill = document.getElementById("hp-fill");
+  const text = document.getElementById("hp-text");
+  if (!fill || !text) return;
+  const pct = Math.max(0, Math.min(1, hp / (maxHp || 1)));
+  fill.style.width = (pct * 100).toFixed(1) + "%";
+  text.textContent = `${hp} / ${maxHp}`;
+  // Зелёный → жёлтый → красный
+  if (pct > 0.6) fill.style.background = "linear-gradient(90deg, #4bd85a, #7fd83a)";
+  else if (pct > 0.3) fill.style.background = "linear-gradient(90deg, #d8b03a, #d87f3a)";
+  else fill.style.background = "linear-gradient(90deg, #d83a3a, #d85a5a)";
+}
+function spawnScreenDmgNumber(amount, isCrit) {
+  const wrap = document.getElementById("dmg-numbers");
+  if (!wrap) return;
+  const el = document.createElement("div");
+  el.className = "dmg-num";
+  el.textContent = "-" + Math.round(amount);
+  el.style.color = isCrit ? "#ffaa22" : "#ff5555";
+  el.style.left = (window.innerWidth / 2 + (Math.random() - 0.5) * 200) + "px";
+  el.style.top = (window.innerHeight / 2 + 40) + "px";
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 1100);
+}
+// Мировые damage numbers (над врагом) — проецируем 3D-координату на экран
+function spawnWorldDmgNumber(worldPos, amount) {
+  const wrap = document.getElementById("dmg-numbers");
+  if (!wrap) return;
+  const v = worldPos.clone().project(camera);
+  if (v.z > 1) return; // за камерой
+  const el = document.createElement("div");
+  el.className = "dmg-num";
+  el.textContent = String(Math.round(amount));
+  el.style.color = "#ffee66";
+  el.style.fontSize = "16px";
+  el.style.left = ((v.x + 1) / 2 * window.innerWidth + (Math.random() - 0.5) * 30) + "px";
+  el.style.top = ((1 - v.y) / 2 * window.innerHeight + (Math.random() - 0.5) * 20) + "px";
+  wrap.appendChild(el);
+  setTimeout(() => el.remove(), 1100);
+}
+// Кулдаун-индикаторы (вызываем в каждом кадре)
+let cdLeftEndMs = 0, cdRightEndMs = 0, cdLeftDurMs = 250, cdRightDurMs = 250;
+function startCooldown(hand, durMs) {
+  if (hand === "left") { cdLeftEndMs = performance.now() + durMs; cdLeftDurMs = durMs; }
+  else { cdRightEndMs = performance.now() + durMs; cdRightDurMs = durMs; }
+}
+function updateCooldownHud() {
+  const now = performance.now();
+  const l = document.querySelector("#cd-left .fill");
+  const r = document.querySelector("#cd-right .fill");
+  if (l) {
+    const rem = Math.max(0, cdLeftEndMs - now);
+    l.style.height = (rem / cdLeftDurMs * 100).toFixed(0) + "%";
+  }
+  if (r) {
+    const rem = Math.max(0, cdRightEndMs - now);
+    r.style.height = (rem / cdRightDurMs * 100).toFixed(0) + "%";
+  }
+}
 // Синхронизация панели с серверным состоянием (вызвать после подключения)
 function syncDebugPanelFromState(state) {
   const g = document.getElementById("dbg-god"); if (g) g.checked = !!state.dbgGodMode;
@@ -311,10 +399,44 @@ scene.add(globalHemi);
 
 // FOV 70 — стандарт для FPS. 85 было слишком широко, искажало края.
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500);
+
+// ПИКСЕЛИЗАЦИЯ (Devil Daggers-style): рендер в low-res рендер-таргет + upscale NEAREST
+let pixelScale = 1; // 1 = отключено
+let rtLowRes = null;
+let postScene = null, postCamera = null, postMesh = null;
+function ensurePostFx() {
+  if (postScene) return;
+  postScene = new THREE.Scene();
+  postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const geo = new THREE.PlaneGeometry(2, 2);
+  const mat = new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false });
+  postMesh = new THREE.Mesh(geo, mat);
+  postScene.add(postMesh);
+}
+function resizeLowResRT() {
+  const w = Math.max(80, Math.floor(window.innerWidth / pixelScale));
+  const h = Math.max(60, Math.floor(window.innerHeight / pixelScale));
+  if (rtLowRes) rtLowRes.dispose();
+  rtLowRes = new THREE.WebGLRenderTarget(w, h, {
+    minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+    format: THREE.RGBAFormat, depthBuffer: true, stencilBuffer: false,
+  });
+  if (postMesh) postMesh.material.map = rtLowRes.texture;
+}
+window.__setPixelScale = (v) => {
+  pixelScale = Math.max(1, parseInt(v, 10) || 1);
+  if (pixelScale > 1) { ensurePostFx(); resizeLowResRT(); }
+};
+window.__setRenderFar = (v) => {
+  camera.far = Math.max(50, parseInt(v, 10) || 500);
+  camera.updateProjectionMatrix();
+};
+
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight, false);
+  if (pixelScale > 1) resizeLowResRT();
 });
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 
@@ -739,9 +861,13 @@ function setupRoomHandlers() {
           deadHud.classList.remove("on");
         }
 
-        // Звук получения урона
+        // Обновить HP-бар
+        updateHpBar(p.hp, maxHp);
+
+        // Звук урона + damage-number
         if (lastHpSeen > p.hp && p.hp > 0) {
           playSound("player_hurt");
+          spawnScreenDmgNumber(lastHpSeen - p.hp, false);
         }
         if (lastHpSeen > 0 && p.hp <= 0) {
           playSound("player_death");
@@ -876,8 +1002,9 @@ function setupRoomHandlers() {
       }
     }
     else if (msg.type === "hit_enemy") {
-      // Сервер шлёт для звука попадания
+      // Сервер шлёт для звука попадания + damage number
       playSound("enemy_hit");
+      if (msg.dmg) spawnWorldDmgNumber(new THREE.Vector3(msg.x, msg.y + 1.5, msg.z), msg.dmg);
     }
     else if (msg.type === "enemy_die") {
       spawnDeathBurst(msg.x, msg.y, msg.z, msg.kind);
@@ -934,10 +1061,16 @@ canvas.addEventListener("mousedown", (ev) => {
     const pl = document.pointerLockElement === canvas ? "ON" : "OFF";
     console.log(`[CAST #${window._castLogCnt}] PL=${pl} y=${controller.yaw.toFixed(3)} p=${controller.pitch.toFixed(3)} dir=(${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)}) cam=(${camera.rotation.y.toFixed(3)},${camera.rotation.x.toFixed(3)})`);
   }
+  // ФОРС-ОТПРАВКА input ПЕРЕД cast — чтобы другие клиенты видели модель
+  // с тем же yaw/pitch, откуда летит снаряд (без этого до 50мс рассинхрона)
+  sendInput();
   room.send("cast", {
     spell: spellId, dx: dir.x, dy: dir.y, dz: dir.z,
     ox: origin.x, oy: origin.y, oz: origin.z, hand
   });
+  // Запустить визуальный кулдаун
+  const spellDef = SPELLS[spellId];
+  if (spellDef) startCooldown(hand, (spellDef.cooldown || 0.3) * 1000);
   // Анимация отдачи руки
   handsRoot.userData[hand === "left" ? "leftHand" : "rightHand"].userData.recoil = 1.0;
 });
@@ -1519,7 +1652,7 @@ function animate() {
     let diff = target - m.rotation.y;
     while (diff > Math.PI) diff -= 2 * Math.PI;
     while (diff < -Math.PI) diff += 2 * Math.PI;
-    m.rotation.y += diff * Math.min(1, dt * 8);
+    m.rotation.y += diff * Math.min(1, dt * 20); // быстрая коррекция yaw — модель всегда смотрит куда стреляет
 
     const moved = Math.hypot(m.position.x - entry.prevX, m.position.z - entry.prevZ) > 0.005;
     entry.prevX = m.position.x; entry.prevZ = m.position.z;
@@ -1624,7 +1757,15 @@ function animate() {
   fadeHandCracks(handsRoot, dt);
 
   drawRadar();
-  renderer.render(scene, camera);
+  updateCooldownHud();
+  if (pixelScale > 1 && rtLowRes && postScene) {
+    renderer.setRenderTarget(rtLowRes);
+    renderer.render(scene, camera);
+    renderer.setRenderTarget(null);
+    renderer.render(postScene, postCamera);
+  } else {
+    renderer.render(scene, camera);
+  }
   requestAnimationFrame(animate);
 }
 animate();

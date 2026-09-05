@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Rrrrrrain — v0.0.1.13</title>
+  <title>Rrrrrrain — v0.0.2.0</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #eee; font-family: 'Courier New', monospace; }
@@ -35,6 +35,27 @@
       position: fixed; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px;
       background: #ff5a1fcc; border-radius: 50%; z-index: 15; pointer-events: none;
     }
+    /* HP-бар игрока — внизу центр */
+    #hp-bar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); width: 320px; height: 22px;
+      background: rgba(20,10,10,0.75); border: 2px solid #442; border-radius: 4px; z-index: 20;
+      box-shadow: 0 0 16px rgba(255,90,31,0.35), inset 0 0 6px rgba(0,0,0,0.7); overflow: hidden; }
+    #hp-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: linear-gradient(90deg, #4bd85a, #7fd83a);
+      transition: width 0.15s, background 0.3s; box-shadow: inset 0 0 8px rgba(255,255,255,0.2); }
+    #hp-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-family: 'Courier New', monospace; font-size: 13px; font-weight: bold; color: #fff;
+      text-shadow: 0 0 3px #000, 1px 1px 0 #000; letter-spacing: 1px; z-index: 2; }
+    #dmg-numbers { position: fixed; inset: 0; pointer-events: none; z-index: 18; overflow: hidden; }
+    .dmg-num { position: absolute; font-family: 'Courier New', monospace; font-weight: bold; font-size: 20px;
+      text-shadow: 0 0 4px #000, 2px 2px 0 #000; animation: dmgFloat 1.0s ease-out forwards; pointer-events: none; }
+    @keyframes dmgFloat { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-60px); } }
+    /* Кулдаун-индикаторы рук */
+    .cd-ind { position: fixed; bottom: 24px; width: 44px; height: 44px; border-radius: 50%;
+      background: rgba(20,10,10,0.7); border: 2px solid #442; z-index: 20; overflow: hidden; }
+    #cd-left { left: calc(50% - 220px); }
+    #cd-right { right: calc(50% - 220px); }
+    .cd-ind .fill { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, transparent, rgba(155,231,255,0.6)); transition: height 0.1s linear; }
+    .cd-ind .label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold; color: #fff; text-shadow: 0 0 3px #000; }
   </style>
 </head>
 <body>
@@ -42,6 +63,10 @@
   <div id="hud-crack"></div>
   <div id="crosshair" style="display:none"></div>
   <div id="status"></div>
+  <div id="hp-bar"><div id="hp-fill"></div><div id="hp-text">HP</div></div>
+  <div id="cd-left" class="cd-ind"><div class="fill"></div><div class="label">L</div></div>
+  <div id="cd-right" class="cd-ind"><div class="fill"></div><div class="label">R</div></div>
+  <div id="dmg-numbers"></div>
   <div id="dead">ты призрак · воскрешение через дебаг-панель (~)</div>
   <div id="debug-panel" style="display:none;position:fixed;top:20px;right:20px;width:280px;background:rgba(10,10,15,0.92);border:1px solid #445;border-radius:6px;padding:14px;color:#dde;font-family:'Courier New',monospace;font-size:12px;z-index:100;pointer-events:auto;">
     <div style="font-weight:bold;color:#8bf;margin-bottom:8px;border-bottom:1px solid #445;padding-bottom:6px;">DEBUG (~ — закрыть)</div>
@@ -65,6 +90,16 @@
       громкость: <span id="dbg-vol-v">100</span>%<br>
       <input type="range" id="dbg-vol" min="0" max="100" step="1" value="100" style="width:100%;">
       <div style="opacity:.5;font-size:10px;margin-top:2px;">локально, сохраняется</div>
+    </div>
+    <div style="margin:8px 0;border-top:1px solid #445;padding-top:8px;">
+      дальность: <span id="dbg-far-v">500</span>м<br>
+      <input type="range" id="dbg-far" min="50" max="1500" step="50" value="500" style="width:100%;">
+      <div style="opacity:.5;font-size:10px;margin-top:2px;">локально, сохраняется</div>
+    </div>
+    <div style="margin:8px 0;border-top:1px solid #445;padding-top:8px;">
+      пикселизация: <span id="dbg-pix-v">1</span>x<br>
+      <input type="range" id="dbg-pix" min="1" max="6" step="1" value="1" style="width:100%;">
+      <div style="opacity:.5;font-size:10px;margin-top:2px;">1 = чётко, 4-6 = Devil Daggers</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;">
       <button data-act="respawn" class="dbg-btn">воскресить</button>
@@ -92,7 +127,7 @@
   <style>.dbg-btn { background:#334; color:#dde; border:1px solid #556; padding:6px; cursor:pointer; font-size:11px; font-family:inherit; border-radius:3px; } .dbg-btn:hover { background:#445; }</style>
   <div id="menu">
     <h1>RRRRRRAIN</h1>
-    <p>кооп-прототип · v0.0.1.13 (пре-пре-альфа)</p>
+    <p>кооп-прототип · v0.0.2.0 (пре-альфа)</p>
     <div class="row">
       <input id="name" placeholder="твоё имя" value="sgustok" maxlength="20" />
     </div>
