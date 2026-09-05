@@ -49,7 +49,7 @@ export const ENEMY_TYPES = {
   PINKY:     { id: "PINKY",     hp: 4, speed: 5.5, size: 1.4,  scale: 2.6,  damage: 1, sprite: "pinky",     colorTint: 0xffffff, armored: true  },
   CACO:      { id: "CACO",      hp: 2, speed: 3.5, size: 1.2,  scale: 3.0,  damage: 1, sprite: "caco",      colorTint: 0xffffff, flying: true   },
   BARON:     { id: "BARON",     hp: 4, speed: 3.0, size: 2.0,  scale: 4.5,  damage: 1, sprite: "baron",     colorTint: 0xffffff },
-  COLOSSUS:  { id: "COLOSSUS",  hp: 40, speed: 1.2, size: 8.0, scale: 30.0, damage: 1, sprite: "colossus",  colorTint: 0xffffff, boss: true     },
+  COLOSSUS:  { id: "COLOSSUS",  hp: 10, speed: 1.2, size: 8.0, scale: 30.0, damage: 1, sprite: "colossus",  colorTint: 0xffffff, boss: true     },
 };
 
 // MVP items with hidden tiers. Effects are unknown to player by design.

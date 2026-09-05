@@ -68,16 +68,70 @@ export function setupHub(group) {
   floor.position.y = -0.15;
   group.add(floor);
 
-  // Пентаграмма/руны в центре пола (декор)
-  const runes = new THREE.Mesh(
-    new THREE.CircleGeometry(R * 0.4, 12),
-    new THREE.MeshBasicMaterial({
-      map: makeRuneTexture(), transparent: true, opacity: 0.7,
+  // Пентаграмма убрана — пол в центре чистый
+
+  // ── ПОРТАЛ НА АРЕНУ (край хаба) ───────────────────────────
+  const hubPortal = new THREE.Group();
+  hubPortal.userData.isHubPortal = true;
+  // Арка
+  const hpArch = new THREE.Mesh(
+    new THREE.TorusGeometry(2.2, 0.32, 12, 24),
+    new THREE.MeshStandardMaterial({
+      color: 0x223344, roughness: 0.6, metalness: 0.4,
+      emissive: 0x2266ff, emissiveIntensity: 0.5,
     })
   );
-  runes.rotation.x = -Math.PI / 2;
-  runes.position.y = 0.01;
-  group.add(runes);
+  hpArch.position.y = 2.5;
+  hpArch.rotation.y = Math.PI / 2;
+  hubPortal.add(hpArch);
+  hubPortal.userData.arch = hpArch;
+  // Колонны по бокам
+  for (const dx of [-2.5, 2.5]) {
+    const col = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28, 0.35, 2.6, 8),
+      new THREE.MeshStandardMaterial({ color: 0x334455, roughness: 0.5, metalness: 0.5 })
+    );
+    col.position.set(0, 1.3, dx);
+    hubPortal.add(col);
+  }
+  // Вода в арке (голубая)
+  const hpWater = new THREE.Mesh(
+    new THREE.CircleGeometry(2.1, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x66aaff, transparent: true, opacity: 0.65, side: THREE.DoubleSide,
+    })
+  );
+  hpWater.position.y = 2.5;
+  hpWater.rotation.y = Math.PI / 2;
+  hubPortal.add(hpWater);
+  hubPortal.userData.water = hpWater;
+  // Круг на полу (триггер-зона)
+  const hpBase = new THREE.Mesh(
+    new THREE.CircleGeometry(1.8, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x2266ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false,
+    })
+  );
+  hpBase.rotation.x = -Math.PI / 2;
+  hpBase.position.y = 0.02;
+  hubPortal.add(hpBase);
+  hubPortal.userData.base = hpBase;
+  // Позиция у стены, не в центре
+  hubPortal.position.set(0, 0, -R * 0.65);
+  hubPortal.rotation.y = 0;
+  group.add(hubPortal);
+  group.userData.hubPortal = hubPortal;
+
+  // Светящаяся метка над порталом
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.15, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0x66ccff })
+  );
+  marker.position.copy(hubPortal.position);
+  marker.position.y = 4.2;
+  marker.userData.isPortalMarker = true;
+  group.add(marker);
+
 
   // ── Прозрачные стеклянные стены ─────────────────────────
   const wallHeight = 4.5;
@@ -376,6 +430,25 @@ export function updateArenaPortal(arenaGroup, ready, tSec) {
 export function getArenaPortalPos(arenaGroup) {
   const p = arenaGroup.userData.portal;
   return p ? p.position : null;
+}
+
+// Позиция портала в хабе
+export function getHubPortalPos(hubGroup) {
+  const p = hubGroup.userData.hubPortal;
+  return p ? p.position : null;
+}
+
+// Анимация портала в хабе (всегда активен)
+export function updateHubPortal(hubGroup, tSec) {
+  const p = hubGroup.userData.hubPortal;
+  if (!p) return;
+  const water = p.userData.water;
+  const arch = p.userData.arch;
+  const base = p.userData.base;
+  const pulse = 0.75 + Math.sin(tSec * 2.2) * 0.15;
+  if (water) { water.material.opacity = 0.7 * pulse; water.rotation.z = tSec * 0.4; }
+  if (arch) { arch.material.emissiveIntensity = 0.6 * pulse; }
+  if (base) { base.material.opacity = 0.4 * pulse; }
 }
 
 export function animateTorches(group, dt) {

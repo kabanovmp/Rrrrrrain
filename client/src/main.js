@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos } from "./world.js";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, updateHubPortal, getHubPortalPos } from "./world.js";
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
 import { createHandsGroup, animateHands, setSpellInHand } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
@@ -155,7 +155,7 @@ function makePickupMesh(pk) {
   } else {
     spellType = "ice";
   }
-  return createPedestalMesh(spellType);
+  return createPedestalMesh(pk.kind, spellType);
 }
 
 // FX
@@ -490,7 +490,7 @@ document.addEventListener("keydown", (ev) => {
   }
   if (chatOpen) return; // пока открыт чат — остальные вводы игнорируем
   if (ev.code === "Escape") controller.releasePointer();
-  if (ev.code === "KeyR" && myPlayer?.isGhost) room.send("respawn", {});
+  // R-респ убран — теперь в дебаг-панели
   if (ev.code === "KeyF") {
     let bestId = null, bestD = Infinity;
     pickupMeshes.forEach((m, id) => {
@@ -504,29 +504,7 @@ document.addEventListener("keydown", (ev) => {
       playSound("pickup");
     }
   }
-  if (ev.code === "KeyE") {
-    const cur = room.state.phase;
-    if (cur === "hub") {
-      // Из хаба — всегда можно на арену
-      room.send("phase", { phase: "arena" });
-    } else {
-      // С арены — только если рядом с порталом и он готов
-      const portalPos = getArenaPortalPos(arenaGroup);
-      const ready = cur === "portal_ready";
-      if (ready && portalPos) {
-        const d = Math.hypot(controller.position.x - portalPos.x, controller.position.z - portalPos.z);
-        if (d < 4) {
-          room.send("phase", { phase: "hub" });
-        } else {
-          hintText.textContent = "подойди к порталу в центре арены";
-          hintTimer = 2;
-        }
-      } else {
-        hintText.textContent = "портал ещё не готов — бей врагов";
-        hintTimer = 2;
-      }
-    }
-  }
+  // E-телепорт убран — телепортация только через порталы или дебаг-панель
   if (ev.code === "Space") {
     playSound("jump");
   }
@@ -580,6 +558,57 @@ function drawRadar() {
 // ═══════════════════════════════════════════════════════════════════
 const clock = new THREE.Clock();
 let prevControllerPos = new THREE.Vector3();
+
+// ── ПОРТАЛЫ: автотриггер ────────────────────────────────
+let portalHoldTime = 0;
+let lastPortalKind = null;
+function handlePortalTriggers(dt) {
+  if (!room || !myPlayer) return;
+  const cur = room.state.phase;
+  let inZone = false;
+  let ready = false;
+  let msg = null;
+  let target = null;
+  if (cur === "hub") {
+    const pos = getHubPortalPos(hubGroup);
+    if (pos) {
+      const d = Math.hypot(controller.position.x - pos.x, controller.position.z - pos.z);
+      if (d < 2.5) { inZone = true; ready = true; msg = { phase: "arena" }; target = "hub"; }
+    }
+  } else {
+    const pos = getArenaPortalPos(arenaGroup);
+    if (pos) {
+      const d = Math.hypot(controller.position.x - pos.x, controller.position.z - pos.z);
+      if (d < 2.5) {
+        inZone = true;
+        target = "arena";
+        if (cur === "portal_ready") { ready = true; msg = { phase: "hub" }; }
+      }
+    }
+  }
+  if (inZone && ready) {
+    if (lastPortalKind !== target) { portalHoldTime = 0; lastPortalKind = target; }
+    portalHoldTime += dt;
+    // Показ прогресса
+    const pct = Math.min(100, Math.round(portalHoldTime / 1.5 * 100));
+    hintText.textContent = `телепорт... ${pct}%`;
+    hintText.style.opacity = 1;
+    hintTimer = 0.3;
+    if (portalHoldTime >= 1.5) {
+      room.send("phase", msg);
+      portalHoldTime = 0;
+      lastPortalKind = null;
+    }
+  } else if (inZone && !ready) {
+    portalHoldTime = 0;
+    hintText.textContent = "портал ещё не заряжен — бей врагов";
+    hintText.style.opacity = 1;
+    hintTimer = 0.3;
+  } else {
+    portalHoldTime = 0;
+    lastPortalKind = null;
+  }
+}
 
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -660,7 +689,11 @@ function animate() {
   const activeGroup = hubGroup.visible ? hubGroup : arenaGroup;
   animateTorches(activeGroup, dt);
   if (room) {
-    updateArenaPortal(arenaGroup, room.state.phase === "portal_ready", performance.now() * 0.001);
+    const tSec = performance.now() * 0.001;
+    updateArenaPortal(arenaGroup, room.state.phase === "portal_ready", tSec);
+    updateHubPortal(hubGroup, tSec);
+    // Авто-триггер порталов: стоишь в зоне 1.5с → телепорт
+    handlePortalTriggers(dt);
   }
 
   // HUD-подсказка
@@ -687,7 +720,8 @@ function animate() {
 
   if (deathTimer > 0) {
     deathTimer -= dt;
-    if (deathTimer <= 0 && room && myPlayer?.isGhost) room.send("respawn", {});
+    // Авто-респ убран — через дебаг-панель
+    void deathTimer;
   }
   if (dmgTimer > 0) {
     dmgTimer -= dt;
