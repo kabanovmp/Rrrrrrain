@@ -313,6 +313,19 @@ scene.add(camera);
 handsRoot.userData.leftHand.visible = true;
 handsRoot.userData.rightHand.visible = true;
 
+// Диагностика mac Chrome: логируем ключевые параметры в консоль
+console.log("[rrain diag]",
+  "DPR:", window.devicePixelRatio,
+  "innerSize:", window.innerWidth + "x" + window.innerHeight,
+  "canvas:", canvas.width + "x" + canvas.height,
+  "UA:", navigator.userAgent);
+// GL renderer info — важно для Mac (SwiftShader/ANGLE bug)
+try {
+  const gl = renderer.getContext();
+  const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+  if (dbg) console.log("[rrain diag] GPU:", gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL));
+} catch {}
+
 // ═══════════════════════════════════════════════════════════════════
 // ХРАНИЛИЩА МЕШЕЙ
 // ═══════════════════════════════════════════════════════════════════
@@ -476,6 +489,21 @@ function spawnWaveFx(x, y, z, r) {
 // ═══════════════════════════════════════════════════════════════════
 const controller = new FpsController(camera, canvas);
 window.controller = controller;
+
+// Надёжный выход из Pointer Lock — чтобы курсор не пропадал во всём браузере
+function safeExitPointerLock() {
+  try { if (document.pointerLockElement) document.exitPointerLock(); } catch {}
+}
+window.addEventListener("blur", safeExitPointerLock);
+window.addEventListener("beforeunload", safeExitPointerLock);
+window.addEventListener("pagehide", safeExitPointerLock);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") safeExitPointerLock();
+});
+// Escape всегда отпускает курсор
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Escape") safeExitPointerLock();
+}, true);
 let client, room, selfId, myPlayer = null, lastHpSeen = 3;
 let deathTimer = 0;
 let ambientLoop = null;
@@ -1280,8 +1308,11 @@ function animate() {
     m.position.x += (entry.targetX - m.position.x) * a;
     m.position.y += (entry.targetY - m.position.y) * a;
     m.position.z += (entry.targetZ - m.position.z) * a;
-    // Поворот на yaw (лицом куда смотрит)
-    let diff = entry.targetYaw - m.rotation.y;
+    // Поворот на yaw (лицом куда смотрит).
+    // Модель otherplayer.js: лицо/глаза смотрят в +Z, а игровой forward — в −Z.
+    // Смещаем поворот на π.
+    const target = entry.targetYaw + Math.PI;
+    let diff = target - m.rotation.y;
     while (diff > Math.PI) diff -= 2 * Math.PI;
     while (diff < -Math.PI) diff += 2 * Math.PI;
     m.rotation.y += diff * Math.min(1, dt * 8);

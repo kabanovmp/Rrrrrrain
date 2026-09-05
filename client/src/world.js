@@ -15,9 +15,10 @@ export function setupHub(group) {
   // ── Небо: равномерный тёмный купол + частицы-звёзды вокруг ──────────
   // Никакого UV-шва — купол одноцветный, звёзды — точки.
   const skySphere = new THREE.Mesh(
-    new THREE.SphereGeometry(200, 24, 12),
-    new THREE.MeshBasicMaterial({ color: 0x0a0820, side: THREE.BackSide, depthWrite: false })
+    new THREE.SphereGeometry(300, 32, 16),
+    new THREE.MeshBasicMaterial({ color: 0x0a0820, side: THREE.BackSide, fog: false })
   );
+  skySphere.renderOrder = -100;
   group.add(skySphere);
 
   // Звёзды через Points (без шва, дешёво)
@@ -93,12 +94,7 @@ export function setupHub(group) {
   rim.rotation.x = Math.PI / 2;
   rim.position.y = 0.1;
   group.add(rim);
-  // Небо/фон вокруг — глубокий пурпур
-  const skyDome = new THREE.Mesh(
-    new THREE.SphereGeometry(R * 3, 24, 12),
-    new THREE.MeshBasicMaterial({ color: 0x2a2038, side: THREE.BackSide, fog: false })
-  );
-  group.add(skyDome);
+  // (skyDome убран — он закрывал звёзды. Фон даёт skySphere R=200 выше)
 
 
   // ── ПОРТАЛ НА АРЕНУ (край хаба) ───────────────────────────
@@ -906,13 +902,26 @@ export function createHubChestMesh() {
   body.position.y = H / 2 + 0.08;
   g.add(body);
 
-  // ── ВНУТРЕННОСТЬ (тёмная коробка чуть меньше) ────────────
+  // ── ВНУТРЕННОСТЬ (деревянная коробка чуть меньше, текстура видна изнутри) ────
+  const insideTex = woodTex.clone();
+  insideTex.needsUpdate = true;
+  insideTex.wrapS = THREE.RepeatWrapping;
+  insideTex.wrapT = THREE.RepeatWrapping;
+  insideTex.repeat.set(1.5, 1.5);
   const inside = new THREE.Mesh(
     new THREE.BoxGeometry(W - 0.2, H - 0.05, D - 0.15),
-    new THREE.MeshStandardMaterial({ color: 0x0a0805, roughness: 1.0, side: THREE.BackSide })
+    new THREE.MeshStandardMaterial({
+      map: insideTex, color: 0x3a2814, roughness: 0.95, metalness: 0.02,
+      side: THREE.BackSide,
+    })
   );
   inside.position.y = H / 2 + 0.13;
   g.add(inside);
+
+  // Мягкий внутренний свет, чтобы текстура читалась даже когда крышка едва открыта
+  const insideLight = new THREE.PointLight(0xffcc88, 0.35, 1.4, 2);
+  insideLight.position.set(0, H + 0.05, 0);
+  g.add(insideLight);
 
   // ── КРЫШКА (полуцилиндр — изогнутая) ─────────────────────
   // Pivot на задней грани, чтобы откидывалась
