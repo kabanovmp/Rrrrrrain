@@ -229,8 +229,8 @@ export class ArenaRoom extends Room {
   }
 
   setupHubStorage() {
-    // 20 постаментов по кругу
-    const R = WORLD.HUB_RADIUS * 0.65;
+    // 20 постаментов на среднем радиусе
+    const R = WORLD.HUB_RADIUS * 0.5;
     for (let i = 0; i < 20; i++) {
       const a = (i / 20) * Math.PI * 2;
       const s = new HubSlot();
@@ -240,8 +240,8 @@ export class ArenaRoom extends Room {
       s.empty = true;
       this.state.hubSlots.push(s);
     }
-    // 4 сундука в углах хаба (по диагонали)
-    const CR = WORLD.HUB_RADIUS * 0.85;
+    // 4 сундука ближе к стенам, но НЕ на портале
+    const CR = WORLD.HUB_RADIUS * 0.75;
     const chestAngles = [Math.PI / 4, Math.PI * 3 / 4, Math.PI * 5 / 4, Math.PI * 7 / 4];
     for (const a of chestAngles) {
       const c = new HubChest();
@@ -315,14 +315,16 @@ export class ArenaRoom extends Room {
     // руки/предметы попадают в них только через забеги в арене.
   }
 
-  // Стартовые пикапы для АРЕНЫ (при первом заходе на арену выпадают "с неба")
+  // Стартовые пикапы для АРЕНЫ: всегда минимум 1 HAND на команду
   spawnArenaPickups() {
-    // Первая рука — гарантированно HAND (если ни у кого её нет)
-    const anyHand = [...this.state.players.values()].some(p => p.hasLeftHand || p.hasRightHand);
-    const R = WORLD.ARENA_RADIUS * 0.4;
-    const kinds = anyHand
-      ? [{ kind: "HAND", handType: "ICE" }, { kind: "LEG" }, { kind: "ITEM", itemId: "SIGIL_DASH" }]
-      : [{ kind: "HAND", handType: "FIRE" }, { kind: "HAND", handType: "ICE" }, { kind: "LEG" }, { kind: "ITEM", itemId: "SIGIL_DASH" }];
+    const R = WORLD.ARENA_RADIUS * 0.35;
+    // Гарантированно: FIRE-HAND (базовая), ICE-HAND, 1 LEG, 1 ITEM — 4 пикапа на открытие арены
+    const kinds = [
+      { kind: "HAND", handType: "FIRE" },
+      { kind: "HAND", handType: "ICE" },
+      { kind: "LEG" },
+      { kind: "ITEM", itemId: "SIGIL_DASH" },
+    ];
     for (let i = 0; i < kinds.length; i++) {
       const a = (i / kinds.length) * Math.PI * 2;
       const k = kinds[i];

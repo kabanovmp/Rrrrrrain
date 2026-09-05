@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar } from "./world.js";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen } from "./world.js";
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
 import { createHandsGroup, animateHands, setSpellInHand, showHandDamage, fadeHandCracks } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
@@ -852,53 +852,39 @@ function handlePortalTriggers(dt) {
 // Подсказка о взаимодействии с хаб-объектами
 function updateHubInteractionHint() {
   if (!room || !myPlayer || room.state.phase !== "hub") return;
-  // Проверяем ближайший объект хаба
-  let nearest = null, nd = 2.8;
+  // Показываем ТОЛЬКО когда действительно можно нажать F/G рядом с объектом (< 2м)
+  let action = null;
   hubSlotMeshes.forEach((g, i) => {
     const d = g.position.distanceTo(controller.position);
-    if (d < nd) {
+    if (d < 2 && !action) {
       const slot = room.state.hubSlots[i];
-      if (!slot) return;
-      nd = d;
-      nearest = slot.empty
-        ? { text: `постамент #${i+1}: пусто`, faint: true }
-        : { text: `[F] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}` };
+      if (slot && !slot.empty) action = `[F] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}`;
     }
   });
   hubChestMeshes.forEach((g, i) => {
     const d = g.position.distanceTo(controller.position);
-    if (d < nd) {
+    if (d < 2 && !action) {
       const chest = room.state.hubChests[i];
-      if (!chest) return;
-      nd = d;
-      nearest = chest.contents.length > 0
-        ? { text: `[F] взять из сундука (осталось: ${chest.contents.length})` }
-        : { text: "сундук пуст", faint: true };
+      if (chest && chest.contents.length > 0) action = `[F] взять из сундука (${chest.contents.length})`;
     }
   });
   const altarD = Math.hypot(controller.position.x, controller.position.z);
-  if (altarD < nd) {
-    nd = altarD;
+  if (altarD < 2.5 && !action) {
     const list = room.state.hubReforgeSlots;
-    const filled = list.length;
-    if (filled === 3) {
-      // Проверим готовность крафта
+    if (list.length === 3) {
       const parts = [...list].map(x => String(x).split(":"));
       const same = parts.every(([k]) => k === "HAND") && parts.every(([, t]) => t === parts[0][1]);
-      nearest = same
-        ? { text: `алтарь: [G] переработать 3×${parts[0][1]} → редкое` }
-        : { text: "алтарь: положены разные — [F] забрать, нужны 3 одинаковых" };
-    } else if (filled > 0) {
-      nearest = { text: `алтарь: ${filled}/3 · [F] положить/забрать` };
+      if (same) action = `[G] сплавить 3×${parts[0][1]}`;
+      else action = "[F] забрать (нужны 3 одинаковых)";
+    } else if (list.length > 0) {
+      action = `[F] положить/забрать (${list.length}/3)`;
     } else if (myPlayer.hasLeftHand || myPlayer.hasRightHand) {
-      nearest = { text: "алтарь: [F] положить руку (нужно 3 одинаковых)" };
-    } else {
-      nearest = { text: "алтарь-переработчик: 3 одинаковых руки → редкая", faint: true };
+      action = "[F] положить руку в алтарь";
     }
   }
-  if (nearest) {
-    hintText.textContent = nearest.text;
-    hintText.style.opacity = nearest.faint ? 0.6 : 1.0;
+  if (action) {
+    hintText.textContent = action;
+    hintText.style.opacity = 1.0;
     hintTimer = 0.2;
   }
 }
@@ -993,6 +979,16 @@ function animate() {
     updateArenaPortal(arenaGroup, room.state.phase === "portal_ready", tSec);
     updateHubPortal(hubGroup, tSec);
     animateDangerZones(arenaGroup, tSec);
+  // Открытие ближайшего сундука в хабе
+  if (room && room.state.phase === "hub") {
+    hubChestMeshes.forEach((g, i) => {
+      const d = g.position.distanceTo(controller.position);
+      const open = d < 3;
+      setChestOpen(g, open, dt);
+    });
+  } else {
+    hubChestMeshes.forEach(g => setChestOpen(g, false, dt));
+  }
     // Алтарь-переработчик
     if (hubGroup.userData.hubAltar && room.state.hubReforgeSlots) {
       updateHubAltar(hubGroup.userData.hubAltar, [...room.state.hubReforgeSlots], tSec);

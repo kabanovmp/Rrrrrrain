@@ -57,12 +57,16 @@ export function setupHub(group) {
   group.add(bigStars);
 
   // ── Пол: каменная плита с текстурой ─────────────────────
-  const floorTex = getTexture("hub_floor");
-  floorTex.repeat.set(3, 3);
+  const floorTex = generateStoneWallTexture();
+  const floorTex2 = floorTex.clone();
+  floorTex2.needsUpdate = true;
+  floorTex2.wrapS = THREE.RepeatWrapping;
+  floorTex2.wrapT = THREE.RepeatWrapping;
+  floorTex2.repeat.set(6, 6);
   const floor = new THREE.Mesh(
-    new THREE.CylinderGeometry(R, R * 1.05, 0.3, 12),
+    new THREE.CylinderGeometry(R, R * 1.05, 0.3, 48),
     new THREE.MeshStandardMaterial({
-      map: floorTex, color: 0x8a7a68, roughness: 0.9, metalness: 0.05,
+      map: floorTex2, color: 0x6a5c4a, roughness: 0.9, metalness: 0.05,
     })
   );
   floor.position.y = -0.15;
@@ -74,6 +78,56 @@ export function setupHub(group) {
   altar.userData.isHubAltar = true;
   group.add(altar);
   group.userData.hubAltar = altar;
+
+  // ── КАМЕННЫЕ СТЕНЫ ХАБА ──────────────────────────────────
+  // Замкнутый цилиндр по периметру (внутренняя поверхность)
+  const wallHeight = 8;
+  const wallTex = generateStoneWallTexture();
+  wallTex.wrapS = THREE.RepeatWrapping;
+  wallTex.wrapT = THREE.RepeatWrapping;
+  wallTex.repeat.set(8, 2);
+  const walls = new THREE.Mesh(
+    new THREE.CylinderGeometry(R * 1.02, R * 1.02, wallHeight, 32, 1, true),
+    new THREE.MeshStandardMaterial({
+      map: wallTex, color: 0x8a7f70, roughness: 0.85, metalness: 0.05, side: THREE.BackSide,
+    })
+  );
+  walls.position.y = wallHeight / 2 - 0.2;
+  group.add(walls);
+  // Потолок — тёмный купол внутри
+  const ceiling = new THREE.Mesh(
+    new THREE.CylinderGeometry(R * 1.02, R * 1.02, 0.3, 32),
+    new THREE.MeshStandardMaterial({ color: 0x151020, roughness: 1.0 })
+  );
+  ceiling.position.y = wallHeight - 0.2;
+  group.add(ceiling);
+
+  // ── ТАБЛИЧКИ-УКАЗАТЕЛИ НА СТЕНАХ ─────────────────────────
+  const signs = [
+    { angle: 0, text: "ПОСТАМЕНТЫ", sub: "ваши заклинания и предметы" },
+    { angle: Math.PI, text: "ПОРТАЛ", sub: "путь на арену" },
+    { angle: Math.PI / 2, text: "СУНДУКИ", sub: "если постаменты полны" },
+    { angle: -Math.PI / 2, text: "АЛТАРЬ", sub: "3 одинаковых = редкое" },
+  ];
+  for (const sg of signs) {
+    const sign = createWallSign(sg.text, sg.sub);
+    const sx = Math.sin(sg.angle) * (R * 0.99);
+    const sz = Math.cos(sg.angle) * (R * 0.99);
+    sign.position.set(sx, 3.2, sz);
+    // Развернуть лицом к центру
+    sign.lookAt(0, 3.2, 0);
+    group.add(sign);
+  }
+
+  // ── ФАКЕЛЫ ПО ПЕРИМЕТРУ ХАБА ─────────────────────────────
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+    const t = createWallTorch();
+    t.position.set(Math.sin(a) * (R * 0.97), 2.5, Math.cos(a) * (R * 0.97));
+    t.lookAt(0, 2.5, 0);
+    group.add(t);
+  }
+
 
   // ── ПОРТАЛ НА АРЕНУ (край хаба) ───────────────────────────
   const hubPortal = new THREE.Group();
@@ -122,7 +176,7 @@ export function setupHub(group) {
   hubPortal.add(hpBase);
   hubPortal.userData.base = hpBase;
   // Позиция у стены, не в центре
-  hubPortal.position.set(0, 0, -R * 0.65);
+  hubPortal.position.set(0, 0, -R * 0.9);
   hubPortal.rotation.y = 0;
   group.add(hubPortal);
   group.userData.hubPortal = hubPortal;
@@ -138,89 +192,13 @@ export function setupHub(group) {
   group.add(marker);
 
 
-  // ── Прозрачные стеклянные стены ─────────────────────────
-  const wallHeight = 4.5;
-  const wall = new THREE.Mesh(
-    new THREE.CylinderGeometry(R, R, wallHeight, 12, 1, true),
-    new THREE.MeshPhysicalMaterial({
-      color: 0x88bbdd, transparent: true, opacity: 0.15,
-      roughness: 0.1, transmission: 0.6, thickness: 0.3,
-      side: THREE.DoubleSide,
-    })
-  );
-  wall.position.y = wallHeight / 2;
-  group.add(wall);
-
-  // Каркас стен — тонкие металлические рёбра
-  const frameMat = new THREE.MeshStandardMaterial({
-    color: 0x554433, metalness: 0.7, roughness: 0.4
-  });
-  // Вертикальные рёбра
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    const rib = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.04, 0.04, wallHeight, 6),
-      frameMat
-    );
-    rib.position.set(Math.cos(a) * R, wallHeight / 2, Math.sin(a) * R);
-    group.add(rib);
-  }
-  // Горизонтальные кольца сверху/снизу
-  for (const y of [0.1, wallHeight - 0.1]) {
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(R, 0.05, 6, 24),
-      frameMat
-    );
-    ring.rotation.x = Math.PI / 2;
-    ring.position.y = y;
-    group.add(ring);
-  }
-
-  // ── Купол (стеклянный потолок) ─────────────────────────
-  const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(R, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
-    new THREE.MeshPhysicalMaterial({
-      color: 0x88bbdd, transparent: true, opacity: 0.10,
-      roughness: 0.05, transmission: 0.7,
-      side: THREE.DoubleSide,
-    })
-  );
-  dome.position.y = wallHeight;
-  group.add(dome);
-
-  // ── Освещение: ярко и дёшево ────────────────────────────
-  // Только Hemisphere + Ambient. Никаких PointLight/DirectionalLight!
-  const ambient = new THREE.AmbientLight(0xffffff, 1.2);
-  group.add(ambient);
-  const hemi = new THREE.HemisphereLight(0xaaccff, 0x554433, 1.5);
-  hemi.position.set(0, 20, 0);
-  group.add(hemi);
-
-  // Факелы по углам
-  addTorch(group, R * 0.75, 0, R * 0.75);
-  addTorch(group, -R * 0.75, 0, R * 0.75);
-  addTorch(group, R * 0.75, 0, -R * 0.75);
-  addTorch(group, -R * 0.75, 0, -R * 0.75);
-
-  // ── Парящие острова снаружи для антуража ──────────────
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + Math.random() * 0.5;
-    const dist = 30 + Math.random() * 20;
-    const size = 3 + Math.random() * 5;
-    const island = new THREE.Mesh(
-      new THREE.DodecahedronGeometry(size, 0),
-      new THREE.MeshStandardMaterial({
-        color: 0x332222, roughness: 1, flatShading: true,
-      })
-    );
-    island.position.set(
-      Math.cos(a) * dist,
-      -5 + Math.random() * 10,
-      Math.sin(a) * dist
-    );
-    island.rotation.y = Math.random() * Math.PI;
-    group.add(island);
-  }
+  // (стены/купол/освещение перенесены в новый блок с каменными стенами выше)
+  // Хабовое освещение
+  const hubAmbient = new THREE.AmbientLight(0xffe8c0, 1.0);
+  group.add(hubAmbient);
+  const hubHemi = new THREE.HemisphereLight(0xffddaa, 0x332222, 1.2);
+  hubHemi.position.set(0, 20, 0);
+  group.add(hubHemi);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -229,42 +207,34 @@ export function setupHub(group) {
 export function setupArena(group) {
   const R = WORLD.ARENA_RADIUS;
 
-  // Тёмный кровавый купол
+  // Купол-небо: закатное багровое, но не чёрное (арена светлая, зловещая)
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(R * 4, 24, 12),
     new THREE.MeshBasicMaterial({
-      color: 0x1a0505, side: THREE.BackSide,
+      color: 0x3a2028, side: THREE.BackSide,
     })
   );
   group.add(dome);
 
-  // ── Пол — большая тёмная плита ─────────────────────────
-  const floorTex = getTexture("arena_floor");
-  floorTex.repeat.set(8, 8);
+  // Освещение арены — заметно ярче (было темно)
+  const arenaAmbient = new THREE.AmbientLight(0xffe0c0, 1.1);
+  group.add(arenaAmbient);
+  const arenaHemi = new THREE.HemisphereLight(0xffb080, 0x402020, 1.4);
+  arenaHemi.position.set(0, 30, 0);
+  group.add(arenaHemi);
+
+  // ── Пол — большая пепельная плита с новой качественной текстурой ─────
+  const floorTex = generateArenaGroundTexture();
+  floorTex.repeat.set(12, 12);
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(R * 3, R * 3, 4, 4),
     new THREE.MeshStandardMaterial({
-      map: floorTex, color: 0x1a1210,
-      roughness: 0.95, metalness: 0.0,
+      map: floorTex, color: 0x6a5040,
+      roughness: 0.9, metalness: 0.0,
     })
   );
   floor.rotation.x = -Math.PI / 2;
   group.add(floor);
-
-  // Плитка (тёмные линии сетки для читаемости)
-  const gridGeo = new THREE.BufferGeometry();
-  const gridPos = [];
-  const step = 4;
-  for (let x = -R * 1.5; x <= R * 1.5; x += step) {
-    gridPos.push(x, 0.02, -R * 1.5, x, 0.02, R * 1.5);
-    gridPos.push(-R * 1.5, 0.02, x, R * 1.5, 0.02, x);
-  }
-  gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(gridPos, 3));
-  const grid = new THREE.LineSegments(
-    gridGeo,
-    new THREE.LineBasicMaterial({ color: 0x2a0808, transparent: true, opacity: 0.4 })
-  );
-  group.add(grid);
 
   // ── Лужи крови ────────────────────────────────────────
   for (let i = 0; i < 30; i++) {
@@ -392,6 +362,226 @@ export function setupArena(group) {
   const moon = new THREE.HemisphereLight(0xffddbb, 0x552222, 1.3);
   moon.position.set(20, 30, 10);
   group.add(moon);
+
+  // ── КОЛЬЦО КАМЕННЫХ КОЛОНН ─────────────────────────────
+  const ringR = R * 0.85;
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    // Основание
+    const pedBase = new THREE.Mesh(
+      new THREE.BoxGeometry(2.2, 0.5, 2.2),
+      new THREE.MeshStandardMaterial({ color: 0x6a5a48, roughness: 0.9, flatShading: true })
+    );
+    pedBase.position.set(Math.cos(a) * ringR, 0.25, Math.sin(a) * ringR);
+    group.add(pedBase);
+    // Колонна
+    const colH = 4 + Math.random() * 2;
+    const col = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.7, 0.85, colH, 12),
+      new THREE.MeshStandardMaterial({ color: 0x8a7a68, roughness: 0.85, flatShading: true })
+    );
+    col.position.set(Math.cos(a) * ringR, 0.5 + colH / 2, Math.sin(a) * ringR);
+    col.rotation.y = Math.random() * 0.3;
+    group.add(col);
+    // Капитель
+    const cap = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 0.4, 1.8),
+      new THREE.MeshStandardMaterial({ color: 0x9a8a78, roughness: 0.8, flatShading: true })
+    );
+    cap.position.set(Math.cos(a) * ringR, 0.5 + colH + 0.2, Math.sin(a) * ringR);
+    group.add(cap);
+    // Разрушенная колонна каждая третья — обломок сверху
+    if (i % 3 === 0) {
+      const rubble = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(1.2, 0),
+        new THREE.MeshStandardMaterial({ color: 0x7a6a58, roughness: 0.9, flatShading: true })
+      );
+      rubble.position.set(
+        Math.cos(a) * (ringR + 2 + Math.random()),
+        0.6,
+        Math.sin(a) * (ringR + 2 + Math.random())
+      );
+      rubble.rotation.set(Math.random(), Math.random(), Math.random());
+      group.add(rubble);
+    }
+  }
+
+  // ── СТАТУИ ПО КРАЯМ (4 демонические фигуры) ─────────────
+  const statueR = R * 0.55;
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const sg = new THREE.Group();
+    // Постамент
+    const spd = new THREE.Mesh(
+      new THREE.BoxGeometry(2.5, 1.0, 2.5),
+      new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 0.9, flatShading: true })
+    );
+    spd.position.y = 0.5;
+    sg.add(spd);
+    // Тело (стилизованная демоническая фигура из блоков)
+    const torso = new THREE.Mesh(
+      new THREE.BoxGeometry(1.3, 2.2, 0.9),
+      new THREE.MeshStandardMaterial({ color: 0x3a2a20, roughness: 0.85, flatShading: true })
+    );
+    torso.position.y = 2.1;
+    sg.add(torso);
+    // Голова с рогами
+    const head = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.9, 0.9),
+      new THREE.MeshStandardMaterial({ color: 0x3a2a20, roughness: 0.85, flatShading: true })
+    );
+    head.position.y = 3.6;
+    sg.add(head);
+    // Рога
+    for (const rx of [-0.35, 0.35]) {
+      const horn = new THREE.Mesh(
+        new THREE.ConeGeometry(0.12, 0.8, 6),
+        new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.85, flatShading: true })
+      );
+      horn.position.set(rx, 4.3, 0);
+      horn.rotation.z = rx > 0 ? -0.4 : 0.4;
+      sg.add(horn);
+    }
+    // Глаза светятся
+    for (const ex of [-0.2, 0.2]) {
+      const eye = new THREE.Mesh(
+        new THREE.SphereGeometry(0.08, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0xff2222 })
+      );
+      eye.position.set(ex, 3.65, 0.42);
+      sg.add(eye);
+    }
+    // Крылья (плоские)
+    for (const wx of [-0.85, 0.85]) {
+      const wing = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.2, 1.6),
+        new THREE.MeshStandardMaterial({ color: 0x2a1a10, roughness: 0.9, side: THREE.DoubleSide, flatShading: true })
+      );
+      wing.position.set(wx, 2.4, -0.2);
+      wing.rotation.y = wx > 0 ? -0.5 : 0.5;
+      sg.add(wing);
+    }
+    sg.position.set(Math.cos(a) * statueR, 0, Math.sin(a) * statueR);
+    sg.rotation.y = a + Math.PI; // лицом к центру
+    group.add(sg);
+  }
+
+  // ── НАДГРОБИЯ (разбросаны по арене) ─────────────────────
+  for (let i = 0; i < 15; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = R * (0.15 + Math.random() * 0.7);
+    const grave = new THREE.Group();
+    const stone = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7 + Math.random() * 0.3, 1.2 + Math.random() * 0.5, 0.18),
+      new THREE.MeshStandardMaterial({ color: 0x6a6058, roughness: 0.9, flatShading: true })
+    );
+    stone.position.y = 0.6;
+    grave.add(stone);
+    // Земляной холмик
+    const mound = new THREE.Mesh(
+      new THREE.SphereGeometry(0.9, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshStandardMaterial({ color: 0x3a2818, roughness: 1, flatShading: true })
+    );
+    mound.scale.set(1, 0.3, 1.2);
+    mound.position.z = 0.4;
+    grave.add(mound);
+    grave.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+    grave.rotation.y = Math.random() * Math.PI * 2;
+    group.add(grave);
+  }
+
+  // ── КОСТРЫ (3 большие с сильным свечением) ────────────
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.5;
+    const dist = R * 0.6;
+    const cx = Math.cos(a) * dist;
+    const cz = Math.sin(a) * dist;
+    // Круг из камней
+    for (let k = 0; k < 8; k++) {
+      const ka = (k / 8) * Math.PI * 2;
+      const rock = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(0.35, 0),
+        new THREE.MeshStandardMaterial({ color: 0x4a3a30, roughness: 0.95, flatShading: true })
+      );
+      rock.position.set(cx + Math.cos(ka) * 0.9, 0.2, cz + Math.sin(ka) * 0.9);
+      rock.rotation.set(Math.random(), Math.random(), Math.random());
+      group.add(rock);
+    }
+    // Дрова
+    for (let k = 0; k < 4; k++) {
+      const log = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.08, 1.2, 6),
+        new THREE.MeshStandardMaterial({ color: 0x2a1810, roughness: 0.9 })
+      );
+      log.position.set(cx, 0.35, cz);
+      log.rotation.set(Math.PI / 2, (k / 4) * Math.PI, 0);
+      group.add(log);
+    }
+    // Пламя большое
+    const bigFlame = new THREE.Mesh(
+      new THREE.ConeGeometry(0.6, 1.8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff6622, transparent: true, opacity: 0.9 })
+    );
+    bigFlame.position.set(cx, 1.2, cz);
+    bigFlame.userData.isFlame = true;
+    group.add(bigFlame);
+    const bigCore = new THREE.Mesh(
+      new THREE.ConeGeometry(0.3, 1.2, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffdd44 })
+    );
+    bigCore.position.set(cx, 1.0, cz);
+    bigCore.userData.isFlameCore = true;
+    group.add(bigCore);
+    // Ореол на земле
+    const glow = new THREE.Mesh(
+      new THREE.CircleGeometry(3.5, 24),
+      new THREE.MeshBasicMaterial({ color: 0xff8844, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false })
+    );
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.set(cx, 0.04, cz);
+    group.add(glow);
+  }
+
+  // ── АЛТАРНЫЕ КАМНИ (у центра) ──────────────────────────
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 8;
+    const r = R * 0.12;
+    const rock = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.8 + Math.random() * 0.3, 0),
+      new THREE.MeshStandardMaterial({ color: 0x5a4a3a, roughness: 0.95, flatShading: true })
+    );
+    rock.position.set(Math.cos(a) * r, 0.4, Math.sin(a) * r);
+    rock.rotation.set(Math.random(), Math.random(), Math.random());
+    group.add(rock);
+  }
+
+  // ── СУХИЕ ДЕРЕВЬЯ (силуэты у краёв) ────────────────────
+  for (let i = 0; i < 8; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = R * (0.75 + Math.random() * 0.15);
+    const tree = new THREE.Group();
+    // Ствол
+    const trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.25, 0.4, 3 + Math.random(), 6),
+      new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 1, flatShading: true })
+    );
+    trunk.position.y = 1.7;
+    tree.add(trunk);
+    // 3-4 ветки
+    for (let k = 0; k < 4; k++) {
+      const branch = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.15, 1.5 + Math.random(), 5),
+        new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 1, flatShading: true })
+      );
+      branch.position.y = 2.5 + k * 0.3;
+      branch.rotation.z = ((k % 2) ? 1 : -1) * (0.6 + Math.random() * 0.4);
+      branch.position.x = ((k % 2) ? 0.5 : -0.5);
+      tree.add(branch);
+    }
+    tree.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+    tree.rotation.y = Math.random() * Math.PI * 2;
+    group.add(tree);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -726,39 +916,71 @@ export function makeSlotContent(kind, handType) {
 
 export function createHubChestMesh() {
   const g = new THREE.Group();
+  const woodTex = generateWoodTexture();
   // Тело
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(1.4, 0.9, 0.9),
-    new THREE.MeshStandardMaterial({ color: 0x4a2f18, roughness: 0.85, flatShading: true })
-  );
-  body.position.y = 0.45;
+  const bodyMat = new THREE.MeshStandardMaterial({
+    map: woodTex, color: 0x6a4a28, roughness: 0.9, metalness: 0.05,
+  });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 1.1), bodyMat);
+  body.position.y = 0.5;
   g.add(body);
-  // Крышка
-  const lid = new THREE.Mesh(
-    new THREE.BoxGeometry(1.45, 0.25, 0.95),
-    new THREE.MeshStandardMaterial({ color: 0x5a3820, roughness: 0.7, flatShading: true })
+  // Внутренний "провал" (виден когда крышка открыта) — тёмный box чуть меньше
+  const inside = new THREE.Mesh(
+    new THREE.BoxGeometry(1.4, 0.85, 0.95),
+    new THREE.MeshStandardMaterial({ color: 0x0a0805, roughness: 1.0, side: THREE.BackSide })
   );
-  lid.position.y = 1.02;
-  g.add(lid);
-  // Замок
+  inside.position.y = 0.55;
+  g.add(inside);
+  // Свечение из глубины сундука когда открыт
+  const innerGlow = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.3, 0.85),
+    new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0, side: THREE.DoubleSide })
+  );
+  innerGlow.position.set(0, 0.5, 0);
+  innerGlow.rotation.x = -Math.PI / 2;
+  g.add(innerGlow);
+  g.userData.innerGlow = innerGlow;
+  // Крышка — отдельная группа, pivot на задней грани (для откидывания)
+  const lidPivot = new THREE.Group();
+  lidPivot.position.set(0, 1.0, -0.55); // задняя грань
+  const lidTop = new THREE.Mesh(
+    new THREE.BoxGeometry(1.65, 0.25, 1.15),
+    bodyMat.clone()
+  );
+  lidTop.material.color = new THREE.Color(0x7a5a35);
+  lidTop.position.set(0, 0.12, 0.55); // сдвиг вперёд от pivot
+  lidPivot.add(lidTop);
+  // Замок на крышке
   const lock = new THREE.Mesh(
-    new THREE.BoxGeometry(0.2, 0.25, 0.1),
-    new THREE.MeshStandardMaterial({ color: 0xd4a020, emissive: 0x442200, emissiveIntensity: 0.5, metalness: 0.6, roughness: 0.4 })
+    new THREE.BoxGeometry(0.25, 0.3, 0.12),
+    new THREE.MeshStandardMaterial({ color: 0xd4a020, emissive: 0x442200, emissiveIntensity: 0.5, metalness: 0.7, roughness: 0.4 })
   );
-  lock.position.set(0, 0.85, 0.5);
-  g.add(lock);
-  // Металлические полосы
-  for (const zx of [-0.4, 0.4]) {
+  lock.position.set(0, 0.08, 1.08);
+  lidPivot.add(lock);
+  g.add(lidPivot);
+  g.userData.lid = lidPivot;
+  g.userData.lidOpen = 0; // 0..1
+  // Металлические полосы на теле
+  for (const zx of [-0.55, 0.55]) {
     const strap = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 1.0, 0.96),
+      new THREE.BoxGeometry(0.08, 1.05, 1.12),
       new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.7, roughness: 0.5 })
     );
     strap.position.set(zx, 0.5, 0);
     g.add(strap);
   }
-  // Подсветка при непустом
+  // Ножки
+  for (const [x, z] of [[-0.7, -0.5], [0.7, -0.5], [-0.7, 0.5], [0.7, 0.5]]) {
+    const leg = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.2, 0.12),
+      new THREE.MeshStandardMaterial({ color: 0x2a1a10, roughness: 0.9 })
+    );
+    leg.position.set(x, 0.05, z);
+    g.add(leg);
+  }
+  // Подсветка на полу при непустом
   const glow = new THREE.Mesh(
-    new THREE.RingGeometry(0.8, 1.1, 20),
+    new THREE.RingGeometry(0.9, 1.3, 24),
     new THREE.MeshBasicMaterial({ color: 0xffaa22, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })
   );
   glow.rotation.x = -Math.PI / 2;
@@ -771,13 +993,27 @@ export function createHubChestMesh() {
   const ctx = cvs.getContext("2d");
   const tex = new THREE.CanvasTexture(cvs);
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
-  spr.scale.set(0.7, 0.7, 1);
-  spr.position.y = 1.6;
+  spr.scale.set(0.8, 0.8, 1);
+  spr.position.y = 1.8;
   g.add(spr);
   g.userData.countSprite = spr;
   g.userData.countCtx = ctx;
   g.userData.countTex = tex;
   return g;
+}
+
+// Анимация открытия/закрытия сундука
+export function setChestOpen(mesh, open, dt) {
+  if (!mesh || !mesh.userData.lid) return;
+  const target = open ? 1 : 0;
+  const cur = mesh.userData.lidOpen;
+  const speed = 4;
+  const next = cur + (target - cur) * Math.min(1, dt * speed);
+  mesh.userData.lidOpen = next;
+  // Крышка откидывается назад — угол до -110°
+  mesh.userData.lid.rotation.x = -next * (Math.PI * 0.6);
+  // Внутреннее свечение
+  if (mesh.userData.innerGlow) mesh.userData.innerGlow.material.opacity = next * 0.75;
 }
 
 // Обновить счётчик содержимого сундука
@@ -880,6 +1116,249 @@ export function updateHubAltar(altar, slotContents, tSec) {
     const filled = slotContents.filter(x => x).length;
     altar.userData.beam.material.opacity = 0.12 + (filled / 3) * 0.4;
   }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// ПРОЦЕДУРНЫЕ ТЕКСТУРЫ (canvas → THREE.Texture)
+// ═══════════════════════════════════════════════════════════════════
+
+let _cachedStoneWall = null;
+export function generateStoneWallTexture() {
+  if (_cachedStoneWall) return _cachedStoneWall;
+  const cvs = document.createElement("canvas");
+  cvs.width = 512; cvs.height = 512;
+  const c = cvs.getContext("2d");
+  // Базовый камень
+  c.fillStyle = "#4a3f35";
+  c.fillRect(0, 0, 512, 512);
+  // Кладка — прямоугольные блоки со смещением по рядам
+  const rows = 8, cols = 6;
+  const rh = 512 / rows;
+  for (let r = 0; r < rows; r++) {
+    const off = (r % 2) * (512 / cols / 2);
+    const cw = 512 / cols;
+    for (let cc = -1; cc <= cols; cc++) {
+      const x = cc * cw + off;
+      const y = r * rh;
+      const shade = 60 + Math.floor(Math.random() * 40);
+      c.fillStyle = `rgb(${shade + 30},${shade + 20},${shade + 10})`;
+      c.fillRect(x + 2, y + 2, cw - 4, rh - 4);
+      // Шум
+      for (let k = 0; k < 30; k++) {
+        const px = x + 2 + Math.random() * (cw - 4);
+        const py = y + 2 + Math.random() * (rh - 4);
+        const s2 = 40 + Math.floor(Math.random() * 60);
+        c.fillStyle = `rgba(${s2},${s2 * 0.85},${s2 * 0.7},0.4)`;
+        c.fillRect(px, py, 2, 2);
+      }
+      // Трещины
+      if (Math.random() < 0.3) {
+        c.strokeStyle = "rgba(20,15,10,0.7)";
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(x + Math.random() * cw, y + Math.random() * rh);
+        c.lineTo(x + Math.random() * cw, y + Math.random() * rh);
+        c.stroke();
+      }
+    }
+    // Затирка между рядами
+    c.fillStyle = "#20180f";
+    c.fillRect(0, r * rh, 512, 2);
+  }
+  // Мох сверху
+  c.fillStyle = "rgba(60,80,40,0.35)";
+  for (let i = 0; i < 300; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 200;
+    c.fillRect(x, y, Math.random() * 4, Math.random() * 4);
+  }
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.anisotropy = 4;
+  _cachedStoneWall = tex;
+  return tex;
+}
+
+let _cachedWood = null;
+export function generateWoodTexture() {
+  if (_cachedWood) return _cachedWood;
+  const cvs = document.createElement("canvas");
+  cvs.width = 256; cvs.height = 256;
+  const c = cvs.getContext("2d");
+  // Дерево — вертикальные полосы разного оттенка
+  for (let x = 0; x < 256; x += 4 + Math.random() * 8) {
+    const w = 4 + Math.random() * 12;
+    const shade = 50 + Math.floor(Math.random() * 40);
+    c.fillStyle = `rgb(${shade + 40},${shade + 20},${shade + 5})`;
+    c.fillRect(x, 0, w, 256);
+  }
+  // Прожилки
+  c.strokeStyle = "rgba(30,15,5,0.5)";
+  c.lineWidth = 1;
+  for (let i = 0; i < 15; i++) {
+    c.beginPath();
+    let y = Math.random() * 256;
+    c.moveTo(0, y);
+    for (let x = 0; x < 256; x += 20) {
+      y += (Math.random() - 0.5) * 8;
+      c.lineTo(x, y);
+    }
+    c.stroke();
+  }
+  // Сучки
+  for (let i = 0; i < 6; i++) {
+    const x = Math.random() * 256;
+    const y = Math.random() * 256;
+    c.fillStyle = "rgba(30,15,5,0.7)";
+    c.beginPath();
+    c.ellipse(x, y, 6 + Math.random() * 8, 3 + Math.random() * 4, 0, 0, Math.PI * 2);
+    c.fill();
+  }
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.anisotropy = 4;
+  _cachedWood = tex;
+  return tex;
+}
+
+let _cachedArenaGround = null;
+export function generateArenaGroundTexture() {
+  if (_cachedArenaGround) return _cachedArenaGround;
+  const cvs = document.createElement("canvas");
+  cvs.width = 512; cvs.height = 512;
+  const c = cvs.getContext("2d");
+  // Тёмная земля/пепел с оттенками красного (арена демоническая, но не адски тёмная)
+  c.fillStyle = "#3a3028";
+  c.fillRect(0, 0, 512, 512);
+  // Разноцветный шум земли
+  for (let i = 0; i < 5000; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const r = Math.random();
+    if (r < 0.5) c.fillStyle = "rgba(70,55,40,0.5)";
+    else if (r < 0.8) c.fillStyle = "rgba(100,80,60,0.4)";
+    else c.fillStyle = "rgba(120,60,40,0.35)";  // рыжие вкрапления
+    c.fillRect(x, y, 2, 2);
+  }
+  // Трещины земли
+  c.strokeStyle = "rgba(20,10,5,0.7)";
+  for (let i = 0; i < 40; i++) {
+    c.lineWidth = 0.5 + Math.random() * 1.5;
+    c.beginPath();
+    let x = Math.random() * 512, y = Math.random() * 512;
+    c.moveTo(x, y);
+    for (let k = 0; k < 8; k++) {
+      x += (Math.random() - 0.5) * 40;
+      y += (Math.random() - 0.5) * 40;
+      c.lineTo(x, y);
+    }
+    c.stroke();
+  }
+  // Камешки
+  for (let i = 0; i < 80; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const r = 2 + Math.random() * 4;
+    c.fillStyle = `rgba(${140 + Math.random() * 40},${120 + Math.random() * 30},${90 + Math.random() * 20},0.9)`;
+    c.beginPath();
+    c.ellipse(x, y, r, r * 0.7, Math.random() * Math.PI, 0, Math.PI * 2);
+    c.fill();
+  }
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.anisotropy = 4;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  _cachedArenaGround = tex;
+  return tex;
+}
+
+// Табличка на стене (canvas с текстом + рамка)
+export function createWallSign(text, sub) {
+  const cvs = document.createElement("canvas");
+  cvs.width = 512; cvs.height = 192;
+  const c = cvs.getContext("2d");
+  // Фон — старая деревянная доска
+  const grad = c.createLinearGradient(0, 0, 0, 192);
+  grad.addColorStop(0, "#5a3820");
+  grad.addColorStop(1, "#3a2010");
+  c.fillStyle = grad;
+  c.fillRect(0, 0, 512, 192);
+  // Прожилки
+  c.strokeStyle = "rgba(20,10,5,0.5)";
+  c.lineWidth = 1;
+  for (let i = 0; i < 8; i++) {
+    c.beginPath();
+    c.moveTo(0, 24 * i);
+    for (let x = 0; x < 512; x += 30) c.lineTo(x, 24 * i + (Math.random() - 0.5) * 4);
+    c.stroke();
+  }
+  // Металлические углы
+  c.fillStyle = "#443322";
+  for (const [x, y] of [[8, 8], [488, 8], [8, 168], [488, 168]]) c.fillRect(x, y, 16, 16);
+  // Гвозди
+  c.fillStyle = "#dddddd";
+  for (const [x, y] of [[16, 16], [496, 16], [16, 176], [496, 176]]) {
+    c.beginPath(); c.arc(x, y, 3, 0, Math.PI * 2); c.fill();
+  }
+  // Рамка
+  c.strokeStyle = "#221510";
+  c.lineWidth = 4;
+  c.strokeRect(2, 2, 508, 188);
+  // Основной текст
+  c.fillStyle = "#f0d090";
+  c.font = "bold 56px serif";
+  c.textAlign = "center";
+  c.textBaseline = "middle";
+  c.shadowColor = "rgba(0,0,0,0.8)";
+  c.shadowBlur = 4;
+  c.fillText(text, 256, 70);
+  // Подтекст
+  c.font = "italic 26px serif";
+  c.fillStyle = "#d0b070";
+  c.fillText(sub, 256, 130);
+  c.shadowBlur = 0;
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.anisotropy = 4;
+  const w = 5.5, h = 2.1;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, h),
+    new THREE.MeshStandardMaterial({ map: tex, emissive: 0x442200, emissiveIntensity: 0.25, roughness: 0.7 })
+  );
+  return mesh;
+}
+
+// Настенный факел (плоский держатель + пламя)
+export function createWallTorch() {
+  const g = new THREE.Group();
+  // Держатель
+  const holder = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.8, 0.25),
+    new THREE.MeshStandardMaterial({ color: 0x2a1810, roughness: 0.8 })
+  );
+  holder.position.z = 0.15;
+  g.add(holder);
+  // Чаша
+  const bowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22, 0.15, 0.2, 8),
+    new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.9 })
+  );
+  bowl.position.set(0, 0.45, 0.3);
+  g.add(bowl);
+  // Пламя (2 сферы)
+  const flame1 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.28, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xff7722, transparent: true, opacity: 0.85 })
+  );
+  flame1.position.set(0, 0.75, 0.3);
+  flame1.userData.isFlame = true;
+  g.add(flame1);
+  const flame2 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.15, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffdd44, transparent: true, opacity: 0.95 })
+  );
+  flame2.position.set(0, 0.85, 0.3);
+  flame2.userData.isFlameCore = true;
+  g.add(flame2);
+  return g;
 }
 
 export function disposeGroup(obj) {

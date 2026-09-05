@@ -9,9 +9,9 @@ export const NET = {
 };
 
 export const WORLD = {
-  ARENA_RADIUS: 60,
-  ARENA_HEIGHT: 40,
-  HUB_RADIUS: 12,
+  ARENA_RADIUS: 90,
+  ARENA_HEIGHT: 50,
+  HUB_RADIUS: 36,
   GRAVITY: 0,                    // sgustok floats
   BASE_MOVE_SPEED: 6,
   BASE_FLY_SPEED: 5,
