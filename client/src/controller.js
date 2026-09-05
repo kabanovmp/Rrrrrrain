@@ -93,7 +93,7 @@ export class FpsController {
     if (dbgFly) {
       let vy = 0;
       if (this.keys.Space) vy += speed;
-      if (this.keys.ControlLeft || this.keys.ShiftRight) vy -= speed;
+      if (this.keys.KeyC || this.keys.ShiftRight) vy -= speed;
       this.vel.y = vy;
       this.grounded = false;
     } else {
