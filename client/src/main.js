@@ -7,7 +7,7 @@ import { createHandsGroup, animateHands, setSpellInHand, showHandDamage, fadeHan
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
 import { createPedestalMesh, animatePedestal } from "./pedestal.js";
 import { FpsController } from "./controller.js";
-import { initAudio, playSound, playSoundLoop, stopSoundLoop } from "./assets.js";
+import { initAudio, playSound, playSoundLoop, stopSoundLoop, setMasterVolume, getMasterVolume } from "./assets.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // DOM
@@ -256,6 +256,19 @@ function sendDebug(payload) {
     document.getElementById("dbg-spawn-v").textContent = spawn.value;
     sendDebug({ spawnMul: parseFloat(spawn.value) });
   });
+  // Ползунок громкости — локальный, без синхрона
+  const vol = document.getElementById("dbg-vol");
+  const volV = document.getElementById("dbg-vol-v");
+  if (vol && volV) {
+    const cur = Math.round(getMasterVolume() * 100);
+    vol.value = String(cur);
+    volV.textContent = String(cur);
+    vol.addEventListener("input", () => {
+      const v = parseInt(vol.value, 10) / 100;
+      volV.textContent = String(vol.value);
+      setMasterVolume(v);
+    });
+  }
   document.querySelectorAll(".dbg-btn").forEach(b => {
     b.addEventListener("click", () => sendDebug({ action: b.dataset.act }));
   });

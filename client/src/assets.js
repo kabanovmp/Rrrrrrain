@@ -62,18 +62,38 @@ export const TEXTURES = {
 // ═════════════════════════════════════════════════════════════════════
 
 let audioCtx = null;
+let masterGain = null;
+// Стартовый master-волюм: читаем из localStorage, иначе 1.0
+let masterVolume = (() => {
+  try {
+    const v = parseFloat(localStorage.getItem("rrain_master_vol"));
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1.0;
+  } catch { return 1.0; }
+})();
 const soundCache = new Map();
 const textureCache = new Map();
 
 export function initAudio() {
   if (audioCtx) return audioCtx;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = masterVolume;
+  masterGain.connect(audioCtx.destination);
   // Прогреваем все процедурные буферы (чтобы не было лага на первом попадании)
   try {
     Object.keys(SOUNDS).forEach(k => { getSoundBuffer(k); });
   } catch (e) {}
   return audioCtx;
 }
+
+// Глобальная громкость: 0.0..1.0. Сохраняется в localStorage.
+export function setMasterVolume(v) {
+  masterVolume = Math.max(0, Math.min(1, v));
+  if (masterGain) masterGain.gain.value = masterVolume;
+  try { localStorage.setItem("rrain_master_vol", String(masterVolume)); } catch {}
+}
+export function getMasterVolume() { return masterVolume; }
+function _output() { return masterGain || audioCtx?.destination; }
 
 export async function getSoundBuffer(key) {
   if (soundCache.has(key)) return soundCache.get(key);
@@ -102,7 +122,7 @@ export function playSound(key, opts = {}) {
     src.loop = !!(opts.loop ?? def.loop);
     const gain = audioCtx.createGain();
     gain.gain.value = (opts.volume ?? def.volume ?? 0.3);
-    src.connect(gain).connect(audioCtx.destination);
+    src.connect(gain).connect(_output());
     src.start();
     if (opts.loop || def.loop) return { src, gain };
     return null;
@@ -121,7 +141,7 @@ export function playSoundLoop(key, opts = {}) {
     src.loop = true;
     const gain = ctx.createGain();
     gain.gain.value = opts.volume ?? def.volume ?? 0.1;
-    src.connect(gain).connect(ctx.destination);
+    src.connect(gain).connect(_output());
     src.start();
     handle.src = src; handle.gain = gain;
   });
