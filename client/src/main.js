@@ -871,25 +871,23 @@ canvas.addEventListener("mousedown", (ev) => {
   lastCastMs = nowMs;
   const spellId = HAND_TYPES[hand === "left" ? myPlayer.leftHandType : myPlayer.rightHandType]?.spell
                 || "FIREBALL";
-  // НАПРАВЛЕНИЕ — напрямую из yaw/pitch контроллера, не через матрицу камеры.
-  // Матрица камеры обновляется в update() и может быть устаревшей на mousedown —
-  // особенно на macOS/трекпаде, где события могут приходить между кадрами.
-  // Кроме того, handsRoot — child камеры, это может влиять на getWorldDirection.
-  const yaw = controller.yaw;
-  const pitch = controller.pitch;
-  const cosPitch = Math.cos(pitch);
-  const dir = new THREE.Vector3(
-    -Math.sin(yaw) * cosPitch,
-     Math.sin(pitch),
-    -Math.cos(yaw) * cosPitch
-  );
+  // НАПРАВЛЕНИЕ: СИНХРОННО ОБНОВЛЯЕМ камеру из controller.yaw/pitch, потом берём getWorldDirection.
+  // Это гарантирует, что cast летит точно туда, куда будет смотреть следующий кадр.
+  // Нельзя брать только controller.yaw — есть рассинхрон с рендером камеры.
+  camera.rotation.order = "YXZ";
+  camera.rotation.y = controller.yaw;
+  camera.rotation.x = controller.pitch;
+  camera.rotation.z = 0;
+  camera.updateMatrixWorld(true);
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
   const origin = controller.position.clone().add(new THREE.Vector3(0, 0.4, 0));
   // ДИАГНОСТИКА Mac: лог каждого cast — первые 5
   if (!window._castLogCnt) window._castLogCnt = 0;
   if (window._castLogCnt < 5) {
     window._castLogCnt++;
     const pl = document.pointerLockElement === canvas ? "ON" : "OFF";
-    console.log(`[CAST #${window._castLogCnt}] PL=${pl} yaw=${yaw.toFixed(3)} pitch=${pitch.toFixed(3)} dir=(${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)})`);
+    console.log(`[CAST #${window._castLogCnt}] PL=${pl} y=${controller.yaw.toFixed(3)} p=${controller.pitch.toFixed(3)} dir=(${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)}) cam=(${camera.rotation.y.toFixed(3)},${camera.rotation.x.toFixed(3)})`);
   }
   room.send("cast", {
     spell: spellId, dx: dir.x, dy: dir.y, dz: dir.z,
