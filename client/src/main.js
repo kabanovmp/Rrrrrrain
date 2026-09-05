@@ -995,6 +995,18 @@ document.addEventListener("keydown", (ev) => {
         if (slot && !slot.empty) {
           room.send("hub_take", { source: "slot", index: c.i });
           playSound("pickup");
+        } else if (slot && slot.empty && myPlayer) {
+          // ПОЛОЖИТЬ: приоритет — левая, правая, лишний item, passive, нога
+          let what = null;
+          if (myPlayer.hasLeftHand) what = "leftHand";
+          else if (myPlayer.hasRightHand) what = "rightHand";
+          else if (myPlayer.itemsInBody.length > 0) what = "item";
+          else if (myPlayer.passiveItemId) what = "passive";
+          else if (myPlayer.hasLegs > 0) what = "leg";
+          if (what) {
+            room.send("hub_put", { index: c.i, what });
+            playSound("pickup");
+          }
         }
       } else if (c.kind === "chest") {
         // По F возле сундука — открываем UI-панель с набором предметов
@@ -1162,6 +1174,16 @@ function updateHubInteractionHint() {
     if (d < 2 && !action) {
       const slot = room.state.hubSlots[i];
       if (slot && !slot.empty) action = `[F] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}`;
+      else if (slot && slot.empty && myPlayer) {
+        // что можно положить — приоритет тот же
+        let lbl = null;
+        if (myPlayer.hasLeftHand) lbl = `левую руку (${myPlayer.leftHandType || "?"})`;
+        else if (myPlayer.hasRightHand) lbl = `правую руку (${myPlayer.rightHandType || "?"})`;
+        else if (myPlayer.itemsInBody.length > 0) lbl = `лишний предмет`;
+        else if (myPlayer.passiveItemId) lbl = `надетый предмет`;
+        else if (myPlayer.hasLegs > 0) lbl = `ногу`;
+        if (lbl) action = `[F] положить ${lbl}`;
+      }
     }
   });
   hubChestMeshes.forEach((g, i) => {

@@ -35,12 +35,22 @@ export const HAND_TYPES = {
   FIRE: { id: "FIRE", color: 0xff5a1f, name: "Огненная",  spell: "FIREBALL" },
   ICE:  { id: "ICE",  color: 0x66ccff, name: "Ледяная",   spell: "ICEBOLT" },
   BONE: { id: "BONE", color: 0xe6d8b0, name: "Костяная",  spell: "BONE_SHARD" },
+  CHAIN:{ id: "CHAIN",color: 0x9be7ff, name: "Грозовая", spell: "CHAIN_LIGHTNING" },
 };
 
 export const SPELLS = {
   FIREBALL:   { cooldown: 0.35, projectileSpeed: 40, damage: 1, radius: 0.6, color: 0xff5a1f, life: 2.0 },
   ICEBOLT:    { cooldown: 0.30, projectileSpeed: 48, damage: 1, radius: 0.4, color: 0x66ccff, life: 1.8 },
   BONE_SHARD: { cooldown: 0.20, projectileSpeed: 55, damage: 1, radius: 0.3, color: 0xffe0a0, life: 1.5 },
+  // Цепная молния: мгновенный хит, не снаряд, прыгает по цепи
+  CHAIN_LIGHTNING: {
+    cooldown: 0.60, isChain: true, damage: 2, color: 0x9be7ff,
+    initialRange: 30,   // дальность первого захвата (конус)
+    initialConeCos: 0.85, // ~±32° от взгляда
+    jumpRange: 10,      // дальность прыжка между врагами
+    maxJumps: 10,       // макс целей в цепи
+    falloff: 0.85,      // урон каждого следующего = 85% от предыдущего
+  },
 };
 
 // Enemies — DOOM 1 inspired

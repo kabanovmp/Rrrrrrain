@@ -195,6 +195,35 @@ export class ArenaRoom extends Room {
       }
     });
 
+    // ── HUB: положить в конкретный пустой слот (F возле пустого постамента) ─
+    // msg: { index: number, what: "leftHand"|"rightHand"|"leg"|"passive"|"item"(bodyItems.top) }
+    this.onMessage("hub_put", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      if (this.state.phase !== "hub") return;
+      const slot = this.state.hubSlots[msg.index];
+      if (!slot || !slot.empty) return;
+      const what = String(msg.what || "");
+      if (what === "leftHand" && p.hasLeftHand) {
+        slot.kind = "HAND"; slot.handType = p.leftHandType; slot.itemId = ""; slot.empty = false;
+        p.hasLeftHand = false; p.leftHandType = "";
+      } else if (what === "rightHand" && p.hasRightHand) {
+        slot.kind = "HAND"; slot.handType = p.rightHandType; slot.itemId = ""; slot.empty = false;
+        p.hasRightHand = false; p.rightHandType = "";
+      } else if (what === "leg" && p.hasLegs > 0) {
+        slot.kind = "LEG"; slot.handType = ""; slot.itemId = ""; slot.empty = false;
+        p.hasLegs--;
+      } else if (what === "passive" && p.passiveItemId) {
+        slot.kind = "ITEM"; slot.handType = ""; slot.itemId = p.passiveItemId; slot.empty = false;
+        p.passiveItemId = "";
+        p.maxHp = COMBAT.PLAYER_MAX_HP;
+        if (p.hp > p.maxHp) p.hp = p.maxHp;
+      } else if (what === "item" && p.itemsInBody.length > 0) {
+        const it = p.itemsInBody.pop();
+        slot.kind = "ITEM"; slot.handType = ""; slot.itemId = it; slot.empty = false;
+      }
+    });
+
     // ── HUB: reforge (положить/забрать/скрафтить) ────────────
     this.onMessage("hub_reforge", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
@@ -549,12 +578,48 @@ export class ArenaRoom extends Room {
     if (this.state.phase !== "arena" && this.state.phase !== "portal_ready") return;
     p.hp -= dmg;
     if (p.hp <= 0) {
-      p.isGhost = true;
       p.hp = 0;
-      this.broadcast("fx", { type: "death", target: sessionId });
+      // Считаем других ЖИВЫХ игроков на арене (не призраков, с HP > 0), кроме меня
+      let otherAlive = 0;
+      this.state.players.forEach((pl, sid) => {
+        if (sid === sessionId) return;
+        if (!pl.isGhost && pl.hp > 0) otherAlive++;
+      });
+      if (otherAlive > 0) {
+        // Есть живой союзник — становимся призраком-помощником
+        p.isGhost = true;
+        this.broadcast("fx", { type: "death", target: sessionId });
+      } else {
+        // Один или все умерли — wipe: возврат в хаб, прогресс арены обнулён
+        this.broadcast("fx", { type: "death", target: sessionId });
+        this.broadcast("chat", { name: "система", text: "команда пала — возврат в хаб", id: "" });
+        this.wipeToHub();
+      }
     } else {
       this.broadcast("fx", { type: "hurt", target: sessionId, fromX, fromZ });
     }
+  }
+
+  // ПОЛНЫЙ СБРОС АРЕНЫ в хаб: все волны, враги, снаряды, портал скидываются, игроки воскресают в центре хаба
+  wipeToHub() {
+    const prev = this.state.phase;
+    this.state.phase = "hub";
+    this.state.wave = 0;
+    this.state.waveTimer = 0;
+    this.state.portalActive = false;
+    this.state.portalCharge = 0;
+    this.state.enemies.clear();
+    this.projectiles.length = 0;
+    this.state.pickups.clear();
+    // Снимаем всё, что подобрали на арене — в слоты/сундуки хаба
+    if (prev !== "hub") this.autoDepositPlayerInventory();
+    this.state.players.forEach((pl, sid) => {
+      pl.isGhost = false;
+      pl.maxHp = this.playerMaxHp(pl);
+      pl.hp = pl.maxHp;
+      pl.pos.x = 0; pl.pos.y = 1.6; pl.pos.z = 0;
+      this.broadcast("fx", { type: "respawn", target: sid });
+    });
   }
 
   tick(dt) {
