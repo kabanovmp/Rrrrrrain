@@ -79,54 +79,26 @@ export function setupHub(group) {
   group.add(altar);
   group.userData.hubAltar = altar;
 
-  // ── КАМЕННЫЕ СТЕНЫ ХАБА ──────────────────────────────────
-  // Замкнутый цилиндр по периметру (внутренняя поверхность)
-  const wallHeight = 8;
-  const wallTex = generateStoneWallTexture();
-  wallTex.wrapS = THREE.RepeatWrapping;
-  wallTex.wrapT = THREE.RepeatWrapping;
-  wallTex.repeat.set(8, 2);
-  const walls = new THREE.Mesh(
-    new THREE.CylinderGeometry(R * 1.02, R * 1.02, wallHeight, 32, 1, true),
-    new THREE.MeshStandardMaterial({
-      map: wallTex, color: 0x8a7f70, roughness: 0.85, metalness: 0.05, side: THREE.BackSide,
-    })
+  // ── ХАБ — ОТКРЫТАЯ ПЛОЩАДКА (без стен, без потолка) ───────
+  // Край — отвесная пропасть; падение = смерть + респаун
+  // Каменный бортик-карниз, чтобы визуально читался край
+  const rimTex = generateStoneWallTexture();
+  rimTex.wrapS = THREE.RepeatWrapping;
+  rimTex.wrapT = THREE.RepeatWrapping;
+  rimTex.repeat.set(24, 1);
+  const rim = new THREE.Mesh(
+    new THREE.TorusGeometry(R * 1.0, 0.35, 8, 64),
+    new THREE.MeshStandardMaterial({ map: rimTex, color: 0x6a5c4a, roughness: 0.9 })
   );
-  walls.position.y = wallHeight / 2 - 0.2;
-  group.add(walls);
-  // Потолок — тёмный купол внутри
-  const ceiling = new THREE.Mesh(
-    new THREE.CylinderGeometry(R * 1.02, R * 1.02, 0.3, 32),
-    new THREE.MeshStandardMaterial({ color: 0x151020, roughness: 1.0 })
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = 0.1;
+  group.add(rim);
+  // Небо/фон вокруг — глубокий пурпур
+  const skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(R * 3, 24, 12),
+    new THREE.MeshBasicMaterial({ color: 0x2a2038, side: THREE.BackSide, fog: false })
   );
-  ceiling.position.y = wallHeight - 0.2;
-  group.add(ceiling);
-
-  // ── ТАБЛИЧКИ-УКАЗАТЕЛИ НА СТЕНАХ ─────────────────────────
-  const signs = [
-    { angle: 0, text: "ПОСТАМЕНТЫ", sub: "ваши заклинания и предметы" },
-    { angle: Math.PI, text: "ПОРТАЛ", sub: "путь на арену" },
-    { angle: Math.PI / 2, text: "СУНДУКИ", sub: "если постаменты полны" },
-    { angle: -Math.PI / 2, text: "АЛТАРЬ", sub: "3 одинаковых = редкое" },
-  ];
-  for (const sg of signs) {
-    const sign = createWallSign(sg.text, sg.sub);
-    const sx = Math.sin(sg.angle) * (R * 0.99);
-    const sz = Math.cos(sg.angle) * (R * 0.99);
-    sign.position.set(sx, 3.2, sz);
-    // Развернуть лицом к центру
-    sign.lookAt(0, 3.2, 0);
-    group.add(sign);
-  }
-
-  // ── ФАКЕЛЫ ПО ПЕРИМЕТРУ ХАБА ─────────────────────────────
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-    const t = createWallTorch();
-    t.position.set(Math.sin(a) * (R * 0.97), 2.5, Math.cos(a) * (R * 0.97));
-    t.lookAt(0, 2.5, 0);
-    group.add(t);
-  }
+  group.add(skyDome);
 
 
   // ── ПОРТАЛ НА АРЕНУ (край хаба) ───────────────────────────
@@ -917,84 +889,160 @@ export function makeSlotContent(kind, handType) {
 export function createHubChestMesh() {
   const g = new THREE.Group();
   const woodTex = generateWoodTexture();
-  // Тело
-  const bodyMat = new THREE.MeshStandardMaterial({
-    map: woodTex, color: 0x6a4a28, roughness: 0.9, metalness: 0.05,
+  const woodMat = new THREE.MeshStandardMaterial({
+    map: woodTex, color: 0x6a4a28, roughness: 0.85, metalness: 0.05,
   });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.0, 1.1), bodyMat);
-  body.position.y = 0.5;
+  const ironMat = new THREE.MeshStandardMaterial({
+    color: 0x1e1a16, metalness: 0.85, roughness: 0.35,
+  });
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: 0xd4a020, emissive: 0x442200, emissiveIntensity: 0.5,
+    metalness: 0.8, roughness: 0.35,
+  });
+
+  // ── ТЕЛО (нижний прямоугольный ящик) ─────────────────────
+  const W = 1.7, H = 0.8, D = 1.15;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(W, H, D), woodMat);
+  body.position.y = H / 2 + 0.08;
   g.add(body);
-  // Внутренний "провал" (виден когда крышка открыта) — тёмный box чуть меньше
+
+  // ── ВНУТРЕННОСТЬ (тёмная коробка чуть меньше) ────────────
   const inside = new THREE.Mesh(
-    new THREE.BoxGeometry(1.4, 0.85, 0.95),
+    new THREE.BoxGeometry(W - 0.2, H - 0.05, D - 0.15),
     new THREE.MeshStandardMaterial({ color: 0x0a0805, roughness: 1.0, side: THREE.BackSide })
   );
-  inside.position.y = 0.55;
+  inside.position.y = H / 2 + 0.13;
   g.add(inside);
-  // Свечение из глубины сундука когда открыт
+
+  // ── КРЫШКА (полуцилиндр — изогнутая) ─────────────────────
+  // Pivot на задней грани, чтобы откидывалась
+  const lidPivot = new THREE.Group();
+  lidPivot.position.set(0, H + 0.08, -D / 2);
+  // Полуцилиндр: CylinderGeometry с thetaLength=PI, радиус = D/2, высота = W
+  const lidGeom = new THREE.CylinderGeometry(D / 2, D / 2, W, 20, 1, false, 0, Math.PI);
+  lidGeom.rotateZ(Math.PI / 2); // ось вдоль X
+  const lidTop = new THREE.Mesh(lidGeom, woodMat.clone());
+  lidTop.material.color = new THREE.Color(0x7a5a35);
+  lidTop.position.set(0, 0, D / 2); // сдвиг вперёд от pivot
+  lidPivot.add(lidTop);
+  // Торцы крышки (полукруги)
+  const capGeom = new THREE.CircleGeometry(D / 2, 20, 0, Math.PI);
+  capGeom.rotateX(-Math.PI / 2); capGeom.rotateY(Math.PI / 2);
+  for (const [xPos, rotY] of [[-W / 2, Math.PI], [W / 2, 0]]) {
+    const cap = new THREE.Mesh(capGeom.clone(), woodMat.clone());
+    cap.material.color = new THREE.Color(0x7a5a35);
+    cap.position.set(xPos, 0, D / 2);
+    cap.rotation.y = rotY;
+    lidPivot.add(cap);
+  }
+  // Металлические обвязки-полосы на крышке (3 штуки)
+  for (const xPos of [-0.55, 0, 0.55]) {
+    const strapGeom = new THREE.TorusGeometry(D / 2 + 0.01, 0.03, 6, 16, Math.PI);
+    const strap = new THREE.Mesh(strapGeom, ironMat);
+    strap.rotation.y = Math.PI / 2;
+    strap.position.set(xPos, 0, D / 2);
+    lidPivot.add(strap);
+  }
+  // Замок с ушком по центру крышки
+  const lockPlate = new THREE.Mesh(
+    new THREE.BoxGeometry(0.28, 0.12, 0.32),
+    ironMat
+  );
+  lockPlate.position.set(0, D / 2 - 0.06, D - 0.15);
+  lidPivot.add(lockPlate);
+  const lockGold = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, 0.06, 12),
+    goldMat
+  );
+  lockGold.rotation.x = Math.PI / 2;
+  lockGold.position.set(0, D / 2 - 0.06, D - 0.02);
+  lidPivot.add(lockGold);
+  g.add(lidPivot);
+  g.userData.lid = lidPivot;
+  g.userData.lidOpen = 0;
+
+  // Свечение изнутри при открытии
   const innerGlow = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.3, 0.85),
+    new THREE.PlaneGeometry(W - 0.25, D - 0.2),
     new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0, side: THREE.DoubleSide })
   );
-  innerGlow.position.set(0, 0.5, 0);
+  innerGlow.position.set(0, H + 0.09, 0);
   innerGlow.rotation.x = -Math.PI / 2;
   g.add(innerGlow);
   g.userData.innerGlow = innerGlow;
-  // Крышка — отдельная группа, pivot на задней грани (для откидывания)
-  const lidPivot = new THREE.Group();
-  lidPivot.position.set(0, 1.0, -0.55); // задняя грань
-  const lidTop = new THREE.Mesh(
-    new THREE.BoxGeometry(1.65, 0.25, 1.15),
-    bodyMat.clone()
-  );
-  lidTop.material.color = new THREE.Color(0x7a5a35);
-  lidTop.position.set(0, 0.12, 0.55); // сдвиг вперёд от pivot
-  lidPivot.add(lidTop);
-  // Замок на крышке
-  const lock = new THREE.Mesh(
-    new THREE.BoxGeometry(0.25, 0.3, 0.12),
-    new THREE.MeshStandardMaterial({ color: 0xd4a020, emissive: 0x442200, emissiveIntensity: 0.5, metalness: 0.7, roughness: 0.4 })
-  );
-  lock.position.set(0, 0.08, 1.08);
-  lidPivot.add(lock);
-  g.add(lidPivot);
-  g.userData.lid = lidPivot;
-  g.userData.lidOpen = 0; // 0..1
-  // Металлические полосы на теле
-  for (const zx of [-0.55, 0.55]) {
-    const strap = new THREE.Mesh(
-      new THREE.BoxGeometry(0.08, 1.05, 1.12),
-      new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.7, roughness: 0.5 })
+
+  // ── ПЕТЛИ (2 штуки — цилиндрики по задней стороне) ───────
+  for (const xPos of [-0.55, 0.55]) {
+    const hinge = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.06, 0.2, 8),
+      ironMat
     );
-    strap.position.set(zx, 0.5, 0);
-    g.add(strap);
+    hinge.rotation.z = Math.PI / 2;
+    hinge.position.set(xPos, H + 0.08, -D / 2 + 0.02);
+    g.add(hinge);
   }
-  // Ножки
-  for (const [x, z] of [[-0.7, -0.5], [0.7, -0.5], [-0.7, 0.5], [0.7, 0.5]]) {
-    const leg = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.2, 0.12),
-      new THREE.MeshStandardMaterial({ color: 0x2a1a10, roughness: 0.9 })
+
+  // ── ОБВЯЗКИ НА ТЕЛЕ (кольцевые полосы) ───────────────────
+  for (const xPos of [-0.55, 0.55]) {
+    // Горизонтальные полосы по фронту и сторонам
+    const wrap = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, H + 0.05, D + 0.02),
+      ironMat
     );
-    leg.position.set(x, 0.05, z);
-    g.add(leg);
+    wrap.position.set(xPos, H / 2 + 0.08, 0);
+    g.add(wrap);
   }
-  // Подсветка на полу при непустом
+
+  // ── УГЛОВЫЕ НАКЛАДКИ ─────────────────────────────────────
+  for (const [xs, zs] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const corner = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, H + 0.02, 0.14),
+      ironMat
+    );
+    corner.position.set(xs * (W / 2 - 0.07), H / 2 + 0.08, zs * (D / 2 - 0.07));
+    g.add(corner);
+  }
+
+  // ── НОЖКИ-КОГТИ (4 штуки) ────────────────────────────────
+  for (const [xs, zs] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    // Основание
+    const paw = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 8, 6),
+      ironMat
+    );
+    paw.position.set(xs * (W / 2 - 0.15), 0.08, zs * (D / 2 - 0.15));
+    paw.scale.y = 0.6;
+    g.add(paw);
+    // 3 когтя
+    for (let k = -1; k <= 1; k++) {
+      const claw = new THREE.Mesh(
+        new THREE.ConeGeometry(0.035, 0.14, 6),
+        ironMat
+      );
+      claw.position.set(xs * (W / 2 - 0.15) + k * 0.06, 0.02, zs * (D / 2 - 0.15) + 0.08 * zs);
+      claw.rotation.x = zs > 0 ? -0.4 : 0.4;
+      g.add(claw);
+    }
+  }
+
+  // ── ПОДСВЕТКА НА ПОЛУ ────────────────────────────────────
   const glow = new THREE.Mesh(
-    new THREE.RingGeometry(0.9, 1.3, 24),
+    new THREE.RingGeometry(0.95, 1.4, 32),
     new THREE.MeshBasicMaterial({ color: 0xffaa22, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })
   );
   glow.rotation.x = -Math.PI / 2;
-  glow.position.y = 0.02;
+  glow.position.y = 0.03;
   g.add(glow);
   g.userData.glow = glow;
-  // Счётчик содержимого (text-sprite)
+
+  // ── СЧЁТЧИК СОДЕРЖИМОГО (спрайт над сундуком) ────────────
   const cvs = document.createElement("canvas");
   cvs.width = 128; cvs.height = 128;
   const ctx = cvs.getContext("2d");
   const tex = new THREE.CanvasTexture(cvs);
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
   spr.scale.set(0.8, 0.8, 1);
-  spr.position.y = 1.8;
+  spr.position.y = 2.1;
   g.add(spr);
   g.userData.countSprite = spr;
   g.userData.countCtx = ctx;

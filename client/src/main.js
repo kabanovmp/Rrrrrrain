@@ -301,8 +301,8 @@ function spawnDeathBurst(x, y, z, kind) {
   flash.position.set(x, y, z);
   scene.add(flash);
   shots.push({ mesh: flash, ttl: 0.35, maxTtl: 0.35, vx: 0, vy: 0, vz: 0 });
-  // Частицы (кровь/искры)
-  const cnt = isColossus ? 24 : 12;
+  // Частицы (кровь/искры) — уменьшено для производительности
+  const cnt = isColossus ? 12 : 6;
   for (let i = 0; i < cnt; i++) {
     const c = new THREE.Mesh(
       new THREE.SphereGeometry(0.09 * scale, 6, 4),
@@ -499,18 +499,25 @@ function setupRoomHandlers() {
     }
   });
 
-  // ── Пьедесталы ────────────────────────────────────────────
+  // ── Пьедесталы (арена И хаб) ─────────────────────────────
+  // Куда добавлять — решаем по текущей фазе (на арене → arenaGroup)
   room.state.pickups.onAdd((pk, id) => {
     const m = makePickupMesh(pk);
-    // Сервер шлёт y=1.2 (высота вершины для подбора), а модель постамента рисуется от пола.
-    // Добавляем в hubGroup — постаменты видны только в хабе, на арене прячутся.
     m.position.set(pk.pos.x, 0, pk.pos.z);
-    hubGroup.add(m);
+    const parent = room.state.phase === "hub" ? hubGroup : arenaGroup;
+    parent.add(m);
+    m.userData.parentGroup = parent;
     pickupMeshes.set(id, m);
     pk.onChange(() => { if (pk.taken) { m.visible = false; } });
   });
   room.state.pickups.onRemove((_pk, id) => {
-    const m = pickupMeshes.get(id); if (m) { hubGroup.remove(m); disposeGroup(m); pickupMeshes.delete(id); }
+    const m = pickupMeshes.get(id);
+    if (m) {
+      const parent = m.userData.parentGroup || hubGroup;
+      parent.remove(m);
+      disposeGroup(m);
+      pickupMeshes.delete(id);
+    }
   });
 
   // Инициализация хаб-хранилища (после того как схема пришла)
@@ -524,13 +531,9 @@ function setupRoomHandlers() {
   room.state.listen("phase", (v) => {
     hubGroup.visible = v === "hub";
     arenaGroup.visible = v !== "hub";
-    // Разные амбиенты
+    // Амбиентный шум отключён (мешал, будет заменён нормальным саунд-дизайном)
     stopSoundLoop(ambientLoop);
-    if (v === "hub") {
-      ambientLoop = playSoundLoop("hub_ambient", { volume: 0.08 });
-    } else {
-      ambientLoop = playSoundLoop("arena_ambient", { volume: 0.10 });
-    }
+    ambientLoop = null;
     // Звук телепорта
     playSound("teleport");
     if (v === "arena" && myPlayer) controller.setPosition(0, 2, 0);
@@ -863,9 +866,11 @@ function updateHubInteractionHint() {
   });
   hubChestMeshes.forEach((g, i) => {
     const d = g.position.distanceTo(controller.position);
-    if (d < 2 && !action) {
+    if (d < 2.5 && !action) {
       const chest = room.state.hubChests[i];
-      if (chest && chest.contents.length > 0) action = `[F] взять из сундука (${chest.contents.length})`;
+      const n = chest ? chest.contents.length : 0;
+      if (n > 0) action = `[F] открыть сундук (${n})`;
+      else action = "сундук пуст";
     }
   });
   const altarD = Math.hypot(controller.position.x, controller.position.z);
@@ -896,9 +901,30 @@ function slotLabel(kind, handType, itemId) {
   return "предмет";
 }
 
+let fellFlashUntil = 0;
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   controller.update(dt, myPlayer);
+
+  // ── ПАДЕНИЕ С КРАЯ: смерть + респаун в центре хаба ────────
+  if (room && myPlayer && room.state.phase === "hub") {
+    const p = controller.position;
+    // Падаем с края если: вне радиуса хаба ИЗ высота < -5
+    const distXZ = Math.hypot(p.x, p.z);
+    const outside = distXZ > WORLD.HUB_RADIUS * 1.05;
+    const belowDeath = p.y < -5;
+    if (belowDeath || (outside && p.y < 0)) {
+      controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.3);
+      // Обнулить вертикальную скорость внутри контроллера
+      if (controller.velocity) { controller.velocity.x = 0; controller.velocity.y = 0; controller.velocity.z = 0; }
+      playSound("teleport");
+      fellFlashUntil = performance.now() + 350;
+      // Кратко мигнуть подсказкой
+      hintText.textContent = "Не падай с края";
+      hintText.style.opacity = 1;
+      setTimeout(() => { hintText.style.opacity = 0; }, 1500);
+    }
+  }
 
   // Определяем движется ли игрок (для звука шагов)
   const nowP = controller.position;

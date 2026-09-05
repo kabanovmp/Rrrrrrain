@@ -68,6 +68,10 @@ const textureCache = new Map();
 export function initAudio() {
   if (audioCtx) return audioCtx;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  // Прогреваем все процедурные буферы (чтобы не было лага на первом попадании)
+  try {
+    Object.keys(SOUNDS).forEach(k => { getSoundBuffer(k); });
+  } catch (e) {}
   return audioCtx;
 }
 
