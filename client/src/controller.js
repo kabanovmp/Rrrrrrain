@@ -24,8 +24,16 @@ export class FpsController {
     canvas.addEventListener("click", () => canvas.requestPointerLock());
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement !== canvas) return;
-      this.yaw   -= e.movementX * 0.0022;
-      this.pitch -= e.movementY * 0.0022;
+      // Маска от взрывных дельт (баг macOS Chrome/Safari: первый movementX может быть гигантом)
+      const dx = e.movementX || 0;
+      const dy = e.movementY || 0;
+      const MAX = 200; // пикселей за одно событие — выше этого = плохо
+      if (Math.abs(dx) > MAX || Math.abs(dy) > MAX) return;
+      this.yaw   -= dx * 0.0022;
+      this.pitch -= dy * 0.0022;
+      // Нормализуем yaw в [-π, π] чтобы не накапливалась ошибка точности на больших числах
+      if (this.yaw > Math.PI) this.yaw -= 2 * Math.PI;
+      if (this.yaw < -Math.PI) this.yaw += 2 * Math.PI;
       const lim = Math.PI / 2 - 0.05;
       if (this.pitch > lim) this.pitch = lim;
       if (this.pitch < -lim) this.pitch = -lim;
@@ -65,13 +73,23 @@ export class FpsController {
     this.vel.x = move.x * speed;
     this.vel.z = move.z * speed;
 
-    // gravity + jump
-    if (this.grounded && this.keys.Space) {
-      this.vel.y = JUMP_V;
+    // Дебаг FLY: Space вверх, Ctrl вниз, без гравитации
+    const dbgFly = !!(window.room?.state?.dbgFly);
+    if (dbgFly) {
+      let vy = 0;
+      if (this.keys.Space) vy += speed;
+      if (this.keys.ControlLeft || this.keys.ShiftRight) vy -= speed;
+      this.vel.y = vy;
       this.grounded = false;
-    }
-    if (!this.grounded) {
-      this.vel.y -= GRAVITY * dt;
+    } else {
+      // gravity + jump
+      if (this.grounded && this.keys.Space) {
+        this.vel.y = JUMP_V;
+        this.grounded = false;
+      }
+      if (!this.grounded) {
+        this.vel.y -= GRAVITY * dt;
+      }
     }
 
     this.position.addScaledVector(this.vel, dt);
@@ -81,7 +99,11 @@ export class FpsController {
     if (this.position.x < -R) this.position.x = -R;
     if (this.position.z > R) this.position.z = R;
     if (this.position.z < -R) this.position.z = -R;
-    if (this.position.y <= 1.6) {
+    if (dbgFly) {
+      // Летаем — не прилипаем к земле, но потолок есть
+      if (this.position.y < 1.6) this.position.y = 1.6;
+      if (this.position.y > 60) this.position.y = 60;
+    } else if (this.position.y <= 1.6) {
       this.position.y = 1.6;
       this.vel.y = 0;
       this.grounded = true;

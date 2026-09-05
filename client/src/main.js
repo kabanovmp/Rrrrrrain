@@ -270,8 +270,16 @@ function sendDebug(payload) {
     });
   }
   document.querySelectorAll(".dbg-btn").forEach(b => {
-    b.addEventListener("click", () => sendDebug({ action: b.dataset.act }));
+    b.addEventListener("click", () => {
+      if (b.dataset.giveHand && b.dataset.giveType) {
+        sendDebug({ action: "giveWeapon", hand: b.dataset.giveHand, type: b.dataset.giveType });
+      } else if (b.dataset.act) {
+        sendDebug({ action: b.dataset.act });
+      }
+    });
   });
+  const fly = document.getElementById("dbg-fly");
+  if (fly) fly.addEventListener("change", () => sendDebug({ fly: fly.checked }));
 })();
 // Синхронизация панели с серверным состоянием (вызвать после подключения)
 function syncDebugPanelFromState(state) {
@@ -280,6 +288,7 @@ function syncDebugPanelFromState(state) {
   const sp = document.getElementById("dbg-speed"); if (sp && state.dbgSpeedMul) { sp.value = state.dbgSpeedMul; document.getElementById("dbg-speed-v").textContent = state.dbgSpeedMul; }
   const dm = document.getElementById("dbg-dmg"); if (dm && state.dbgDamageMul) { dm.value = state.dbgDamageMul; document.getElementById("dbg-dmg-v").textContent = state.dbgDamageMul; }
   const sw = document.getElementById("dbg-spawn"); if (sw && state.dbgSpawnMul != null) { sw.value = state.dbgSpawnMul; document.getElementById("dbg-spawn-v").textContent = state.dbgSpawnMul; }
+  const fl = document.getElementById("dbg-fly"); if (fl) fl.checked = !!state.dbgFly;
 }
 
 function escapeHtml(s) {
@@ -875,6 +884,13 @@ canvas.addEventListener("mousedown", (ev) => {
     -Math.cos(yaw) * cosPitch
   );
   const origin = controller.position.clone().add(new THREE.Vector3(0, 0.4, 0));
+  // ДИАГНОСТИКА Mac: лог каждого cast — первые 5
+  if (!window._castLogCnt) window._castLogCnt = 0;
+  if (window._castLogCnt < 5) {
+    window._castLogCnt++;
+    const pl = document.pointerLockElement === canvas ? "ON" : "OFF";
+    console.log(`[CAST #${window._castLogCnt}] PL=${pl} yaw=${yaw.toFixed(3)} pitch=${pitch.toFixed(3)} dir=(${dir.x.toFixed(2)},${dir.y.toFixed(2)},${dir.z.toFixed(2)})`);
+  }
   room.send("cast", {
     spell: spellId, dx: dir.x, dy: dir.y, dz: dir.z,
     ox: origin.x, oy: origin.y, oz: origin.z, hand
@@ -1125,7 +1141,7 @@ function handlePortalTriggers(dt) {
     } else if (cur === "arena" && room.state.portalActive) {
       const cur2 = Math.floor(room.state.portalCharge);
       const tot = Math.floor(room.state.portalTarget);
-      hintText.textContent = `заряжается: ${cur2}/${tot}s`;
+      hintText.textContent = `портал пьёт кровь: ${cur2}/${tot}`;
     } else {
       hintText.textContent = "портал ещё не заряжен";
     }
@@ -1559,7 +1575,7 @@ setInterval(() => {
   if (ph === "arena" && !room.state.portalActive) {
     portalStr = "найди и [F]";
   } else if (ph === "arena" && room.state.portalActive) {
-    portalStr = `${Math.floor(room.state.portalCharge)}/${Math.floor(room.state.portalTarget)}s`;
+    portalStr = `${Math.floor(room.state.portalCharge)}/${Math.floor(room.state.portalTarget)} (бей врагов)`;
   } else if (ph === "portal_ready") {
     portalStr = "ГОТОВ";
   } else {
@@ -1568,5 +1584,9 @@ setInterval(() => {
   const pl = room.state.players.size;
   const hp = myPlayer ? `HP:${myPlayer.hp}/${myPlayer.maxHp || 3}` : "";
   const dt = deathTimer > 0 ? `  RESPAWN in ${deathTimer.toFixed(1)}s (или R)` : "";
-  status.textContent = `${hp}  фаза:${ph}  волна:${wv}  портал:${portalStr}  игроки:${pl}${dt}`;
+  // Диагностика Mac: PL/yaw/pitch
+  const pls = document.pointerLockElement === canvas ? "ON" : "OFF";
+  const yaw = (controller.yaw || 0).toFixed(2);
+  const pit = (controller.pitch || 0).toFixed(2);
+  status.textContent = `${hp}  фаза:${ph}  волна:${wv}  портал:${portalStr}  игроки:${pl}  PL:${pls} y:${yaw} p:${pit}${dt}`;
 }, 250);

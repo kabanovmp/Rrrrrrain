@@ -110,8 +110,7 @@ export function createEnemy3D(typeId) {
       cloned.position.y -= boxAfter.min.y;
       // Летающие — поднимаем на 1.5м
       if (typeId === "CACO") cloned.position.y += 1.5;
-      // Модель смотрит в +Z в блендере, а наш forward — −Z → поворачиваем на 180
-      cloned.rotation.y = Math.PI;
+      // Модель Quaternius уже смотрит в −Z (наш forward) — не крутим
       holder.add(cloned);
 
       // Анимация: Run > Walk > Idle

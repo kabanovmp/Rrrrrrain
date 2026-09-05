@@ -121,6 +121,17 @@ export class ArenaRoom extends Room {
         const p = this.state.players.get(client.sessionId);
         if (p) { p.hasLeftHand = true; p.hasRightHand = true; p.leftHandType = "FIRE"; p.rightHandType = "ICE"; p.hasLegs = 2; }
       }
+      if (msg.action === "giveWeapon") {
+        // msg.hand = "left"|"right", msg.type = "FIRE"|"ICE"|"BONE"
+        const p = this.state.players.get(client.sessionId);
+        const validTypes = ["FIRE", "ICE", "BONE"];
+        if (p && validTypes.includes(msg.type)) {
+          if (msg.hand === "right") { p.hasRightHand = true; p.rightHandType = msg.type; }
+          else { p.hasLeftHand = true; p.leftHandType = msg.type; }
+          if (p.hasLegs < 2) p.hasLegs = 2;
+        }
+      }
+      if (typeof msg.fly === "boolean") s.dbgFly = msg.fly;
       if (msg.action === "givePassive") {
         const p = this.state.players.get(client.sessionId);
         if (p) this.equipItem(p, msg.itemId || "BLOODSTONE");
@@ -500,13 +511,32 @@ export class ArenaRoom extends Room {
 
   damageEnemy(e, dmg) {
     if (!e.alive) return;
-    e.hp -= dmg * (this.state.dbgDamageMul || 1);
+    const actualDmg = dmg * (this.state.dbgDamageMul || 1);
+    e.hp -= actualDmg;
+    // ПОРТАЛ ОТ КРОВИ: если активен — каждая 1 ед урона даёт +0.15с зарядки
+    if (this.state.portalActive && this.state.portalCharge < this.state.portalTarget) {
+      this.state.portalCharge = Math.min(
+        this.state.portalTarget,
+        this.state.portalCharge + actualDmg * 0.15
+      );
+      if (this.state.portalCharge >= this.state.portalTarget && this.state.phase === "arena") {
+        this.state.phase = "portal_ready";
+        this.broadcast("fx", { type: "portal_ready" });
+      }
+    }
     // Звук попадания
     this.broadcast("fx", { type: "hit_enemy", x: e.pos.x, y: e.pos.y, z: e.pos.z });
     if (e.hp <= 0) {
       e.alive = false;
       this.broadcast("fx", { type: "enemy_die", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: e.enemyType });
-      // Зарядка портала теперь таймерная (в tick), а не от убийств
+      // Бонус за убийство: +2 сек зарядки
+      if (this.state.portalActive && this.state.portalCharge < this.state.portalTarget) {
+        this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + 2);
+        if (this.state.portalCharge >= this.state.portalTarget && this.state.phase === "arena") {
+          this.state.phase = "portal_ready";
+          this.broadcast("fx", { type: "portal_ready" });
+        }
+      }
       const idEntry = [...this.state.enemies.entries()].find(([, v]) => v === e);
       if (idEntry) setTimeout(() => this.state.enemies.delete(idEntry[0]), 400);
     }
@@ -624,14 +654,7 @@ export class ArenaRoom extends Room {
 
     // ── Спавн волн: всегда по таймеру, независимо от портала ─────────
     if (this.state.phase === "arena") {
-      // Зарядка портала по времени (когда активирован)
-      if (this.state.portalActive && this.state.portalCharge < this.state.portalTarget) {
-        this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + dt);
-        if (this.state.portalCharge >= this.state.portalTarget) {
-          this.state.phase = "portal_ready";
-          this.broadcast("fx", { type: "portal_ready", x: this.state.portalX, y: 0, z: this.state.portalZ });
-        }
-      }
+      // Зарядка портала — только от крови (в damageEnemy), таймер убран
 
       // Считаем живых
       let aliveCount = 0;

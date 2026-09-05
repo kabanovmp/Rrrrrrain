@@ -108,7 +108,7 @@ export class GameState extends Schema {
     this.pickups = new MapSchema();
     this.wave = 0;
     this.portalCharge = 0;      // текущая зарядка в секундах (растёт только когда portalActive=true)
-    this.portalTarget = 45;     // нужно секунд для полной зарядки
+    this.portalTarget = 40;     // очков крови (1 урон → 0.15, 1 килл → +2)
     this.portalActive = false;  // активировало ли кто-то портал (клавиша F)
     this.portalX = 0;           // координаты портала на арене (случайные каждый забег)
     this.portalZ = 0;
@@ -119,6 +119,7 @@ export class GameState extends Schema {
     this.dbgDamageMul = 1.0;
     this.dbgSpawnMul = 1.0;
     this.dbgInfiniteAmmo = false;
+    this.dbgFly = false;
     this.hubSlots = new ArraySchema();
     this.hubChests = new ArraySchema();
     this.hubReforgeSlots = new ArraySchema(); // до 3 строк типа "HAND:FIREBALL_HAND"
@@ -139,6 +140,7 @@ type("number")(GameState.prototype, "dbgSpeedMul");
 type("number")(GameState.prototype, "dbgDamageMul");
 type("number")(GameState.prototype, "dbgSpawnMul");
 type("boolean")(GameState.prototype, "dbgInfiniteAmmo");
+type("boolean")(GameState.prototype, "dbgFly");
 type([HubSlot])(GameState.prototype, "hubSlots");
 type([HubChest])(GameState.prototype, "hubChests");
 type(["string"])(GameState.prototype, "hubReforgeSlots");
