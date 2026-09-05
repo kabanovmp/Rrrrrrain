@@ -503,10 +503,18 @@ export class ArenaRoom extends Room {
     for (let i = 0; i < count; i++) {
       let type = "IMP";
       const roll = Math.random();
-      if (waveNum >= 3) {
-        type = roll < 0.5 ? "IMP" : roll < 0.8 ? "PINKY" : "CACO";
+      if (waveNum >= 5) {
+        // Поздние волны: 25% IMP, 20% FLYER, 20% PINKY, 15% CACO, 15% BARON, 5% (второй PINKY)
+        if (roll < 0.25) type = "IMP";
+        else if (roll < 0.45) type = "FLYER";
+        else if (roll < 0.65) type = "PINKY";
+        else if (roll < 0.80) type = "CACO";
+        else if (roll < 0.95) type = "BARON";
+        else type = "PINKY";
+      } else if (waveNum >= 3) {
+        type = roll < 0.4 ? "IMP" : roll < 0.6 ? "FLYER" : roll < 0.8 ? "PINKY" : "CACO";
       } else if (waveNum === 2) {
-        type = roll < 0.8 ? "IMP" : "PINKY";
+        type = roll < 0.7 ? "IMP" : roll < 0.9 ? "FLYER" : "PINKY";
       }
       this.addEnemyAt(type, frontAngle + (Math.random() - 0.5) * Math.PI);
     }

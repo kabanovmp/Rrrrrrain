@@ -13,10 +13,13 @@ import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 import { getTexture } from "./assets.js";
 
 // ── GLB-кэш для врагов ────────────────────────────────────────
+// v2: 5 разных CC0 Quaternius моделей (ninja/frog/mushroomKing/ghost/armabee)
 const GLB_URLS = {
-  IMP: "/models/monsters/imp.glb",
-  PINKY: "/models/monsters/pinky.glb",
-  CACO: "/models/monsters/caco.glb",
+  IMP: "/models/monsters/imp2.glb",     // ниндзя-бегун
+  PINKY: "/models/monsters/pinky2.glb", // лягушка-танк
+  CACO: "/models/monsters/caco2.glb",   // призрак-летаящий
+  BARON: "/models/monsters/baron2.glb", // король-гриб (босс)
+  FLYER: "/models/monsters/flyer2.glb", // броне-пчела (второй летающий)
 };
 const glbCache = new Map();   // typeId -> { scene, animations }
 const glbLoading = new Map(); // typeId -> Promise
@@ -47,27 +50,32 @@ export function preloadEnemyModels() {
 // emissive — самосвечение, не требует света вообще.
 const ENEMY_SPECS = {
   IMP: {
-    height: 1.6, bodyColor: 0xff5522, emissive: 0x552200, tex: "enemy_imp",
+    height: 1.3, bodyColor: 0xff5522, emissive: 0x552200, tex: "enemy_imp",
     hasWings: false, isFlying: false,
     hornStyle: "small", eyeColor: 0xffee00,
   },
   PINKY: {
-    height: 1.8, bodyColor: 0xff4488, emissive: 0x551122, tex: "enemy_pinky",
+    height: 1.9, bodyColor: 0xff4488, emissive: 0x551122, tex: "enemy_pinky",
     hasWings: false, isFlying: false,
     hornStyle: "bull", eyeColor: 0xffff00,
   },
   CACO: {
-    height: 1.5, bodyColor: 0xdd3333, emissive: 0x661111, tex: "enemy_caco",
+    height: 1.6, bodyColor: 0xdd3333, emissive: 0x661111, tex: "enemy_caco",
     hasWings: false, isFlying: true,
     hornStyle: "none", eyeColor: 0x00ffaa,
   },
+  FLYER: {
+    height: 1.2, bodyColor: 0xffbb44, emissive: 0x442200, tex: "enemy_caco",
+    hasWings: true, isFlying: true,
+    hornStyle: "none", eyeColor: 0xffee88,
+  },
   BARON: {
-    height: 2.4, bodyColor: 0xffcc22, emissive: 0x442200, tex: "enemy_baron",
+    height: 2.6, bodyColor: 0xffcc22, emissive: 0x442200, tex: "enemy_baron",
     hasWings: false, isFlying: false,
     hornStyle: "goat", eyeColor: 0xff0000,
   },
   COLOSSUS: {
-    height: 3.2, bodyColor: 0xcc4400, emissive: 0x331100, tex: "enemy_colossus",
+    height: 3.6, bodyColor: 0xcc4400, emissive: 0x331100, tex: "enemy_colossus",
     hasWings: false, isFlying: false,
     hornStyle: "spikes", eyeColor: 0xff4400,
   },
@@ -78,7 +86,7 @@ export function createEnemy3D(typeId) {
   const group = new THREE.Group();
   group.userData.spec = spec;
   group.userData.typeId = typeId;
-  group.userData.flying = (typeId === "CACO");
+  group.userData.flying = !!spec.isFlying;
   group.userData.walkPhase = Math.random() * Math.PI * 2;
   group.userData.headPhase = Math.random() * Math.PI * 2;
 
@@ -109,15 +117,17 @@ export function createEnemy3D(typeId) {
       const boxAfter = new THREE.Box3().setFromObject(cloned);
       cloned.position.y -= boxAfter.min.y;
       // Летающие — поднимаем на 1.5м
-      if (typeId === "CACO") cloned.position.y += 1.5;
+      if (spec.isFlying) cloned.position.y += 1.5;
       // Модель Quaternius уже смотрит в −Z (наш forward) — не крутим
       holder.add(cloned);
 
-      // Анимация: Run > Walk > Idle
+      // Анимация: для летающих сначала Fast_Flying/Flying_Idle, для остальных Run > Walk > Idle
       if (animations && animations.length) {
         const mixer = new THREE.AnimationMixer(cloned);
         const pick = (names) => animations.find(c => names.some(n => c.name.toLowerCase().includes(n)));
-        const runClip = pick(["run"]) || pick(["walk"]) || pick(["idle"]) || animations[0];
+        const runClip = spec.isFlying
+          ? (pick(["fast_flying", "fast flying", "flying"]) || pick(["flying_idle"]) || pick(["run"]) || pick(["walk"]) || pick(["idle"]) || animations[0])
+          : (pick(["run"]) || pick(["walk"]) || pick(["idle"]) || animations[0]);
         if (runClip) mixer.clipAction(runClip).play();
         group.userData.mixer = mixer;
       }
