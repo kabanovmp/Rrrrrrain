@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, updateHubPortal, getHubPortalPos } from "./world.js";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, updateHubPortal, getHubPortalPos, animateDangerZones } from "./world.js";
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
 import { createHandsGroup, animateHands, setSpellInHand, showHandDamage, fadeHandCracks } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
@@ -667,9 +667,16 @@ let prevControllerPos = new THREE.Vector3();
 // ── ПОРТАЛЫ: автотриггер ────────────────────────────────
 let portalHoldTime = 0;
 let lastPortalKind = null;
+let portalPendingPhase = null; // какую phase ждём от сервера после телепорта
 function handlePortalTriggers(dt) {
   if (!room || !myPlayer) return;
   const cur = room.state.phase;
+  // Если мы в ожидании смены phase (кликнули на 100%) — молчим
+  if (portalPendingPhase) {
+    if (cur === portalPendingPhase) { portalPendingPhase = null; portalHoldTime = 0; }
+    hintText.style.opacity = 0;
+    return;
+  }
   let inZone = false;
   let ready = false;
   let msg = null;
@@ -701,8 +708,13 @@ function handlePortalTriggers(dt) {
     hintTimer = 0.3;
     if (portalHoldTime >= 1.5) {
       room.send("phase", msg);
+      portalPendingPhase = msg.phase;
       portalHoldTime = 0;
       lastPortalKind = null;
+      // Показываем "перенос..."
+      hintText.textContent = "перенос...";
+      hintText.style.opacity = 1;
+      hintTimer = 2.0;
     }
   } else if (inZone && !ready) {
     portalHoldTime = 0;
@@ -797,7 +809,7 @@ function animate() {
     const tSec = performance.now() * 0.001;
     updateArenaPortal(arenaGroup, room.state.phase === "portal_ready", tSec);
     updateHubPortal(hubGroup, tSec);
-    // Авто-триггер порталов: стоишь в зоне 1.5с → телепорт
+    animateDangerZones(arenaGroup, tSec);
     handlePortalTriggers(dt);
   }
 

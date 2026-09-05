@@ -100,10 +100,10 @@ export class ArenaRoom extends Room {
       if (typeof msg.spawnMul === "number") s.dbgSpawnMul = Math.max(0, Math.min(10, msg.spawnMul));
       if (msg.action === "respawn") {
         const p = this.state.players.get(client.sessionId);
-        if (p) { p.hp = p.maxHp || 2; p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: client.sessionId }); }
+        if (p) { p.hp = Math.max(3, p.maxHp || 3); p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: client.sessionId }); }
       }
       if (msg.action === "respawnAll") {
-        this.state.players.forEach((p, sid) => { p.hp = p.maxHp || 2; p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: sid }); });
+        this.state.players.forEach((p, sid) => { p.hp = Math.max(3, p.maxHp || 3); p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: sid }); });
       }
       if (msg.action === "killAllEnemies") {
         this.state.enemies.forEach(e => { if (e.alive) this.damageEnemy(e, 9999); });
@@ -274,6 +274,8 @@ export class ArenaRoom extends Room {
   damagePlayer(p, dmg, sessionId, fromX = 0, fromZ = 0) {
     if (p.hp <= 0 || p.isGhost) return;
     if (this.state.dbgGodMode) return;
+    // В хабе урона нет (мобы не атакуют)
+    if (this.state.phase !== "arena" && this.state.phase !== "portal_ready") return;
     p.hp -= dmg;
     if (p.hp <= 0) {
       p.isGhost = true;

@@ -262,12 +262,12 @@ export function setupArena(group) {
   group.add(grid);
 
   // ── Лужи крови ────────────────────────────────────────
-  for (let i = 0; i < 40; i++) {
-    const s = 1 + Math.random() * 3;
+  for (let i = 0; i < 30; i++) {
+    const sz = 0.8 + Math.random() * 2;
     const pool = new THREE.Mesh(
-      new THREE.CircleGeometry(s, 12),
+      new THREE.CircleGeometry(sz, 12),
       new THREE.MeshBasicMaterial({
-        color: 0x4a0000, transparent: true, opacity: 0.7,
+        color: 0x220505, transparent: true, opacity: 0.55,
       })
     );
     pool.rotation.x = -Math.PI / 2;
@@ -275,6 +275,45 @@ export function setupArena(group) {
     pool.position.set(Math.cos(a) * r, 0.03, Math.sin(a) * r);
     group.add(pool);
   }
+
+  // Опасные зоны: красные круги с кольями (декор, безопасно наступать, но выглядит как капкан)
+  const dangerZones = [];
+  const zoneCount = 4;
+  for (let i = 0; i < zoneCount; i++) {
+    const a = (i / zoneCount) * Math.PI * 2 + Math.random() * 0.4;
+    const dr = R * (0.35 + Math.random() * 0.25);
+    const dx = Math.cos(a) * dr, dz = Math.sin(a) * dr;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(1.8, 2.2, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xff2222, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false,
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(dx, 0.05, dz);
+    group.add(ring);
+    const fill = new THREE.Mesh(
+      new THREE.CircleGeometry(1.8, 20),
+      new THREE.MeshBasicMaterial({
+        color: 0xaa0000, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false,
+      })
+    );
+    fill.rotation.x = -Math.PI / 2;
+    fill.position.set(dx, 0.04, dz);
+    group.add(fill);
+    for (let k = 0; k < 8; k++) {
+      const ang = (k / 8) * Math.PI * 2;
+      const spike = new THREE.Mesh(
+        new THREE.ConeGeometry(0.14, 0.6, 4),
+        new THREE.MeshStandardMaterial({ color: 0x552211, roughness: 0.7, emissive: 0x330000, emissiveIntensity: 0.5, flatShading: true })
+      );
+      spike.position.set(dx + Math.cos(ang) * 1.55, 0.3, dz + Math.sin(ang) * 1.55);
+      spike.rotation.z = (Math.random() - 0.5) * 0.3;
+      group.add(spike);
+    }
+    dangerZones.push({ x: dx, z: dz, ring, fill, radius: 2.0 });
+  }
+  group.userData.dangerZones = dangerZones;
 
   // ── Острые скалы (укрытия/декор) ─────────────────────
   const rockTex = getTexture("arena_wall");
@@ -335,7 +374,8 @@ export function setupArena(group) {
   base.position.y = 0.05;
   portal.add(base);
   portal.userData.base = base;
-  portal.position.set(0, 0, 0);
+  // Портал — у края арены, не в центре (чтобы не был среди врагов)
+  portal.position.set(0, 0, R * 0.75);
   group.add(portal);
   group.userData.portal = portal;
 
@@ -449,6 +489,17 @@ export function updateHubPortal(hubGroup, tSec) {
   if (water) { water.material.opacity = 0.7 * pulse; water.rotation.z = tSec * 0.4; }
   if (arch) { arch.material.emissiveIntensity = 0.6 * pulse; }
   if (base) { base.material.opacity = 0.4 * pulse; }
+}
+
+// Пульсация опасных зон
+export function animateDangerZones(arenaGroup, tSec) {
+  const zones = arenaGroup.userData.dangerZones;
+  if (!zones) return;
+  const p = 0.5 + Math.sin(tSec * 3) * 0.4;
+  for (const z of zones) {
+    if (z.ring) z.ring.material.opacity = 0.4 + p * 0.5;
+    if (z.fill) z.fill.material.opacity = 0.2 + p * 0.3;
+  }
 }
 
 export function animateTorches(group, dt) {
