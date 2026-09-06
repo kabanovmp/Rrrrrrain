@@ -387,7 +387,8 @@ function escapeHtml(s) {
 // РЕНДЕР
 // ═══════════════════════════════════════════════════════════════════
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+// НЕ обрезаем dpr — иначе на Retina Mac (dpr=2) буфер в 2× меньше канваса → aspect врёт → прицел уезжает
+renderer.setPixelRatio(window.devicePixelRatio || 1);
 renderer.setClearColor(0x1a2030);
 
 const scene = new THREE.Scene();
@@ -399,7 +400,8 @@ scene.add(globalHemi);
 
 // FOV 70 — стандарт для FPS. 85 было слишком широко, искажало края.
 // near=0.01 чтобы руки (0.3-0.5м) точно не обрезались на Retina Mac
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 500);
+// АСПЕКТ — от canvas.clientWidth/Height (реальный CSS-размер канваса), НЕ window.innerWidth
+const camera = new THREE.PerspectiveCamera(70, canvas.clientWidth / canvas.clientHeight, 0.01, 500);
 
 // ПИКСЕЛИЗАЦИЯ (Devil Daggers-style): рендер в low-res рендер-таргет + upscale NEAREST
 let pixelScale = 1; // 1 = отключено
@@ -415,8 +417,8 @@ function ensurePostFx() {
   postScene.add(postMesh);
 }
 function resizeLowResRT() {
-  const w = Math.max(80, Math.floor(window.innerWidth / pixelScale));
-  const h = Math.max(60, Math.floor(window.innerHeight / pixelScale));
+  const w = Math.max(80, Math.floor(canvas.clientWidth / pixelScale));
+  const h = Math.max(60, Math.floor(canvas.clientHeight / pixelScale));
   if (rtLowRes) rtLowRes.dispose();
   rtLowRes = new THREE.WebGLRenderTarget(w, h, {
     minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
@@ -433,13 +435,22 @@ window.__setRenderFar = (v) => {
   camera.updateProjectionMatrix();
 };
 
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+function fitToViewport() {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (!w || !h) return;
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.setSize(w, h, false); // false = не трогать CSS, мы выставляем inset:0 через CSS
   if (pixelScale > 1) resizeLowResRT();
-});
-renderer.setSize(window.innerWidth, window.innerHeight, false);
+}
+window.addEventListener("resize", fitToViewport);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", fitToViewport);
+  window.visualViewport.addEventListener("scroll", fitToViewport);
+}
+fitToViewport();
 
 // ── Разные сцены для хаба/арены (отдельные пространства) ────────
 const hubGroup = new THREE.Group();
