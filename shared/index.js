@@ -9,25 +9,31 @@ export const NET = {
 };
 
 export const WORLD = {
-  ARENA_RADIUS: 90,
-  ARENA_HEIGHT: 50,
-  HUB_RADIUS: 36,
-  GRAVITY: 0,                    // sgustok floats
+  ARENA_RADIUS: 600,             // 1200м диаметр по ТЗ v0.0.3.0
+  ARENA_HEIGHT: 100,
+  HUB_RADIUS: 36,                // legacy, не используется
+  GRAVITY: 20,                   // руки-меч уже с гравитацией — не летаем
   BASE_MOVE_SPEED: 6,
   BASE_FLY_SPEED: 5,
   DASH_SPEED: 22,
   DASH_DURATION: 0.18,
   DASH_COOLDOWN: 1.1,
+  RUN_MULT: 1.5,                 // Shift
+  FOG_NEAR: 60,                  // начало тумана
+  FOG_FAR: 100,                  // полный туман (ТЗ: обзор 100м)
 };
 
-// 1.5-hit system: 2 HP total, first hit cracks, second hit kills.
+// v0.0.3.0: HP=100 по ТЗ
 export const COMBAT = {
-  PLAYER_MAX_HP: 3,
-  ENEMY_MAX_HP: 2,
-  ARMORED_ENEMY_MAX_HP: 4,       // 3 hits to break armor + 1 for kill
-  GHOST_STAT_MULT: 0.1,          // ×10 меньше
+  PLAYER_MAX_HP: 100,
+  ENEMY_MAX_HP: 40,              // Cacodemon-крохи, чтобы меч ощущался
+  ARMORED_ENEMY_MAX_HP: 80,
+  GHOST_STAT_MULT: 0.1,
   MELEE_RANGE: 2.2,
   RESPAWN_INVULN_S: 1.5,
+  FALL_RESPAWN_HP_PCT: 0.05,     // ТЗ: падение в дыру → 5% HP на краю
+  REGEN_DELAY_S: 3.0,            // регенерация вне боя
+  REGEN_PER_S: 5,
 };
 
 // Cast definitions — 3 hand types (FIRE / ICE / BONE), каждый со своим спеллом.
@@ -50,6 +56,12 @@ export const SPELLS = {
     jumpRange: 10,      // дальность прыжка между врагами
     maxJumps: 10,       // макс целей в цепи
     falloff: 0.85,      // урон каждого следующего = 85% от предыдущего
+  },
+  // v0.0.3.0: Звёздопад — AoE удар мечом по точке взгляда
+  STARFALL: {
+    cooldown: 0.5, isStarfall: true, damage: 30, color: 0xff40a0,
+    range: 15,       // дальность от игрока к точке AoE
+    radius: 5,       // радиус AoE
   },
 };
 

@@ -1,9 +1,13 @@
 import * as THREE from "three";
 import { WORLD } from "@mhfps/shared";
+import { terrainHeight } from "./worldV3.js";
 
 // FPS controller: gravity + jump, no flight. Pointer-lock.
 const GRAVITY = 20;
 const JUMP_V = 8;
+const RUN_MULT = 1.5;
+const DASH_IMPULSE = 18; // м/с мгновенная вспышка
+const DASH_CD = 1.2;
 
 export class FpsController {
   constructor(camera, canvas) {
@@ -79,12 +83,18 @@ export class FpsController {
     const hasLegs = myPlayer?.hasLegs ?? 0;
     const baseSpeed = hasLegs >= 2 ? WORLD.BASE_MOVE_SPEED : WORLD.BASE_FLY_SPEED;
 
-    if (this.keys.ShiftLeft && this.dashCd <= 0 && move.lengthSq() > 0) {
-      this.dashTimer = WORLD.DASH_DURATION;
-      this.dashCd = WORLD.DASH_COOLDOWN;
+    // v0.0.3.0: Q/E — дэш влево/вправо. Shift — бег x1.5 без стамины.
+    if (this.dashCd <= 0) {
+      if (this.keys.KeyQ) {
+        this.vel.add(right.clone().multiplyScalar(-DASH_IMPULSE));
+        this.dashCd = DASH_CD;
+      } else if (this.keys.KeyE) {
+        this.vel.add(right.clone().multiplyScalar(DASH_IMPULSE));
+        this.dashCd = DASH_CD;
+      }
     }
     let speed = baseSpeed;
-    if (this.dashTimer > 0) { speed = WORLD.DASH_SPEED; this.dashTimer -= dt; }
+    if (this.keys.ShiftLeft || this.keys.ShiftRight) speed *= RUN_MULT;
     // Дебаг: множитель скорости
     const mul = window.room?.state?.dbgSpeedMul;
     if (mul && mul !== 1) speed *= mul;
@@ -116,17 +126,18 @@ export class FpsController {
 
     this.position.addScaledVector(this.vel, dt);
 
-    const R = 100;
+    // v0.0.3.0: карта 1200м (radius 600), терраин height
+    const R = WORLD.ARENA_RADIUS || 100;
     if (this.position.x > R) this.position.x = R;
     if (this.position.x < -R) this.position.x = -R;
     if (this.position.z > R) this.position.z = R;
     if (this.position.z < -R) this.position.z = -R;
+    const groundY = 1.6 + terrainHeight(this.position.x, this.position.z);
     if (dbgFly) {
-      // Летаем — не прилипаем к земле, но потолок есть
-      if (this.position.y < 1.6) this.position.y = 1.6;
+      if (this.position.y < groundY) this.position.y = groundY;
       if (this.position.y > 60) this.position.y = 60;
-    } else if (this.position.y <= 1.6) {
-      this.position.y = 1.6;
+    } else if (this.position.y <= groundY) {
+      this.position.y = groundY;
       this.vel.y = 0;
       this.grounded = true;
     }

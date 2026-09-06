@@ -25,6 +25,9 @@ export class ArenaRoom extends Room {
     this.waveTimer = 0;              // таймер между волнами (волны всегда)
     this.spawnInitialPickups();
     this.setupHubStorage();
+    // v0.0.3.0: стартуем в арене сразу
+    this.state.phase = "arena";
+    this.startArena();
     this.setSimulationInterval(dt => this.tick(dt / 1000), TICK_MS);
 
     this.onMessage("input", (client, msg) => {
@@ -89,6 +92,27 @@ export class ArenaRoom extends Room {
           dmg *= spell.falloff;
         }
         this.broadcast("fx", { type: "chain", color: spell.color, points: chain });
+      } else if (spell.isStarfall) {
+        // v0.0.3.0: Звёздопад — AoE в точке на range по взгляду
+        const dir = { x: msg.dx || 0, y: msg.dy || 0, z: msg.dz || 0 };
+        const origin = {
+          x: typeof msg.ox === "number" ? msg.ox : p.pos.x,
+          y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
+          z: typeof msg.oz === "number" ? msg.oz : p.pos.z,
+        };
+        const tx = origin.x + dir.x * spell.range;
+        const ty = origin.y + dir.y * spell.range;
+        const tz = origin.z + dir.z * spell.range;
+        let hitCount = 0;
+        this.state.enemies.forEach(e => {
+          if (!e.alive) return;
+          const dx = e.pos.x - tx, dy = e.pos.y - ty, dz = e.pos.z - tz;
+          if (dx*dx+dy*dy+dz*dz <= spell.radius*spell.radius) {
+            this.damageEnemy(e, spell.damage * dmgMult);
+            hitCount++;
+          }
+        });
+        this.broadcast("fx", { type: "starfall", x: tx, y: ty, z: tz, r: spell.radius, color: spell.color, count: hitCount });
       } else if (spell.isAoe) {
         this.state.enemies.forEach(e => {
           if (!e.alive) return;
@@ -541,10 +565,15 @@ export class ArenaRoom extends Room {
   spawnWave(waveNum, aggressive = false) {
     const frontAngle = this.getPlayerFrontAngle();
     const mul = this.state.dbgSpawnMul == null ? 1 : this.state.dbgSpawnMul;
-    // Базовый размер волны растёт с номером волны; под активным порталом в 1.5×
     let base = Math.min(10, 3 + Math.floor(waveNum / 2));
     if (aggressive) base = Math.ceil(base * 1.5);
     const count = Math.max(1, Math.round(base * mul));
+    // v0.0.3.0: только Cacodemon (в shared он = CACO); ground vs flying организуем позже
+    for (let i = 0; i < count; i++) {
+      this.addEnemyAt("CACO", frontAngle + (Math.random() - 0.5) * Math.PI);
+    }
+    return;
+    /* eslint-disable no-unreachable */
     for (let i = 0; i < count; i++) {
       let type = "IMP";
       const roll = Math.random();
@@ -571,7 +600,8 @@ export class ArenaRoom extends Room {
     e.enemyType = typeId;
     e.hp = t.armored ? COMBAT.ARMORED_ENEMY_MAX_HP : COMBAT.ENEMY_MAX_HP;
     e.maxHp = e.hp;
-    const r = WORLD.ARENA_RADIUS * (0.7 + Math.random() * 0.25);
+    // v0.0.3.0: спавним врагов 40-80м от центра — в радиусе тумана, но видны
+    const r = 40 + Math.random() * 40;
     e.pos.x = Math.sin(angle) * r;
     e.pos.y = t.flying ? FLY_MIN_Y + Math.random() * 2 : 1;
     e.pos.z = Math.cos(angle) * r;

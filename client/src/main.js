@@ -2,6 +2,11 @@ import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
 import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen } from "./world.js";
+import { setupTerrainV3, terrainHeight } from "./worldV3.js";
+import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
+
+// v0.0.3.0 — новый режим "terrain 1200м + меч + Cacodemon" по большому ТЗ
+const V3_MODE = true;
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
 import { createHandsGroup, animateHands, setSpellInHand, showHandDamage, fadeHandCracks } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
@@ -29,6 +34,27 @@ const dmgOverlay = document.createElement("div");
 dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:14;opacity:0;transition:opacity .3s;";
 document.body.appendChild(dmgOverlay);
 let dmgAngle = 0, dmgTimer = 0;
+
+// v0.0.3.0 HUD: плоская рука с мечом (sword-hand.jpg), снизу-справа
+const swordHud = document.createElement("img");
+swordHud.src = "/assets/sword-hand.jpg";
+swordHud.style.cssText = [
+  "position:fixed",
+  "right:-40px",
+  "bottom:-60px",
+  "width:520px",
+  "height:auto",
+  "pointer-events:none",
+  "z-index:12",
+  "filter:brightness(0.9) contrast(1.1) drop-shadow(0 -8px 24px rgba(255,50,50,0.4))",
+  "mix-blend-mode:screen",  // чёрный фон станет прозрачным
+  "transform-origin:80% 90%",
+  "transition:transform 0.06s",
+].join(";");
+swordHud.hidden = true; // показать после pointerlock
+document.body.appendChild(swordHud);
+let swordBob = 0, swordSwing = 0, swordSwingV = 0;
+function triggerSwordSwing() { swordSwingV = 6.0; }
 
 // HUD-подсказка (центр экрана)
 const hintText = document.createElement("div");
@@ -453,17 +479,27 @@ const hubGroup = new THREE.Group();
 const arenaGroup = new THREE.Group();
 // Хаб парит "в космосе" — можно сместить по Y для отдельности
 scene.add(hubGroup, arenaGroup);
-setupHub(hubGroup);
-setupArena(arenaGroup);
-arenaGroup.visible = false;
+if (V3_MODE) {
+  // v0.0.3.0 — новый мир: только terrain, без хаба
+  setupTerrainV3(arenaGroup, 1);
+  hubGroup.visible = false;
+  arenaGroup.visible = true;
+  // Fog по ТЗ: обзор 100м с плавным дизерингом
+  scene.fog = new THREE.Fog(0x000000, 60, 100);
+} else {
+  setupHub(hubGroup);
+  setupArena(arenaGroup);
+  arenaGroup.visible = false;
+}
 
 // ── Руки: детальные 3D-модели ────────────────────────────────────
 const handsRoot = createHandsGroup();
 camera.add(handsRoot);
 scene.add(camera);
-// Руки видны всегда (базовые голые ладони), пикапы добавляют заклинания
-handsRoot.userData.leftHand.visible = true;
-handsRoot.userData.rightHand.visible = true;
+// v3: скрываем 3D руки — вместо них плоский HUD-меч (см. sword-hand.jpg)
+handsRoot.userData.leftHand.visible = !V3_MODE;
+handsRoot.userData.rightHand.visible = !V3_MODE;
+handsRoot.visible = !V3_MODE;
 // ФОРС видимости рук: renderOrder=999 + depthTest=false + frustumCulled=false
 // — чтобы руки точно рисовались поверх всего и никогда не обрезались
 handsRoot.renderOrder = 999;
@@ -824,6 +860,7 @@ document.getElementById("play").addEventListener("click", async () => {
     selfId = room.sessionId;
     menu.style.display = "none";
     crosshair.style.display = "block";
+    if (V3_MODE) swordHud.hidden = false;
     controller.enable();
     setupRoomHandlers();
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
@@ -910,7 +947,14 @@ function setupRoomHandlers() {
 
   // ── Мобы: 3D-модели с интерполяцией ─────────────────────────
   room.state.enemies.onAdd((e, id) => {
-    const m = createEnemy3D(e.enemyType);
+    let m;
+    if (V3_MODE) {
+      m = createCacodemonSprite();
+      m.userData.cacoV3 = true;
+      m.userData.flying = true;
+    } else {
+      m = createEnemy3D(e.enemyType);
+    }
     // Сервер шлёт y=1 для наземных (центр тела) — опускаем на 1, чтобы ноги были на полу.
     // Летающие (CACO) шлются y=6+, там офсет не нужен.
     const yOff = m.userData.flying ? 0 : 1.0;
@@ -1011,6 +1055,20 @@ function setupRoomHandlers() {
       spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
       playSound("fireball_impact", { volume: 0.35 });
     }
+    else if (msg.type === "starfall") {
+      // v0.0.3.0 Звёздопад: гроздь звёзд падает в точке, AoE-вспышка
+      spawnWaveFx(msg.x, msg.y, msg.z, msg.r || 5);
+      // 5-8 звёзд падают с неба в радиусе
+      const nStars = 8;
+      for (let i = 0; i < nStars; i++) {
+        const ang = (i / nStars) * Math.PI * 2;
+        const off = Math.random() * (msg.r || 5);
+        const sx = msg.x + Math.cos(ang) * off;
+        const sz = msg.z + Math.sin(ang) * off;
+        spawnShotFx(sx, msg.y + 30, sz, msg.color || 0xff40a0, 0, -1, 0);
+      }
+      playSound("fireball_impact", { volume: 0.5 });
+    }
     else if (msg.type === "hurt" && msg.target === selfId) {
       // Трещины на руках вместо красного экрана
       if (handsRoot) showHandDamage(handsRoot, 1.5);
@@ -1055,6 +1113,35 @@ function flashCracks() {
 let lastCastMs = 0;
 canvas.addEventListener("mousedown", (ev) => {
   if (!room || !myPlayer) return;
+  // v3: ЛКМ = Звёздопад (AoE 25-35 HP), ПКМ = Звёздный Блок (поглощает 50 урона / КД 10с)
+  if (V3_MODE) {
+    if (ev.button === 0) {
+      // Звёздопад AoE
+      const nowMs = performance.now();
+      if (nowMs - lastCastMs < 500) return;
+      lastCastMs = nowMs;
+      triggerSwordSwing();
+      const dir = new THREE.Vector3();
+      camera.rotation.order = "YXZ";
+      camera.rotation.y = controller.yaw;
+      camera.rotation.x = controller.pitch;
+      camera.rotation.z = 0;
+      camera.updateMatrixWorld(true);
+      camera.getWorldDirection(dir);
+      const origin = controller.position.clone().add(new THREE.Vector3(0, 0.4, 0));
+      sendInput();
+      room.send("cast", {
+        spell: "STARFALL", dx: dir.x, dy: dir.y, dz: dir.z,
+        ox: origin.x, oy: origin.y, oz: origin.z, hand: "right",
+      });
+    } else if (ev.button === 2) {
+      // Блок — пока заглушка, в следующем этапе
+      hintText.textContent = "[Звёздный Блок] — будет в v0.0.3.1";
+      hintText.style.opacity = 1;
+      setTimeout(() => { hintText.style.opacity = 0; }, 1500);
+    }
+    return;
+  }
   const hand = ev.button === 0 ? "left" : ev.button === 2 ? "right" : null;
   if (!hand) return;
   const has = hand === "left" ? myPlayer.hasLeftHand : myPlayer.hasRightHand;
@@ -1667,7 +1754,13 @@ function animate() {
         m.rotation.y += diff * Math.min(1, dt * 6);
       }
     }
-    animateEnemy(m, dt, moved);
+    if (m.userData.cacoV3) {
+      // v3: fake-3D sprite direction
+      entry.animPhase = ((entry.animPhase || 0) + dt * 4) % 1;
+      updateCacodemonSprite(m, camera, m.rotation.y, entry.animPhase, true);
+    } else {
+      animateEnemy(m, dt, moved);
+    }
   });
 
   // ── Другие игроки ─────────────────────────────────────
@@ -1786,6 +1879,18 @@ function animate() {
 
   // ── Анимация рук ─────────────────────────────────────
   animateHands(handsRoot, dt, { moving: moved });
+
+  // v0.0.3.0: анимация HUD-меча (bob при ходьбе + swing при атаке)
+  if (V3_MODE && !swordHud.hidden) {
+    swordBob += dt * (moved ? 8 : 2);
+    swordSwing += swordSwingV * dt;
+    swordSwingV -= 30 * dt;
+    if (swordSwing < 0) { swordSwing = 0; swordSwingV = 0; }
+    const bobY = Math.sin(swordBob) * (moved ? 8 : 3);
+    const bobX = Math.cos(swordBob * 0.5) * (moved ? 4 : 1.5);
+    const rot = -swordSwing * 18; // градусы
+    swordHud.style.transform = `translate(${bobX}px, ${bobY - swordSwing * 40}px) rotate(${rot}deg)`;
+  }
   fadeHandCracks(handsRoot, dt);
 
   drawRadar();
