@@ -440,7 +440,7 @@ function fitToViewport() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(window.devicePixelRatio || 1);
-  renderer.setSize(w, h, true); // true = выставить и CSS и буфер
+  renderer.setSize(w, h, false); // false = НЕ трогать CSS (CSS у нас inset:0), только буфер
 }
 window.addEventListener("resize", fitToViewport);
 if (window.visualViewport) {
