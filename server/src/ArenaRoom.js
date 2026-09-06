@@ -773,8 +773,9 @@ export class ArenaRoom extends Room {
     const R = WORLD.ARENA_RADIUS * 0.55;
     const ang = Math.random() * Math.PI * 2;
     const dist = R * (0.5 + Math.random() * 0.9);
-    this.state.portalX = Math.sin(ang) * dist;
-    this.state.portalZ = Math.cos(ang) * dist;
+    // v0.0.3.11: фикс-позиция портала совпадает с визуалом worldV3 (R*0.4, R*0.3)
+    this.state.portalX = WORLD.ARENA_RADIUS * 0.4;
+    this.state.portalZ = WORLD.ARENA_RADIUS * 0.3;
     this.waveTimer = 0;
     // Очистить старые пикапы арены
     this.state.pickups.clear();

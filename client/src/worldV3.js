@@ -114,16 +114,26 @@ export function setupTerrainV3(group, levelIndex = 1) {
   // v0.0.3.4: экспортируем в window — controller читает для проверки падения
   if (typeof window !== "undefined") window._arenaHoles = holes;
 
-  // ── Nether-portal (декор — telegraph выхода) ──────────────────────
+  // ── Nether-portal — ЕДИНСТВЕННЫЙ портал арены (v0.0.3.11: боевой, не декор) ──────
   const portalGeo = new THREE.PlaneGeometry(6, 10);
   const portalMat = new THREE.MeshBasicMaterial({
     color: 0x8020a0, transparent: true, opacity: 0.7, side: THREE.DoubleSide,
   });
   const portalX = R * 0.4, portalZ = R * 0.3;
-  const portal = new THREE.Mesh(portalGeo, portalMat);
-  portal.position.set(portalX, 5.5, portalZ);
-  group.add(portal);
-  group.userData.portalMesh = portal;
+  // Group-обёртка: userData.arch/water/base для updateArenaPortal, userData.portal для getArenaPortalPos
+  const portalGroup = new THREE.Group();
+  portalGroup.userData.isPortal = true;
+  const portalMesh = new THREE.Mesh(portalGeo, portalMat);
+  portalMesh.position.y = 5.5;
+  portalGroup.add(portalMesh);
+  // Псевдо-refs, чтобы updateArenaPortal мог менять emissive/opacity
+  portalGroup.userData.arch = portalMesh;
+  portalGroup.userData.water = portalMesh;
+  portalGroup.userData.base = portalMesh;
+  portalGroup.position.set(portalX, 0, portalZ);
+  group.add(portalGroup);
+  group.userData.portal = portalGroup;           // ← ключ для getArenaPortalPos
+  group.userData.portalMesh = portalMesh;
   group.userData.portalPos = { x: portalX, z: portalZ };
   // Каменная рамка портала
   for (let side = 0; side < 4; side++) {

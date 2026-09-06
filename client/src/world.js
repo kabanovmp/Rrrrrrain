@@ -149,32 +149,7 @@ export function setupHub(group) {
   const hubHemi = new THREE.HemisphereLight(0xffddaa, 0x332222, 1.2);
   hubHemi.position.set(0, 20, 0);
   group.add(hubHemi);
-
-  // v0.0.3.4: КРОВАТЬ СНА — точка перехода на арену (E)
-  const bed = new THREE.Group();
-  const bedBase = new THREE.Mesh(
-    new THREE.BoxGeometry(2, 0.4, 1),
-    new THREE.MeshStandardMaterial({ color: 0x5a3520, roughness: 0.7 })
-  );
-  bedBase.position.y = 0.2;
-  bed.add(bedBase);
-  const mattress = new THREE.Mesh(
-    new THREE.BoxGeometry(1.9, 0.2, 0.9),
-    new THREE.MeshStandardMaterial({ color: 0x8a2530, emissive: 0x3a0a10, emissiveIntensity: 0.35 })
-  );
-  mattress.position.y = 0.5;
-  bed.add(mattress);
-  const pillow = new THREE.Mesh(
-    new THREE.BoxGeometry(0.7, 0.15, 0.7),
-    new THREE.MeshStandardMaterial({ color: 0xe8e0d0 })
-  );
-  pillow.position.set(-0.55, 0.68, 0);
-  bed.add(pillow);
-  bed.position.set(0, 0, 8); // в 8м от центра хаба
-  bed.userData.isBed = true;
-  bed.name = "bed_of_dreams";
-  group.add(bed);
-  group.userData.bedPos = { x: 0, y: 0, z: 8 };
+  // v0.0.3.11: кровать удалена из хаба
 }
 
 // v0.0.3.4: позиция кровати в хабе
