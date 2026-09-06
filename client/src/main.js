@@ -398,7 +398,8 @@ const globalHemi = new THREE.HemisphereLight(0xffffff, 0x776655, 1.2);
 scene.add(globalHemi);
 
 // FOV 70 — стандарт для FPS. 85 было слишком широко, искажало края.
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500);
+// near=0.01 чтобы руки (0.3-0.5м) точно не обрезались на Retina Mac
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 500);
 
 // ПИКСЕЛИЗАЦИЯ (Devil Daggers-style): рендер в low-res рендер-таргет + upscale NEAREST
 let pixelScale = 1; // 1 = отключено
@@ -456,6 +457,19 @@ scene.add(camera);
 // Руки видны всегда (базовые голые ладони), пикапы добавляют заклинания
 handsRoot.userData.leftHand.visible = true;
 handsRoot.userData.rightHand.visible = true;
+// ФОРС видимости рук: renderOrder=999 + depthTest=false + frustumCulled=false
+// — чтобы руки точно рисовались поверх всего и никогда не обрезались
+handsRoot.renderOrder = 999;
+handsRoot.traverse((obj) => {
+  if (obj.isMesh) {
+    obj.renderOrder = 999;
+    obj.frustumCulled = false;
+    if (obj.material) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach(m => { if (m) { m.depthTest = false; m.depthWrite = false; } });
+    }
+  }
+});
 
 // Диагностика mac Chrome: логируем ключевые параметры в консоль
 console.log("[rrain diag]",

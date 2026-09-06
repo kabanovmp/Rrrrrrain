@@ -48,11 +48,11 @@ export class FpsController {
       const dx = e.movementX || 0;
       const dy = e.movementY || 0;
       const dpr = window.devicePixelRatio || 1;
-      const MAX = 1000 * dpr; // было 200 — отбрасывало всё движение мыши на Mac
+      const MAX = 2000; // абсолютный кап
       if (Math.abs(dx) > MAX || Math.abs(dy) > MAX) return;
-      // Чувствительность нормализована от dpr, чтобы Retina не крутила в 2× быстрее
-      this.yaw   -= dx * 0.0022 / dpr;
-      this.pitch -= dy * 0.0022 / dpr;
+      // НЕ делим на dpr — pointer-lock movementX уже в логических пикселях на всех платформах
+      this.yaw   -= dx * 0.0022;
+      this.pitch -= dy * 0.0022;
       // Нормализуем yaw в [-π, π] чтобы не накапливалась ошибка точности на больших числах
       if (this.yaw > Math.PI) this.yaw -= 2 * Math.PI;
       if (this.yaw < -Math.PI) this.yaw += 2 * Math.PI;
