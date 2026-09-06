@@ -399,9 +399,7 @@ const globalHemi = new THREE.HemisphereLight(0xffffff, 0x776655, 1.2);
 scene.add(globalHemi);
 
 // FOV 70 — стандарт для FPS. 85 было слишком широко, искажало края.
-// near=0.01 чтобы руки (0.3-0.5м) точно не обрезались на Retina Mac
-// АСПЕКТ — от canvas.clientWidth/Height (реальный CSS-размер канваса), НЕ window.innerWidth
-const camera = new THREE.PerspectiveCamera(70, canvas.clientWidth / canvas.clientHeight, 0.01, 500);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 500);
 
 // ПИКСЕЛИЗАЦИЯ (Devil Daggers-style): рендер в low-res рендер-таргет + upscale NEAREST
 let pixelScale = 1; // 1 = отключено
@@ -417,8 +415,8 @@ function ensurePostFx() {
   postScene.add(postMesh);
 }
 function resizeLowResRT() {
-  const w = Math.max(80, Math.floor(canvas.clientWidth / pixelScale));
-  const h = Math.max(60, Math.floor(canvas.clientHeight / pixelScale));
+  const w = Math.max(80, Math.floor(window.innerWidth / pixelScale));
+  const h = Math.max(60, Math.floor(window.innerHeight / pixelScale));
   if (rtLowRes) rtLowRes.dispose();
   rtLowRes = new THREE.WebGLRenderTarget(w, h, {
     minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
@@ -436,19 +434,17 @@ window.__setRenderFar = (v) => {
 };
 
 function fitToViewport() {
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
   if (!w || !h) return;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(window.devicePixelRatio || 1);
-  renderer.setSize(w, h, false); // false = не трогать CSS, мы выставляем inset:0 через CSS
-  if (pixelScale > 1) resizeLowResRT();
+  renderer.setSize(w, h, true); // true = выставить и CSS и буфер
 }
 window.addEventListener("resize", fitToViewport);
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", fitToViewport);
-  window.visualViewport.addEventListener("scroll", fitToViewport);
 }
 fitToViewport();
 
