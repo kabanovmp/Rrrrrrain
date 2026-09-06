@@ -22,7 +22,7 @@ export function setupTerrainV3(group, levelIndex = 1) {
   const R = WORLD.ARENA_RADIUS;
 
   // ── Скайбокс: уровень 1 — чёрный, 2-5 планетарные темы ─────────────
-  const skyColor = levelIndex === 1 ? 0x000000 :
+  const skyColor = levelIndex === 1 ? 0x2a1a28 : // v0.0.3.10: багровый сумрак вместо чёрного
                    levelIndex === 2 ? 0x2a0a1a : // марс
                    levelIndex === 3 ? 0x0a1a2a : // ледяная
                    levelIndex === 4 ? 0x2a2a0a : // пустыня
@@ -34,31 +34,23 @@ export function setupTerrainV3(group, levelIndex = 1) {
   group.add(dome);
 
   // ── Освещение: слабое, темно-магическое ─────────────────────────────
-  const ambient = new THREE.AmbientLight(0xff6060, 0.35);
+  const ambient = new THREE.AmbientLight(0xffdcc0, 1.1); // v0.0.3.10: ярче
   group.add(ambient);
-  const hemi = new THREE.HemisphereLight(0xffb0b0, 0x201010, 0.5);
+  const hemi = new THREE.HemisphereLight(0xffddbb, 0x402020, 1.4); // v0.0.3.10: ярче
   hemi.position.set(0, 50, 0);
   group.add(hemi);
   // Направленный "лунный" свет с красным оттенком
-  const moon = new THREE.DirectionalLight(0xff8080, 0.6);
+  const moon = new THREE.DirectionalLight(0xffccaa, 1.0); // v0.0.3.10: ярче
   moon.position.set(50, 80, 30);
   group.add(moon);
 
   // ── Terrain: PlaneGeometry с деформацией высот ─────────────────────
-  const SEGS = 120; // 120x120 = 14400 вершин, приемлемо
-  const geo = new THREE.PlaneGeometry(R * 2, R * 2, SEGS, SEGS);
+  // v0.0.3.10: ПЛОСКИЙ пол (была синусоида ±14м, но физика на y=1.6 не совпадала — игроки/враги под полом)
+  const geo = new THREE.PlaneGeometry(R * 2, R * 2, 8, 8);
   geo.rotateX(-Math.PI / 2);
-  const posAttr = geo.attributes.position;
-  for (let i = 0; i < posAttr.count; i++) {
-    const x = posAttr.getX(i);
-    const z = posAttr.getZ(i);
-    posAttr.setY(i, terrainHeight(x, z));
-  }
-  posAttr.needsUpdate = true;
-  geo.computeVertexNormals();
 
   // Уровень 1 — чёрный пол. Дальше можно менять цвет по levelIndex.
-  const floorColor = levelIndex === 1 ? 0x0a0a0a :
+  const floorColor = levelIndex === 1 ? 0x4a3a30 : // v0.0.3.10: пепел вместо чёрного (сливался с куполом)
                      levelIndex === 2 ? 0x3a1a10 :
                      levelIndex === 3 ? 0x2a4050 :
                      levelIndex === 4 ? 0x4a3a1a :
@@ -88,7 +80,7 @@ export function setupTerrainV3(group, levelIndex = 1) {
     const a = Math.random() * Math.PI * 2;
     const r = 20 + Math.random() * (R * 0.9);
     const rx = Math.cos(a) * r, rz = Math.sin(a) * r;
-    rock.position.set(rx, terrainHeight(rx, rz) + s * 0.6, rz);
+    rock.position.set(rx, s * 0.6, rz);
     rock.rotation.y = Math.random() * Math.PI;
     rock.rotation.z = (Math.random() - 0.5) * 0.2;
     group.add(rock);
@@ -107,14 +99,14 @@ export function setupTerrainV3(group, levelIndex = 1) {
       new THREE.MeshBasicMaterial({ color: 0x330000, side: THREE.DoubleSide, transparent: true, opacity: 0.7 })
     );
     ring.rotation.x = -Math.PI / 2;
-    ring.position.set(hx, terrainHeight(hx, hz) + 0.05, hz);
+    ring.position.set(hx, 0.05, hz);
     group.add(ring);
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(hr, 24),
       new THREE.MeshBasicMaterial({ color: 0x000000 })
     );
     disc.rotation.x = -Math.PI / 2;
-    disc.position.set(hx, terrainHeight(hx, hz) + 0.02, hz);
+    disc.position.set(hx, 0.02, hz);
     group.add(disc);
     holes.push({ x: hx, z: hz, r: hr });
   }
@@ -129,7 +121,7 @@ export function setupTerrainV3(group, levelIndex = 1) {
   });
   const portalX = R * 0.4, portalZ = R * 0.3;
   const portal = new THREE.Mesh(portalGeo, portalMat);
-  portal.position.set(portalX, terrainHeight(portalX, portalZ) + 5.5, portalZ);
+  portal.position.set(portalX, 5.5, portalZ);
   group.add(portal);
   group.userData.portalMesh = portal;
   group.userData.portalPos = { x: portalX, z: portalZ };
@@ -143,7 +135,7 @@ export function setupTerrainV3(group, levelIndex = 1) {
     );
     const ox = side < 2 ? 0 : (side === 2 ? -3.2 : 3.2);
     const oy = side < 2 ? (side === 0 ? -5.2 : 5.2) : 0;
-    frame.position.set(portalX + ox, terrainHeight(portalX, portalZ) + 5.5 + oy, portalZ);
+    frame.position.set(portalX + ox, 5.5 + oy, portalZ);
     group.add(frame);
   }
 
