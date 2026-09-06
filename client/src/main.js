@@ -434,13 +434,14 @@ window.__setRenderFar = (v) => {
 };
 
 function fitToViewport() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  if (!w || !h) return;
+  // Честный CSS-размер viewport, не зависит от zoom/dpr — берём из CSS-бокса канваса
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(1, Math.round(rect.width));
+  const h = Math.max(1, Math.round(rect.height));
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(window.devicePixelRatio || 1);
-  renderer.setSize(w, h, false); // false = НЕ трогать CSS (CSS у нас inset:0), только буфер
+  renderer.setSize(w, h, false); // false = НЕ трогать CSS (у канваса inset:0)
 }
 window.addEventListener("resize", fitToViewport);
 if (window.visualViewport) {
