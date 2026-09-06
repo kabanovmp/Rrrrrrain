@@ -40,7 +40,16 @@ export class FpsController {
     });
 
     canvas.addEventListener("click", () => canvas.requestPointerLock());
+    // ДИАГНОСТИКА: логируем ЛЮБЫе mousemove (даже без pointer-lock)
+    window._mmLog = window._mmLog || 0;
+    window._mmDropped = window._mmDropped || 0;
+    window._mmPassed = window._mmPassed || 0;
     document.addEventListener("mousemove", (e) => {
+      if (window._mmLog < 15) {
+        window._mmLog++;
+        const pl = document.pointerLockElement === canvas ? "ON" : "OFF";
+        console.log(`[MM#${window._mmLog}] PL=${pl} dpr=${window.devicePixelRatio} mvX=${e.movementX} mvY=${e.movementY} scrX=${e.screenX} scrY=${e.screenY}`);
+      }
       if (document.pointerLockElement !== canvas) return;
       // Маска от взрывных дельт. НА MAC/RETINA movementX может быть в физических
       // пикселях (dpr=2/3), поэтому cap масштабируем от dpr.
@@ -49,7 +58,13 @@ export class FpsController {
       const dy = e.movementY || 0;
       const dpr = window.devicePixelRatio || 1;
       const MAX = 1000 * dpr; // было 200 — отбрасывало всё движение мыши на Mac
-      if (Math.abs(dx) > MAX || Math.abs(dy) > MAX) return;
+      if (Math.abs(dx) > MAX || Math.abs(dy) > MAX) {
+        window._mmDropped++;
+        if (window._mmDropped < 10) console.log(`[MM DROP] dx=${dx} dy=${dy} MAX=${MAX}`);
+        return;
+      }
+      window._mmPassed++;
+      if (window._mmPassed < 10) console.log(`[MM PASS #${window._mmPassed}] dx=${dx} dy=${dy} → yaw=${(this.yaw - dx * 0.0022 / dpr).toFixed(3)}`);
       // Чувствительность нормализована от dpr, чтобы Retina не крутила в 2× быстрее
       this.yaw   -= dx * 0.0022 / dpr;
       this.pitch -= dy * 0.0022 / dpr;
