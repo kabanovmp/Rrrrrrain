@@ -119,6 +119,8 @@ export function setupTerrainV3(group, levelIndex = 1) {
     holes.push({ x: hx, z: hz, r: hr });
   }
   group.userData.holes = holes;
+  // v0.0.3.4: экспортируем в window — controller читает для проверки падения
+  if (typeof window !== "undefined") window._arenaHoles = holes;
 
   // ── Nether-portal (декор — telegraph выхода) ──────────────────────
   const portalGeo = new THREE.PlaneGeometry(6, 10);

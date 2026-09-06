@@ -5,7 +5,7 @@ import { terrainHeight } from "./worldV3.js";
 // FPS controller: gravity + jump, no flight. Pointer-lock.
 const GRAVITY = 20;
 const JUMP_V = 8;
-const RUN_MULT = 1.5;
+const RUN_MULT = 2.25;   // v0.0.3.4: +50% к предыдущим 1.5× → 2.25×
 const DASH_IMPULSE = 18; // м/с мгновенная вспышка
 const DASH_CD = 1.2;
 
@@ -105,12 +105,15 @@ export class FpsController {
     this.vel.x = move.x * speed;
     this.vel.z = move.z * speed;
 
-    // Дебаг FLY: Space вверх, Ctrl вниз, без гравитации
+    // Дебаг FLY: Space вверх, Ctrl/C вниз, без гравитации. v0.0.3.4: скорость ✕ 6 от baseline — админ-режим
     const dbgFly = !!(window.room?.state?.dbgFly);
     if (dbgFly) {
+      const flySpeed = speed * 6; // в режиме полёта все оси в 6× быстрее (примерно +500%)
+      this.vel.x = move.x * flySpeed;
+      this.vel.z = move.z * flySpeed;
       let vy = 0;
-      if (this.keys.Space) vy += speed;
-      if (this.keys.KeyC || this.keys.ShiftRight) vy -= speed;
+      if (this.keys.Space) vy += flySpeed;
+      if (this.keys.KeyC || this.keys.ControlLeft || this.keys.ControlRight) vy -= flySpeed;
       this.vel.y = vy;
       this.grounded = false;
     } else {
@@ -132,10 +135,26 @@ export class FpsController {
     if (this.position.x < -R) this.position.x = -R;
     if (this.position.z > R) this.position.z = R;
     if (this.position.z < -R) this.position.z = -R;
+    // v0.0.3.4: плоский пол (terrainHeight===0). Eye height 1.6м. Дыры в полу — реально проваливаются (-10m).
     const groundY = 1.6 + terrainHeight(this.position.x, this.position.z);
+    // Проверка попадания в дыру на арене (arenaGroup.userData.holes) — если в радиусе, не ставим ground
+    let inHole = false;
+    try {
+      const holes = window._arenaHoles;
+      if (holes && holes.length && !dbgFly) {
+        for (const h of holes) {
+          const dx = this.position.x - h.x, dz = this.position.z - h.z;
+          if (dx*dx + dz*dz < h.r * h.r) { inHole = true; break; }
+        }
+      }
+    } catch {}
     if (dbgFly) {
       if (this.position.y < groundY) this.position.y = groundY;
       if (this.position.y > 60) this.position.y = 60;
+    } else if (inHole) {
+      // в дыре — свободное падение до y=-10 (fall→respawn)
+      // гравитация уже действует, не трогаем ground
+      this.grounded = false;
     } else if (this.position.y <= groundY) {
       this.position.y = groundY;
       this.vel.y = 0;

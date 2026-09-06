@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Rrrrrrain — v0.0.3.3</title>
+  <title>Rrrrrrain — v0.0.3.4</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #eee; font-family: 'Courier New', monospace; }
@@ -110,24 +110,12 @@
       урон меча (STAR_SWORD): <span id="dbg-wdmg-v">1.0</span>x<br>
       <input type="range" id="dbg-wdmg" min="0.1" max="20" step="0.1" value="1" style="width:100%;">
     </div>
+    <!-- v0.0.3.4: чистая панель — только меч и базовые действия -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px;">
       <button data-act="respawn" class="dbg-btn">воскресить</button>
       <button data-act="respawnAll" class="dbg-btn">воскресить всех</button>
       <button data-act="killAllEnemies" class="dbg-btn">убить врагов</button>
-      <button data-act="giveHands" class="dbg-btn">выдать руки</button>
-      <div style="grid-column:span 2;border-top:1px solid #445;margin-top:4px;padding-top:6px;">
-        <div style="opacity:.7;font-size:10px;margin-bottom:4px;">выдать оружие:</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;">
-          <button data-give-hand="left" data-give-type="FIRE" class="dbg-btn" style="background:#5a2f1a;">L: fire</button>
-          <button data-give-hand="left" data-give-type="ICE" class="dbg-btn" style="background:#1a3a5a;">L: ice</button>
-          <button data-give-hand="left" data-give-type="BONE" class="dbg-btn" style="background:#4a4030;">L: bone</button>
-          <button data-give-hand="left" data-give-type="CHAIN" class="dbg-btn" style="background:#1a4a5a;">L: chain</button>
-          <button data-give-hand="right" data-give-type="FIRE" class="dbg-btn" style="background:#5a2f1a;">R: fire</button>
-          <button data-give-hand="right" data-give-type="ICE" class="dbg-btn" style="background:#1a3a5a;">R: ice</button>
-          <button data-give-hand="right" data-give-type="BONE" class="dbg-btn" style="background:#4a4030;">R: bone</button>
-          <button data-give-hand="right" data-give-type="CHAIN" class="dbg-btn" style="background:#1a4a5a;">R: chain</button>
-        </div>
-      </div>
+      <button data-give-weapon="SWORD" class="dbg-btn" style="background:#5a4a1a;">выдать меч</button>
       <button data-act="tpHub" class="dbg-btn">в хаб</button>
       <button data-act="tpArena" class="dbg-btn">на арену</button>
       <button data-act="resetRun" class="dbg-btn" style="grid-column:span 2;background:#553;">сбросить забеги (хаб не трогает)</button>
@@ -136,9 +124,12 @@
   <style>.dbg-btn { background:#334; color:#dde; border:1px solid #556; padding:6px; cursor:pointer; font-size:11px; font-family:inherit; border-radius:3px; } .dbg-btn:hover { background:#445; }</style>
   <div id="menu">
     <h1>RRRRRRAIN</h1>
-    <p>кооп-прототип · v0.0.3.3 (альфа) — чистая сетка Снаряжение + атомарный drag-and-drop в обе стороны</p>
+    <p>кооп-прототип · v0.0.3.4 (альфа) — старт в хабе, плоская арена, лобби-код</p>
     <div class="row">
       <input id="name" placeholder="твоё имя" value="sgustok" maxlength="20" />
+    </div>
+    <div class="row">
+      <input id="lobby" placeholder="код лобби (цифра, одинаковая у всех друзей)" value="1" maxlength="12" />
     </div>
     <div class="row">
       <input id="server" placeholder="ws-сервер" value="wss://rrrrrrain-production.up.railway.app" size="40" />
@@ -147,7 +138,7 @@
       <button id="play">начать</button>
     </div>
     <p style="margin-top:24px;max-width:520px;text-align:center;font-size:12px;line-height:1.6;">
-      WASD — движение · SPACE — прыжок · мышь — обзор · ЛКМ / ПКМ — каст · SHIFT — dash · F — подобрать · E — открыть/закрыть портал · R — respawn · ESC — отпустить мышь
+      WASD — движение · SPACE — прыжок · SHIFT — бег · ЛКМ — меч · F — взять/взаимодействовать · E — кровать/алтарь · TAB — инвентарь · ESC — курсор
     </p>
   </div>
   <script type="module" src="/src/main.js"></script>

@@ -16,7 +16,9 @@ const MAX_ALIVE_ENEMIES = 25;   // потолок — чтобы не затоп
 const PORTAL_INTERACT_RANGE = 3.5;
 
 export class ArenaRoom extends Room {
-  onCreate() {
+  onCreate(opts) {
+    // v0.0.3.4: lobbyId — чтобы filterBy группировал совместные комнаты
+    this.setMetadata({ lobbyId: (opts && opts.lobbyId) ? String(opts.lobbyId) : "public" });
     this.maxClients = NET.MAX_PLAYERS;
     this.setState(new GameState());
     this.projectiles = [];
@@ -25,8 +27,9 @@ export class ArenaRoom extends Room {
     this.waveTimer = 0;              // таймер между волнами (волны всегда)
     this.spawnInitialPickups();
     this.setupHubStorage();
-    // v0.0.3.0: стартуем в арене сразу
-    this.state.phase = "arena";
+    // v0.0.3.4: стартуем в ХАБЕ (как просили). Арена — через кровать в хабе (E)
+    this.state.phase = "hub";
+    // arena готовим, но врагов не спавним — они появятся когда игроки войдут в arena
     this.startArena();
     this.setSimulationInterval(dt => this.tick(dt / 1000), TICK_MS);
 
@@ -350,6 +353,11 @@ export class ArenaRoom extends Room {
         const p = this.state.players.get(client.sessionId);
         if (p) { p.hasLeftHand = true; p.hasRightHand = true; p.leftHandType = "FIRE"; p.rightHandType = "ICE"; p.hasLegs = 2; }
       }
+      // v0.0.3.4: выдать оружие в слот (меч)
+      if (msg.action === "giveWeaponSlot") {
+        const p = this.state.players.get(client.sessionId);
+        if (p && msg.type) p.weaponSlot = String(msg.type);
+      }
       if (msg.action === "giveWeapon") {
         // msg.hand = "left"|"right", msg.type = "FIRE"|"ICE"|"BONE"
         const p = this.state.players.get(client.sessionId);
@@ -451,6 +459,59 @@ export class ArenaRoom extends Room {
       } else if (what === "item" && p.itemsInBody.length > 0) {
         const it = p.itemsInBody.pop();
         slot.kind = "ITEM"; slot.handType = ""; slot.itemId = it; slot.empty = false;
+      }
+    });
+
+    // v0.0.3.4: HUB — уйти на арену через кровать сна
+    this.onMessage("hub_go_arena", (client) => {
+      if (this.state.phase !== "hub") return;
+      this.state.phase = "arena";
+      if (this.startArena) this.startArena();
+      // телепортируем всех на арену (спавн в центре)
+      this.state.players.forEach(p => {
+        p.pos.x = (Math.random() - 0.5) * 4;
+        p.pos.y = 1.6;
+        p.pos.z = (Math.random() - 0.5) * 4;
+      });
+      this.broadcast("fx", { type: "phase", to: "arena" });
+    });
+
+    // v0.0.3.4: HUB — положить в СУНДУК (общий для лобби) ─────────────────
+    // msg: { index:number, what:"leftHand"|"rightHand"|"leg"|"passive"|"item"|"weapon"|"card:N" }
+    this.onMessage("hub_put_chest", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      if (this.state.phase !== "hub") return;
+      const chest = this.state.hubChests[msg.index | 0];
+      if (!chest) return;
+      if (chest.contents.length >= 24) return; // лимит сундука
+      const what = String(msg.what || "");
+      if (what === "leftHand" && p.hasLeftHand) {
+        chest.contents.push("HAND:" + p.leftHandType);
+        p.hasLeftHand = false; p.leftHandType = "";
+      } else if (what === "rightHand" && p.hasRightHand) {
+        chest.contents.push("HAND:" + p.rightHandType);
+        p.hasRightHand = false; p.rightHandType = "";
+      } else if (what === "leg" && p.hasLegs > 0) {
+        chest.contents.push("LEG:");
+        p.hasLegs--;
+      } else if (what === "passive" && p.passiveItemId) {
+        chest.contents.push("ITEM:" + p.passiveItemId);
+        p.passiveItemId = "";
+        p.maxHp = COMBAT.PLAYER_MAX_HP;
+        if (p.hp > p.maxHp) p.hp = p.maxHp;
+      } else if (what === "item" && p.itemsInBody.length > 0) {
+        const it = p.itemsInBody.pop();
+        chest.contents.push("ITEM:" + it);
+      } else if (what === "weapon" && p.weaponSlot) {
+        chest.contents.push("WEAPON:" + p.weaponSlot);
+        p.weaponSlot = "";
+      } else if (what.startsWith("card:")) {
+        const idx = parseInt(what.slice(5), 10);
+        if (idx >= 0 && idx < 10 && p.cards[idx]) {
+          chest.contents.push("CARD:" + p.cards[idx]);
+          p.cards[idx] = "";
+        }
       }
     });
 
@@ -1112,7 +1173,10 @@ export class ArenaRoom extends Room {
       let aliveCount = 0;
       this.state.enemies.forEach(e => { if (e.alive) aliveCount++; });
       const nowT = Date.now() / 1000;
-      if (nowT >= (this.state.aiNextWaveAt || 0) && aliveCount < MAX_ALIVE_ENEMIES && this.state.aiBudget > 30) {
+      // v0.0.3.4: если мало врагов — внеочередная досылка (чтобы не было пустой арены когда от всех убежал)
+      const MIN_ALIVE = 6;
+      const forceWave = aliveCount < MIN_ALIVE && this.state.aiBudget > 30;
+      if ((forceWave || nowT >= (this.state.aiNextWaveAt || 0)) && aliveCount < MAX_ALIVE_ENEMIES && this.state.aiBudget > 30) {
         this.aiDirectorSpawnWave();
         const interval = AI_DIRECTOR.WAVE_INTERVAL_MIN + Math.random() * (AI_DIRECTOR.WAVE_INTERVAL_MAX - AI_DIRECTOR.WAVE_INTERVAL_MIN);
         this.state.aiNextWaveAt = nowT + interval;
@@ -1126,10 +1190,9 @@ export class ArenaRoom extends Room {
     // Группа спавнится вокруг общего угла (как в текущем коде)
     const frontAngle = this.getPlayerFrontAngle() + (Math.random() - 0.5) * 1.2;
     // Строим список кандидатов: большая вероятность для Ground Crawler, в меньшей Cacodemon shooter
+    // v0.0.3.4: только ЗЕМНОЙ враг по ТЗ. Летающие убраны.
     const pool = [
-      { id: "GROUND_CRAWLER", w: 0.65 },
-      { id: "FLYING_SHOOTER", w: 0.25 },
-      { id: "CACO", w: 0.10 },
+      { id: "GROUND_CRAWLER", w: 1.0 },
     ];
     for (let i = 0; i < size; i++) {
       const roll = Math.random();

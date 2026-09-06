@@ -19,7 +19,8 @@ const gameServer = new Server({
   transport: new WebSocketTransport({ server: httpServer }),
 });
 
-gameServer.define(NET.ROOM_NAME, ArenaRoom);
+// v0.0.3.4: фильтр по lobbyId — игроки вводят одинаковое число → попадают в одну комнату
+gameServer.define(NET.ROOM_NAME, ArenaRoom).filterBy(["lobbyId"]);
 
 gameServer.listen(PORT).then(() => {
   console.log(`[server] Rrrrrrain listening on :${PORT}`);

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen } from "./world.js";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen, getHubBedPos } from "./world.js";
 import { setupTerrainV3, terrainHeight } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
 
@@ -42,14 +42,15 @@ const swordHud = document.createElement("img");
 swordHud.src = "/assets/sword-hand.png";
 swordHud.style.cssText = [
   "position:fixed",
-  "right:-4vh",
-  "bottom:-6vh",
-  "height:65vh",     // в 3× крупнее, привязано к высоте вьюпорта
+  "left:50%",
+  "bottom:-2vh",
+  "transform:translateX(-58%)",   // v0.0.3.4: центр с лёгким сдвигом — рука левее, клинок правее
+  "height:35vh",                  // v0.0.3.4: уменьшен чтобы не перекрывать обзор
   "width:auto",
   "pointer-events:none",
   "z-index:12",
-  "filter:brightness(1.0) contrast(1.05) drop-shadow(0 -12px 32px rgba(255,50,50,0.55))",
-  "transform-origin:80% 90%",
+  "filter:brightness(1.0) contrast(1.05) drop-shadow(0 -8px 20px rgba(255,50,50,0.4))",
+  "transform-origin:50% 100%",
   "transition:transform 0.06s",
   "image-rendering:pixelated",
   "user-select:none",
@@ -539,6 +540,9 @@ function sendDebug(payload) {
     b.addEventListener("click", () => {
       if (b.dataset.giveHand && b.dataset.giveType) {
         sendDebug({ action: "giveWeapon", hand: b.dataset.giveHand, type: b.dataset.giveType });
+      } else if (b.dataset.giveWeapon) {
+        // v0.0.3.4: выдать оружие в weaponSlot (меч)
+        sendDebug({ action: "giveWeaponSlot", type: b.dataset.giveWeapon });
       } else if (b.dataset.act) {
         sendDebug({ action: b.dataset.act });
       }
@@ -566,8 +570,12 @@ function sendDebug(payload) {
   if (dith && dithV) {
     dith.addEventListener("input", () => {
       dithV.textContent = dith.value;
+      // v0.0.3.4: дизеринг — локальный post-effect (глобально ко всей сцене)
+      if (window.__setDither) window.__setDither(parseInt(dith.value, 10));
       sendDebug({ dither: parseInt(dith.value, 10) });
     });
+    // инитциализация стартового значения
+    setTimeout(() => { if (window.__setDither) window.__setDither(parseInt(dith.value, 10)); }, 100);
   }
   const wdmg = document.getElementById("dbg-wdmg");
   const wdmgV = document.getElementById("dbg-wdmg-v");
@@ -688,14 +696,51 @@ const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerH
 let pixelScale = 1; // 1 = отключено
 let rtLowRes = null;
 let postScene = null, postCamera = null, postMesh = null;
+// v0.0.3.4: post-effect с глобальным дизерингом ко всей сцене (не только туман)
 function ensurePostFx() {
   if (postScene) return;
   postScene = new THREE.Scene();
   postCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   const geo = new THREE.PlaneGeometry(2, 2);
-  const mat = new THREE.MeshBasicMaterial({ depthTest: false, depthWrite: false });
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      tScene: { value: null },
+      uDither: { value: 3.0 },
+      uTime:   { value: 0 },
+    },
+    vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position,1.0); }`,
+    fragmentShader: `
+      uniform sampler2D tScene;
+      uniform float uDither; // сила дизера 1..10
+      uniform float uTime;
+      varying vec2 vUv;
+      // Bayer 4x4
+      float bayer(vec2 p){
+        int x = int(mod(p.x, 4.0));
+        int y = int(mod(p.y, 4.0));
+        int i = y*4 + x;
+        float m[16];
+        m[0]=0.0/16.0;  m[1]=8.0/16.0;  m[2]=2.0/16.0;  m[3]=10.0/16.0;
+        m[4]=12.0/16.0; m[5]=4.0/16.0;  m[6]=14.0/16.0; m[7]=6.0/16.0;
+        m[8]=3.0/16.0;  m[9]=11.0/16.0; m[10]=1.0/16.0; m[11]=9.0/16.0;
+        m[12]=15.0/16.0;m[13]=7.0/16.0; m[14]=13.0/16.0;m[15]=5.0/16.0;
+        return m[i] - 0.5;
+      }
+      void main(){
+        vec4 c = texture2D(tScene, vUv);
+        vec2 pix = gl_FragCoord.xy;
+        float d = bayer(pix) * (uDither / 32.0);
+        c.rgb += vec3(d);
+        // Квантование цвета — цвета становятся видимо-дизерными
+        c.rgb = floor(c.rgb * 32.0) / 32.0;
+        gl_FragColor = c;
+      }
+    `,
+    depthTest: false, depthWrite: false,
+  });
   postMesh = new THREE.Mesh(geo, mat);
   postScene.add(postMesh);
+  window.__setDither = (v) => { mat.uniforms.uDither.value = v; };
 }
 function resizeLowResRT() {
   const w = Math.max(80, Math.floor(window.innerWidth / pixelScale));
@@ -705,15 +750,27 @@ function resizeLowResRT() {
     minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
     format: THREE.RGBAFormat, depthBuffer: true, stencilBuffer: false,
   });
-  if (postMesh) postMesh.material.map = rtLowRes.texture;
+  if (postMesh) {
+    if (postMesh.material.uniforms && postMesh.material.uniforms.tScene) {
+      postMesh.material.uniforms.tScene.value = rtLowRes.texture;
+    } else {
+      postMesh.material.map = rtLowRes.texture;
+    }
+  }
 }
 window.__setPixelScale = (v) => {
   pixelScale = Math.max(1, parseInt(v, 10) || 1);
   if (pixelScale > 1) { ensurePostFx(); resizeLowResRT(); }
 };
 window.__setRenderFar = (v) => {
-  camera.far = Math.max(50, parseInt(v, 10) || 500);
+  // v0.0.3.4: дальность на самом деле — туман + camera.far. Меняем вместе, чтобы картинка реально была как выбрал.
+  const far = Math.max(50, parseInt(v, 10) || 500);
+  camera.far = far;
   camera.updateProjectionMatrix();
+  if (scene && scene.fog) {
+    scene.fog.near = Math.max(20, far * 0.6);
+    scene.fog.far  = far;
+  }
 };
 
 function fitToViewport() {
@@ -737,11 +794,11 @@ const arenaGroup = new THREE.Group();
 // Хаб парит "в космосе" — можно сместить по Y для отдельности
 scene.add(hubGroup, arenaGroup);
 if (V3_MODE) {
-  // v0.0.3.0 — новый мир: только terrain, без хаба
+  // v0.0.3.4 — включаем ХАБ (старт в нём) + арена (V3 террайн)
+  setupHub(hubGroup);
   setupTerrainV3(arenaGroup, 1);
-  hubGroup.visible = false;
-  arenaGroup.visible = true;
-  // Fog по ТЗ: обзор 100м с плавным дизерингом
+  hubGroup.visible = true;      // виден в phase==="hub"
+  arenaGroup.visible = false;    // показывается когда игрок перейдёт на арену
   scene.fog = new THREE.Fog(0x000000, 60, 100);
 } else {
   setupHub(hubGroup);
@@ -1108,7 +1165,10 @@ document.getElementById("play").addEventListener("click", async () => {
   try {
     initAudio(); // разбудить AudioContext сразу после клика
     client = new Client(url);
-    room = await client.joinOrCreate(NET.ROOM_NAME, { name });
+    // v0.0.3.4: лобби-код — filterBy на сервере группирует комнаты по одинаковому коду
+    const lobbyId = (document.getElementById("lobby")?.value || "1").trim() || "1";
+    localStorage.setItem("rrrrrrain_lobby", lobbyId);
+    room = await client.joinOrCreate(NET.ROOM_NAME, { name, lobbyId });
     window.room = room;
     // Панель синхронизируется при первом получении состояния
     room.onStateChange.once((state) => syncDebugPanelFromState(state));
@@ -1633,6 +1693,18 @@ document.addEventListener("keydown", (ev) => {
       }
     }
   }
+  // v0.0.3.4: E — кровать в хабе → уйти на арену
+  if (ev.code === "KeyE" && room.state.phase === "hub") {
+    const bp = getHubBedPos(hubGroup);
+    const d = Math.hypot(controller.position.x - bp.x, controller.position.z - bp.z);
+    if (d < 2.5) {
+      room.send("hub_go_arena");
+      hintText.textContent = "засыпаешь… сон переносит на арену";
+      hintText.style.opacity = 1;
+      setTimeout(() => { hintText.style.opacity = 0; }, 1500);
+      playSound("teleport");
+    }
+  }
   // G — скрафтить в алтаре (если стоишь рядом и 3 руки одного типа)
   if (ev.code === "KeyG" && room.state.phase === "hub") {
     const altarD = Math.hypot(controller.position.x, controller.position.z);
@@ -1804,6 +1876,12 @@ function updateHubInteractionHint() {
       else action = "сундук пуст";
     }
   });
+  // v0.0.3.4: кровать сна — [E] на арену
+  const bp = getHubBedPos(hubGroup);
+  const bedD = Math.hypot(controller.position.x - bp.x, controller.position.z - bp.z);
+  if (bedD < 2.5 && !action) {
+    action = "[E] уснуть → на арену";
+  }
   const altarD = Math.hypot(controller.position.x, controller.position.z);
   if (altarD < 2.5 && !action) {
     const list = room.state.hubReforgeSlots;
@@ -2246,7 +2324,9 @@ function animate() {
 
   drawRadar();
   updateCooldownHud();
-  if (pixelScale > 1 && rtLowRes && postScene) {
+  // v0.0.3.4: всегда через post (глобальный дизеринг). Pixelscale дополнительно пикселизует.
+  if (!postScene) { ensurePostFx(); resizeLowResRT(); }
+  if (rtLowRes && postScene) {
     renderer.setRenderTarget(rtLowRes);
     renderer.render(scene, camera);
     renderer.setRenderTarget(null);
