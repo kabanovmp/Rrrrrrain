@@ -121,48 +121,55 @@ function handTypeToVisual(ht) {
 }
 
 // ── v0.0.3.1 ПАНЕЛЬ СНАРЯЖЕНИЯ: свиток-папирус (TAB — hold) ──────────────
+// v0.0.3.3: чистая сетка СНАРЯЖЕНИЕ — без фона-свитка; 2 колонки: НАДЕТО / РЮКЗАК
 const loadoutPanel = document.createElement("div");
 loadoutPanel.id = "loadoutPanel";
 loadoutPanel.style.cssText = [
   "position:fixed", "left:50%", "top:50%", "transform:translate(-50%,-50%)",
   "z-index:29", "display:none", "font-family:'Trebuchet MS',sans-serif",
   V31_MODE
-    ? "background:#1a0f05 url('/assets/v031/inventory-scroll.jpg') center/100% 100% no-repeat"
+    ? "background:linear-gradient(180deg,rgba(18,14,10,0.96) 0%,rgba(8,6,4,0.96) 100%)"
     : "background:linear-gradient(180deg,#1a1210 0%,#0b0806 100%)",
-  V31_MODE ? "border:none" : "border:3px solid #6a4a28",
-  "border-radius:14px",
-  "box-shadow:0 0 40px rgba(255,170,50,0.4),inset 0 0 20px rgba(0,0,0,0.6)",
-  V31_MODE ? "padding:40px 60px" : "padding:18px 24px",
-  V31_MODE ? "width:920px;height:640px" : "min-width:560px",
-  "color:#3a2410",
+  V31_MODE ? "border:1px solid #6a4a28" : "border:3px solid #6a4a28",
+  "border-radius:10px",
+  "box-shadow:0 12px 60px rgba(0,0,0,0.7), 0 0 20px rgba(255,170,50,0.15)",
+  V31_MODE ? "padding:20px 24px" : "padding:18px 24px",
+  V31_MODE ? "width:960px;height:640px" : "min-width:560px",
+  "color:#e6d9c2",
+  "backdrop-filter:blur(4px)",
 ].join(";");
 loadoutPanel.innerHTML = V31_MODE ? `
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-    <div style="font-size:26px;font-weight:bold;letter-spacing:3px;color:#4a2a10;text-shadow:0 0 6px rgba(220,180,120,0.6);font-family:serif;">СНАРЯЖЕНИЕ</div>
-    <div id="loadoutHp" style="font-size:16px;color:#5a2818;font-family:serif;font-weight:bold;">HP: –</div>
-    <div style="font-size:12px;color:#7a4020;font-family:serif;">держи TAB</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #6a4a2866;">
+    <div style="font-size:22px;font-weight:bold;letter-spacing:3px;color:#ffd08a;">СНАРЯЖЕНИЕ</div>
+    <div id="loadoutHp" style="font-size:14px;color:#e6b070;font-weight:bold;">HP: –</div>
+    <div style="font-size:12px;color:#8a7050;">держи TAB • drag-and-drop в обе стороны</div>
   </div>
-  <div style="display:grid;grid-template-columns:220px 1fr;gap:24px;height:540px;">
-    <!-- ЛЕВАЯ: меч + карты + персонаж -->
-    <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
-      <div style="font-size:11px;color:#7a4020;font-family:serif;letter-spacing:1px;">ОРУЖИЕ</div>
-      <div id="lpWeapon" class="lp-slot lp-weapon" data-slot="weapon" style="width:96px;height:96px;background:#00000022;border:2px dashed #6a4a28;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:grab;"></div>
-      <div style="font-size:11px;color:#7a4020;font-family:serif;letter-spacing:1px;margin-top:6px;">КАРТЫ (10)</div>
-      <div id="lpCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;width:200px;"></div>
-      <div style="margin-top:8px;font-size:11px;color:#5a2818;font-family:serif;text-align:center;line-height:1.3;">
-        ЛКМ: Звёздопад (25–35 HP)<br>ПКМ: Звёздный Блок (50 HP / 10с)
+  <div style="display:grid;grid-template-columns:340px 1fr;gap:20px;height:560px;">
+    <!-- ЛЕВАЯ КОЛОНКА: НАДЕТО -->
+    <div style="display:flex;flex-direction:column;gap:12px;background:#0000002a;border:1px solid #6a4a2844;border-radius:8px;padding:14px;">
+      <div style="font-size:13px;color:#ffd08a;letter-spacing:2px;text-align:center;padding-bottom:6px;border-bottom:1px solid #6a4a2833;">НАДЕТО</div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+        <div style="font-size:11px;color:#8a7050;letter-spacing:1px;">ОРУЖИЕ</div>
+        <div id="lpWeapon" class="lp-slot lp-weapon" data-slot="weapon" style="width:120px;height:120px;background:#00000044;border:2px dashed #6a4a28;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#4a3520;"></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+        <div style="font-size:11px;color:#8a7050;letter-spacing:1px;text-align:center;">КАРТЫ (10 слотов)</div>
+        <div id="lpCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;"></div>
+      </div>
+      <div style="margin-top:auto;font-size:11px;color:#8a7050;text-align:center;line-height:1.4;padding-top:8px;border-top:1px solid #6a4a2833;">
+        ЛКМ — Звёздопад<br>ПКМ — Звёздный Блок
       </div>
     </div>
-    <!-- ПРАВАЯ: рюкзак (бесконечный скролл, авто-сорт) -->
-    <div style="display:flex;flex-direction:column;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-size:11px;color:#7a4020;font-family:serif;letter-spacing:1px;">РЮКЗАК (перетащи карту в слот)</div>
-        <div id="lpBpCount" style="font-size:11px;color:#5a2818;font-family:serif;">0</div>
+    <!-- ПРАВАЯ КОЛОНКА: РЮКЗАК -->
+    <div style="display:flex;flex-direction:column;gap:8px;background:#0000002a;border:1px solid #6a4a2844;border-radius:8px;padding:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:6px;border-bottom:1px solid #6a4a2833;">
+        <div style="font-size:13px;color:#ffd08a;letter-spacing:2px;">РЮКЗАК</div>
+        <div id="lpBpCount" style="font-size:12px;color:#8a7050;">0 предметов</div>
       </div>
-      <div id="lpBackpack" style="flex:1;margin-top:6px;display:grid;grid-template-columns:repeat(8,1fr);gap:4px;overflow-y:auto;padding:6px;background:#00000018;border:1px solid #6a4a2866;border-radius:6px;align-content:start;"></div>
+      <div id="lpBackpack" style="flex:1;display:grid;grid-template-columns:repeat(8,1fr);gap:6px;overflow-y:auto;padding:4px;align-content:start;"></div>
     </div>
   </div>
-  <div style="margin-top:10px;text-align:center;font-size:11px;color:#5a2818;font-family:serif;">Отпусти TAB чтобы закрыть • Кликни по карте — вернётся в рюкзак</div>
+  <div style="margin-top:10px;text-align:center;font-size:11px;color:#8a7050;">Перетащи в любую сторону • двойной клик по предмету — в рюкзак или обратно</div>
 ` : `
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #6a4a28;">
     <div style="font-size:22px;font-weight:bold;letter-spacing:2px;text-shadow:0 0 8px rgba(255,170,50,0.6);">СНАРЯЖЕНИЕ</div>
@@ -193,6 +200,17 @@ const V31_ICON = {
   "WEAPON:STAR_SWORD":{ src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "Активное оружие" },
 };
 function v31IconFor(raw) { return V31_ICON[raw] || { src: "", label: raw, desc: "" }; }
+// v0.0.3.3: все действия в инвентаре — через атомарный op:"swap" (from,to)
+function v31SendSwap(from, to) {
+  if (!room) return;
+  room.send("inv", { op: "swap", from, to });
+  setTimeout(renderLoadoutPanel, 120);
+}
+function v31FirstFreeCard() {
+  if (!myPlayer || !myPlayer.cards) return -1;
+  for (let i = 0; i < 10; i++) if (!myPlayer.cards[i]) return i;
+  return -1;
+}
 function v31CardCell(cardId, slotIndex) {
   const has = !!cardId;
   const info = has ? v31IconFor("CARD:" + cardId) : null;
@@ -200,39 +218,69 @@ function v31CardCell(cardId, slotIndex) {
   cell.className = "lp-slot lp-card";
   cell.dataset.slotType = "card";
   cell.dataset.slotIndex = String(slotIndex);
-  cell.style.cssText = `aspect-ratio:1;background:${has ? "#00000022" : "#00000011"};border:2px ${has ? "solid" : "dashed"} ${has ? "#a06848" : "#6a4a2888"};border-radius:6px;position:relative;overflow:hidden;cursor:${has ? "grab" : "default"};display:flex;align-items:center;justify-content:center;`;
+  cell.style.cssText = `aspect-ratio:1;background:${has ? "#1a0f0844" : "#00000022"};border:2px ${has ? "solid" : "dashed"} ${has ? "#c08858" : "#6a4a2888"};border-radius:6px;position:relative;overflow:hidden;cursor:${has ? "grab" : "default"};display:flex;align-items:center;justify-content:center;transition:border-color 0.1s, transform 0.1s;`;
   if (has) {
     const img = document.createElement("img");
     img.src = info.src; img.style.cssText = "width:100%;height:100%;object-fit:cover;pointer-events:none;";
     img.draggable = false;
     cell.appendChild(img);
     const lbl = document.createElement("div");
-    lbl.style.cssText = "position:absolute;bottom:1px;left:0;right:0;font-size:8px;text-align:center;color:#fff;text-shadow:0 0 3px #000;font-family:serif;";
+    lbl.style.cssText = "position:absolute;bottom:1px;left:0;right:0;font-size:9px;text-align:center;color:#fff;text-shadow:0 0 3px #000;font-weight:bold;";
     lbl.textContent = info.label;
     cell.appendChild(lbl);
     cell.draggable = true;
-    cell.addEventListener("dragstart", (ev) => { ev.dataTransfer.setData("text/plain", JSON.stringify({ from: "card", index: slotIndex, raw: "CARD:" + cardId })); ev.dataTransfer.effectAllowed = "move"; });
-    cell.addEventListener("click", () => v31MoveToBackpack("card", slotIndex, "CARD:" + cardId));
+    cell.addEventListener("dragstart", (ev) => {
+      ev.dataTransfer.setData("text/plain", JSON.stringify({ type: "card", index: slotIndex, raw: "CARD:" + cardId }));
+      ev.dataTransfer.effectAllowed = "move";
+      cell.style.opacity = "0.4";
+    });
+    cell.addEventListener("dragend", () => { cell.style.opacity = "1"; });
+    // двойной клик — быстрое перемещение в рюкзак
+    cell.addEventListener("dblclick", () => {
+      v31SendSwap({ type: "card", index: slotIndex }, { type: "backpack", index: 9999 });
+    });
   }
-  cell.addEventListener("dragover", (ev) => { ev.preventDefault(); cell.style.borderColor = "#ffbb44"; });
-  cell.addEventListener("dragleave", () => { cell.style.borderColor = has ? "#a06848" : "#6a4a2888"; });
-  cell.addEventListener("drop", (ev) => { ev.preventDefault(); v31HandleDrop(ev, "card", slotIndex); });
+  cell.addEventListener("dragover", (ev) => { ev.preventDefault(); cell.style.borderColor = "#ffcc55"; });
+  cell.addEventListener("dragleave", () => { cell.style.borderColor = has ? "#c08858" : "#6a4a2888"; });
+  cell.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    cell.style.borderColor = has ? "#c08858" : "#6a4a2888";
+    let d; try { d = JSON.parse(ev.dataTransfer.getData("text/plain") || "{}"); } catch { return; }
+    if (!d.raw) return;
+    // в card-слот можно только CARD
+    if (!String(d.raw).startsWith("CARD:")) return;
+    v31SendSwap({ type: d.type, index: d.index }, { type: "card", index: slotIndex });
+  });
   return cell;
 }
 function v31BackpackCell(raw, bpIndex) {
   const info = v31IconFor(raw);
   const cell = document.createElement("div");
-  cell.style.cssText = "aspect-ratio:1;background:#00000022;border:2px solid #a06848;border-radius:6px;position:relative;overflow:hidden;cursor:grab;";
+  cell.style.cssText = "aspect-ratio:1;background:#1a0f0844;border:2px solid #c08858;border-radius:6px;position:relative;overflow:hidden;cursor:grab;transition:border-color 0.1s, transform 0.1s;";
   const img = document.createElement("img");
   img.src = info.src; img.style.cssText = "width:100%;height:100%;object-fit:cover;pointer-events:none;";
   img.draggable = false;
   cell.appendChild(img);
   const lbl = document.createElement("div");
-  lbl.style.cssText = "position:absolute;bottom:1px;left:0;right:0;font-size:9px;text-align:center;color:#fff;text-shadow:0 0 3px #000;font-family:serif;";
+  lbl.style.cssText = "position:absolute;bottom:1px;left:0;right:0;font-size:9px;text-align:center;color:#fff;text-shadow:0 0 3px #000;font-weight:bold;";
   lbl.textContent = info.label;
   cell.appendChild(lbl);
   cell.draggable = true;
-  cell.addEventListener("dragstart", (ev) => { ev.dataTransfer.setData("text/plain", JSON.stringify({ from: "backpack", index: bpIndex, raw })); ev.dataTransfer.effectAllowed = "move"; });
+  cell.addEventListener("dragstart", (ev) => {
+    ev.dataTransfer.setData("text/plain", JSON.stringify({ type: "backpack", index: bpIndex, raw }));
+    ev.dataTransfer.effectAllowed = "move";
+    cell.style.opacity = "0.4";
+  });
+  cell.addEventListener("dragend", () => { cell.style.opacity = "1"; });
+  // двойной клик в рюкзаке — надеть в первый свободный слот
+  cell.addEventListener("dblclick", () => {
+    if (raw.startsWith("WEAPON:")) {
+      v31SendSwap({ type: "backpack", index: bpIndex }, { type: "weapon", index: 0 });
+    } else if (raw.startsWith("CARD:")) {
+      const free = v31FirstFreeCard();
+      if (free >= 0) v31SendSwap({ type: "backpack", index: bpIndex }, { type: "card", index: free });
+    }
+  });
   return cell;
 }
 function v31WeaponSlot(weaponId) {
@@ -243,52 +291,58 @@ function v31WeaponSlot(weaponId) {
   if (weaponId) {
     const info = v31IconFor("WEAPON:" + weaponId);
     const img = document.createElement("img");
-    img.src = info.src; img.style.cssText = "width:100%;height:100%;object-fit:cover;";
+    img.src = info.src; img.style.cssText = "width:100%;height:100%;object-fit:cover;pointer-events:none;";
     img.draggable = false;
     el.appendChild(img);
+    const lbl = document.createElement("div");
+    lbl.style.cssText = "position:absolute;bottom:2px;left:0;right:0;font-size:10px;text-align:center;color:#fff;text-shadow:0 0 3px #000;font-weight:bold;";
+    lbl.textContent = info.label;
+    el.style.position = "relative";
+    el.appendChild(lbl);
     el.draggable = true;
-    el.ondragstart = (ev) => { ev.dataTransfer.setData("text/plain", JSON.stringify({ from: "weapon", raw: "WEAPON:" + weaponId })); ev.dataTransfer.effectAllowed = "move"; };
-    el.onclick = () => v31MoveToBackpack("weapon", 0, "WEAPON:" + weaponId);
+    el.ondragstart = (ev) => {
+      ev.dataTransfer.setData("text/plain", JSON.stringify({ type: "weapon", index: 0, raw: "WEAPON:" + weaponId }));
+      ev.dataTransfer.effectAllowed = "move";
+      el.style.opacity = "0.4";
+    };
+    el.ondragend = () => { el.style.opacity = "1"; };
+    el.ondblclick = () => v31SendSwap({ type: "weapon", index: 0 }, { type: "backpack", index: 9999 });
+    el.style.borderColor = "#c08858";
+    el.style.borderStyle = "solid";
   } else {
-    el.textContent = "―";
-    el.style.color = "#7a4020";
+    el.textContent = "+";
+    el.style.color = "#4a3520";
+    el.style.borderColor = "#6a4a28";
+    el.style.borderStyle = "dashed";
     el.draggable = false;
     el.ondragstart = null;
-    el.onclick = null;
+    el.ondragend = null;
+    el.ondblclick = null;
   }
-  el.ondragover = (ev) => { ev.preventDefault(); el.style.borderColor = "#ffbb44"; };
-  el.ondragleave = () => { el.style.borderColor = "#6a4a28"; };
-  el.ondrop = (ev) => { ev.preventDefault(); v31HandleDrop(ev, "weapon", 0); };
+  el.ondragover = (ev) => { ev.preventDefault(); el.style.borderColor = "#ffcc55"; };
+  el.ondragleave = () => { el.style.borderColor = weaponId ? "#c08858" : "#6a4a28"; };
+  el.ondrop = (ev) => {
+    ev.preventDefault();
+    el.style.borderColor = weaponId ? "#c08858" : "#6a4a28";
+    let d; try { d = JSON.parse(ev.dataTransfer.getData("text/plain") || "{}"); } catch { return; }
+    if (!d.raw || !String(d.raw).startsWith("WEAPON:")) return;
+    v31SendSwap({ type: d.type, index: d.index }, { type: "weapon", index: 0 });
+  };
 }
-function v31HandleDrop(ev, toType, toIndex) {
-  let d; try { d = JSON.parse(ev.dataTransfer.getData("text/plain") || "{}"); } catch { return; }
-  if (!room || !d.raw) return;
-  const [kind, id] = String(d.raw).split(":");
-  // совместимость типов
-  if (toType === "card" && kind !== "CARD") return;
-  if (toType === "weapon" && kind !== "WEAPON") return;
-  // сначала убираем из источника (если это бэкпак)
-  if (d.from === "backpack") room.send("inv", { op: "backpack_remove", index: d.index });
-  if (d.from === "card") room.send("inv", { op: "card_set", index: d.index, cardId: null });
-  if (d.from === "weapon") room.send("inv", { op: "weapon_set", weaponId: null });
-  // вытесненный предмет в целевом слоте — в рюкзак (своп)
-  const before = (toType === "card" && myPlayer && myPlayer.cards)
-    ? myPlayer.cards[toIndex]
-    : (toType === "weapon" && myPlayer) ? myPlayer.weaponSlot : null;
-  if (before) {
-    const swapRaw = (toType === "card" ? "CARD:" : "WEAPON:") + before;
-    room.send("inv", { op: "backpack_add", raw: swapRaw });
-  }
-  if (toType === "card") room.send("inv", { op: "card_set", index: toIndex, cardId: id });
-  if (toType === "weapon") room.send("inv", { op: "weapon_set", weaponId: id });
-  setTimeout(renderLoadoutPanel, 100);
-}
-function v31MoveToBackpack(fromType, fromIndex, raw) {
-  if (!room) return;
-  if (fromType === "card") room.send("inv", { op: "card_set", index: fromIndex, cardId: null });
-  if (fromType === "weapon") room.send("inv", { op: "weapon_set", weaponId: null });
-  room.send("inv", { op: "backpack_add", raw });
-  setTimeout(renderLoadoutPanel, 100);
+// Принимаем drop в сам контейнер РЮКЗАКА — это то, чего не было в v0.0.3.1 и почему не работало обратное перетаскивание
+function v31InstallBackpackDrop() {
+  const bp = document.getElementById("lpBackpack");
+  if (!bp || bp._dropInstalled) return;
+  bp._dropInstalled = true;
+  bp.addEventListener("dragover", (ev) => { ev.preventDefault(); bp.style.background = "#00000044"; });
+  bp.addEventListener("dragleave", () => { bp.style.background = "transparent"; });
+  bp.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    bp.style.background = "transparent";
+    let d; try { d = JSON.parse(ev.dataTransfer.getData("text/plain") || "{}"); } catch { return; }
+    if (!d.raw || d.type === "backpack") return; // внутри рюкзака двигать не надо (только из надетого)
+    v31SendSwap({ type: d.type, index: d.index }, { type: "backpack", index: 9999 });
+  });
 }
 function handTypeName(ht) {
   return ({ FIRE: "Огненная", ICE: "Ледяная", BONE: "Костяная", CHAIN: "Грозовая" })[ht] || "—";
@@ -358,8 +412,9 @@ function renderLoadoutPanel() {
         return a.raw.localeCompare(b.raw);
       });
       sorted.forEach(x => bpEl.appendChild(v31BackpackCell(x.raw, x.i)));
-      if (bpCount) bpCount.textContent = String(bp.length);
+      if (bpCount) bpCount.textContent = bp.length === 1 ? "1 предмет" : (bp.length + " предметов");
     }
+    v31InstallBackpackDrop(); // можно кидать в пустое место рюкзака
     return;
   }
   const hands = document.getElementById("lpHands");

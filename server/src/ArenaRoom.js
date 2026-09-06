@@ -194,26 +194,118 @@ export class ArenaRoom extends Room {
       this.broadcast("fx", { type: "fall_respawn", target: client.sessionId, x: p.pos.x, z: p.pos.z });
     });
 
-    // v0.0.3.1: клиент шлёт изменения инвентаря (drag-and-drop)
+    // v0.0.3.3: атомарный обработчик инвентаря — одно сообщение = одно действие,
+    // но главное — новый op:"swap" делает перемещение между любыми слотами атомарно
+    // (без race-condition через несколько сообщений). Поддерживается также legacy raw/item.
     this.onMessage("inv", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       if (!p || !msg) return;
-      // op: "card_set" { slot: 0..9, cardId: "ANGER"|"" }
-      // op: "weapon_set" { weaponId: "STAR_SWORD"|"" }
-      // op: "backpack_add" { item: "CARD:ANGER"|"WEAPON:STAR_SWORD" }
-      // op: "backpack_remove" { index }
+      const _ensureCards = () => { while (p.cards.length < 10) p.cards.push(""); };
+      const _validCardRaw = (raw) => {
+        if (!raw) return false;
+        const [k, id] = String(raw).split(":");
+        return k === "CARD" && !!CARDS[id];
+      };
+      const _validWeaponRaw = (raw) => {
+        if (!raw) return false;
+        const [k, id] = String(raw).split(":");
+        return k === "WEAPON" && !!WEAPONS[id];
+      };
+      // ── НОВЫЙ АТОМАРНЫЙ SWAP ──
+      // msg: { op:"swap", from:{type:"card"|"weapon"|"backpack", index:number}, to:{type:..., index:number} }
+      // Любая комбинация. Правила:
+      //   • в slot type="card" можно только карту (или пусто)
+      //   • в slot type="weapon" можно только оружие (или пусто)
+      //   • в backpack можно всё
+      if (msg.op === "swap" && msg.from && msg.to) {
+        _ensureCards();
+        const readSlot = (loc) => {
+          if (loc.type === "card") return p.cards[loc.index] ? ("CARD:" + p.cards[loc.index]) : "";
+          if (loc.type === "weapon") return p.weaponSlot ? ("WEAPON:" + p.weaponSlot) : "";
+          if (loc.type === "backpack") return p.backpack[loc.index] || "";
+          return "";
+        };
+        const writeSlot = (loc, raw) => {
+          if (loc.type === "card") {
+            if (raw && !_validCardRaw(raw)) return false;
+            p.cards[loc.index] = raw ? String(raw).split(":")[1] : "";
+            return true;
+          }
+          if (loc.type === "weapon") {
+            if (raw && !_validWeaponRaw(raw)) return false;
+            p.weaponSlot = raw ? String(raw).split(":")[1] : "";
+            return true;
+          }
+          if (loc.type === "backpack") {
+            // в рюкзак кладём только непустое; иначе — удалить слот (компактация)
+            if (raw) {
+              if (loc.index >= p.backpack.length) p.backpack.push(raw);
+              else p.backpack[loc.index] = raw;
+            } else {
+              if (loc.index < p.backpack.length) p.backpack.splice(loc.index, 1);
+            }
+            return true;
+          }
+          return false;
+        };
+        const from = msg.from, to = msg.to;
+        const rawFrom = readSlot(from);
+        const rawTo   = readSlot(to);
+        // Проверка совместимости: в card-слот нельзя оружие и наоборот
+        const targetsAllow = (loc, raw) => {
+          if (!raw) return true;
+          if (loc.type === "backpack") return true;
+          if (loc.type === "card") return _validCardRaw(raw);
+          if (loc.type === "weapon") return _validWeaponRaw(raw);
+          return false;
+        };
+        if (!targetsAllow(to, rawFrom)) return;
+        if (!targetsAllow(from, rawTo)) return;
+        // Атомарный swap: сначала чистим в верхнем бакпаке по индексу (от большего к меньшему)
+        // но в нашем случае достаточно поменять значения (если оба слота — не backpack) или тщательно работать с backpack.splice
+        if (from.type === "backpack" && to.type === "backpack") {
+          // оба — backpack: простой swap по индексам
+          if (from.index < p.backpack.length && to.index < p.backpack.length) {
+            const tmp = p.backpack[from.index];
+            p.backpack[from.index] = p.backpack[to.index];
+            p.backpack[to.index] = tmp;
+          }
+          return;
+        }
+        if (from.type === "backpack") {
+          // вынимаем из backpack, возвращаем rawTo (если есть)
+          if (from.index >= p.backpack.length) return;
+          p.backpack.splice(from.index, 1);
+          writeSlot(to, rawFrom);
+          if (rawTo) p.backpack.push(rawTo);
+          return;
+        }
+        if (to.type === "backpack") {
+          // кладём в backpack всегда push (индекс = конец)
+          if (rawFrom) p.backpack.push(rawFrom);
+          writeSlot(from, rawTo); // rawTo чаще пустой — очистит слот
+          return;
+        }
+        // оба — слоты (card/weapon): простой swap
+        writeSlot(from, rawTo);
+        writeSlot(to, rawFrom);
+        return;
+      }
+      // ── LEGACY OPS (для совместимости) ──
       if (msg.op === "card_set") {
-        const slot = Math.max(0, Math.min(9, msg.slot | 0));
+        // клиент в v0.0.3.1 шлёт index, в v0.0.3.3 — slot; поддерживаем оба
+        const slot = Math.max(0, Math.min(9, (msg.slot != null ? msg.slot : msg.index) | 0));
         const cardId = String(msg.cardId || "");
         if (cardId && !CARDS[cardId]) return;
-        while (p.cards.length < 10) p.cards.push("");
+        _ensureCards();
         p.cards[slot] = cardId;
       } else if (msg.op === "weapon_set") {
         const wid = String(msg.weaponId || "");
         if (wid && !WEAPONS[wid]) return;
         p.weaponSlot = wid;
       } else if (msg.op === "backpack_add") {
-        const item = String(msg.item || "");
+        // клиент в v0.0.3.1 шлёт raw, старый сервер ждал item — теперь принимаем оба
+        const item = String(msg.raw || msg.item || "");
         if (item) p.backpack.push(item);
       } else if (msg.op === "backpack_remove") {
         const idx = msg.index | 0;
