@@ -887,7 +887,9 @@ if (V3_MODE) {
   setupTerrainV3(arenaGroup, 1);
   hubGroup.visible = true;      // виден в phase==="hub"
   arenaGroup.visible = false;    // показывается когда игрок перейдёт на арену
-  scene.fog = new THREE.Fog(0x000000, 60, 100);
+  // v0.0.3.6: туман только на арене. В хабе его нет — всё ясно видно.
+  scene.fog = null;
+  window.__ARENA_FOG = new THREE.Fog(0x000000, 60, 100);
 } else {
   setupHub(hubGroup);
   setupArena(arenaGroup);
@@ -1430,6 +1432,10 @@ function setupRoomHandlers() {
   room.state.listen("phase", (v) => {
     hubGroup.visible = v === "hub";
     arenaGroup.visible = v !== "hub";
+    // v0.0.3.6: туман — только на арене, в хабе выключаем
+    if (V3_MODE) {
+      scene.fog = (v === "hub") ? null : (window.__ARENA_FOG || null);
+    }
     // Амбиентный шум отключён (мешал, будет заменён нормальным саунд-дизайном)
     stopSoundLoop(ambientLoop);
     ambientLoop = null;
@@ -1781,18 +1787,7 @@ document.addEventListener("keydown", (ev) => {
       }
     }
   }
-  // v0.0.3.4: E — кровать в хабе → уйти на арену
-  if (ev.code === "KeyE" && room.state.phase === "hub") {
-    const bp = getHubBedPos(hubGroup);
-    const d = Math.hypot(controller.position.x - bp.x, controller.position.z - bp.z);
-    if (d < 2.5) {
-      room.send("hub_go_arena");
-      hintText.textContent = "засыпаешь… сон переносит на арену";
-      hintText.style.opacity = 1;
-      setTimeout(() => { hintText.style.opacity = 0; }, 1500);
-      playSound("teleport");
-    }
-  }
+  // v0.0.3.6: кровать больше не телепортирует. Единственный путь на арену — портал (см. handlePortalTriggers).
   // G — скрафтить в алтаре (если стоишь рядом и 3 руки одного типа)
   if (ev.code === "KeyG" && room.state.phase === "hub") {
     const altarD = Math.hypot(controller.position.x, controller.position.z);
@@ -1964,11 +1959,11 @@ function updateHubInteractionHint() {
       else action = "сундук пуст";
     }
   });
-  // v0.0.3.4: кровать сна — [E] на арену
-  const bp = getHubBedPos(hubGroup);
-  const bedD = Math.hypot(controller.position.x - bp.x, controller.position.z - bp.z);
-  if (bedD < 2.5 && !action) {
-    action = "[E] уснуть → на арену";
+  // v0.0.3.6: портал в хабе — единственный путь на арену (подсказка через handlePortalTriggers)
+  const hubPortalPos = getHubPortalPos(hubGroup);
+  if (hubPortalPos && !action) {
+    const dPortal = Math.hypot(controller.position.x - hubPortalPos.x, controller.position.z - hubPortalPos.z);
+    if (dPortal < 2.5) action = "Стой на портале → телепорт на арену";
   }
   const altarD = Math.hypot(controller.position.x, controller.position.z);
   if (altarD < 2.5 && !action) {
@@ -2297,8 +2292,12 @@ function animate() {
 
   // ── Враги: интерполяция + анимация ──────────────────────
   const lerpSpeed = 12;
+  // v0.0.3.6: в хабе враги всегда невидимы (страховка от рассинхрона)
+  const hideEnemies = room && room.state && room.state.phase === "hub";
   enemyMeshes.forEach(entry => {
     const m = entry.mesh;
+    if (hideEnemies) { m.visible = false; return; }
+    else if (!m.visible && entry.wasAlive) m.visible = true;
     const a = Math.min(1, dt * lerpSpeed);
     m.position.x += (entry.targetX - m.position.x) * a;
     m.position.y += (entry.targetY - m.position.y) * a;
@@ -2390,8 +2389,11 @@ function animate() {
       const g = hubChestMeshes[openChestIndex];
       if (!g || g.position.distanceTo(controller.position) > 4) closeChestPanel();
     }
-    // Лайв-рендер открытой панели (по onChange всегда ненадёжно)
-    if (openChestIndex >= 0 && (performance.now() & 15) === 0) renderChestPanel();
+    // v0.0.3.6: лайв-рендер открытой панели — таймер 5гц (надёжно)
+    if (openChestIndex >= 0) {
+      window.__chestRerender = (window.__chestRerender || 0) + dt;
+      if (window.__chestRerender >= 0.2) { window.__chestRerender = 0; renderChestPanel(); }
+    }
   } else {
     hubChestMeshes.forEach(g => setChestOpen(g, false, dt));
     if (openChestIndex >= 0) closeChestPanel();
