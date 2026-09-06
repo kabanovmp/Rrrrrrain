@@ -39,13 +39,17 @@ export class FpsController {
     canvas.addEventListener("click", () => canvas.requestPointerLock());
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement !== canvas) return;
-      // Маска от взрывных дельт (баг macOS Chrome/Safari: первый movementX может быть гигантом)
+      // Маска от взрывных дельт. НА MAC/RETINA movementX может быть в физических
+      // пикселях (dpr=2/3), поэтому cap масштабируем от dpr.
+      // Отбрасываем только те что точно глюк (>2000).
       const dx = e.movementX || 0;
       const dy = e.movementY || 0;
-      const MAX = 200; // пикселей за одно событие — выше этого = плохо
+      const dpr = window.devicePixelRatio || 1;
+      const MAX = 1000 * dpr; // было 200 — отбрасывало всё движение мыши на Mac
       if (Math.abs(dx) > MAX || Math.abs(dy) > MAX) return;
-      this.yaw   -= dx * 0.0022;
-      this.pitch -= dy * 0.0022;
+      // Чувствительность нормализована от dpr, чтобы Retina не крутила в 2× быстрее
+      this.yaw   -= dx * 0.0022 / dpr;
+      this.pitch -= dy * 0.0022 / dpr;
       // Нормализуем yaw в [-π, π] чтобы не накапливалась ошибка точности на больших числах
       if (this.yaw > Math.PI) this.yaw -= 2 * Math.PI;
       if (this.yaw < -Math.PI) this.yaw += 2 * Math.PI;
