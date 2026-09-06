@@ -135,5 +135,6 @@ export class FpsController {
     this.camera.rotation.order = "YXZ";
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch;
+    this.camera.rotation.z = 0; // важно: если z случайно получит не-ноль, экран наклонится и прицел уедет
   }
 }

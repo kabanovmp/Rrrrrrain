@@ -1078,6 +1078,17 @@ canvas.addEventListener("mousedown", (ev) => {
   // ФОРС-ОТПРАВКА input ПЕРЕД cast — чтобы другие клиенты видели модель
   // с тем же yaw/pitch, откуда летит снаряд (без этого до 50мс рассинхрона)
   sendInput();
+  // ДИАГНОСТИКА ПРИЦЕЛА: белая линия от камеры по dir на 30м — видно совпадает ли с crosshair
+  {
+    const from = origin.clone();
+    const to = origin.clone().add(dir.clone().multiplyScalar(30));
+    const lineGeom = new THREE.BufferGeometry().setFromPoints([from, to]);
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1.0, depthTest: false });
+    const line = new THREE.Line(lineGeom, lineMat);
+    line.renderOrder = 998;
+    scene.add(line);
+    setTimeout(() => { scene.remove(line); lineGeom.dispose(); lineMat.dispose(); }, 1200);
+  }
   room.send("cast", {
     spell: spellId, dx: dir.x, dy: dir.y, dz: dir.z,
     ox: origin.x, oy: origin.y, oz: origin.z, hand
