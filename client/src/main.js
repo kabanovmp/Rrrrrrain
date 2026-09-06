@@ -99,19 +99,31 @@ chestPanel.style.cssText = [
   "border:3px solid #6a4a28",
   "border-radius:10px",
   "box-shadow:0 0 40px rgba(255,170,50,0.5),inset 0 0 20px rgba(0,0,0,0.6)",
-  "padding:18px 22px",
-  "min-width:420px",
-  "max-width:640px",
+  "padding:20px 24px",
+  "width:900px",
+  "max-height:640px",
   "color:#f0d090",
 ].join(";");
+// v0.0.3.4: панель сундука — две колонки: СУНДУК ↔ МОЙ ИНВЕНТАРЬ
 chestPanel.innerHTML = `
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid #6a4a28;">
-    <div style="font-size:22px;font-weight:bold;letter-spacing:2px;text-shadow:0 0 8px rgba(255,170,50,0.6);">СУНДУК</div>
-    <div id="chestCounter" style="font-size:14px;color:#d0b070;">0 / 12</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #6a4a28;">
+    <div style="font-size:22px;font-weight:bold;letter-spacing:2px;text-shadow:0 0 8px rgba(255,170,50,0.6);">СУНДУК ЛОББИ</div>
+    <div id="chestCounter" style="font-size:14px;color:#d0b070;">0 / 24</div>
     <div id="chestClose" style="cursor:pointer;font-size:20px;color:#d0b070;padding:2px 10px;border:1px solid #6a4a28;border-radius:4px;">✕ ESC</div>
   </div>
-  <div id="chestGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;"></div>
-  <div style="margin-top:12px;font-size:12px;color:#8a7050;text-align:center;">Клик по ячейке — забрать. ESC или отойди — закрыть.</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <!-- ЛЕВАЯ: СУНДУК -->
+    <div style="background:#0000002a;border:1px solid #6a4a2844;border-radius:8px;padding:12px;">
+      <div style="font-size:13px;color:#ffd08a;letter-spacing:2px;text-align:center;padding-bottom:6px;border-bottom:1px solid #6a4a2833;margin-bottom:8px;">← СУНДУК (клик = забрать)</div>
+      <div id="chestGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;"></div>
+    </div>
+    <!-- ПРАВАЯ: МОЙ ИНВЕНТАРЬ -->
+    <div style="background:#0000002a;border:1px solid #6a4a2844;border-radius:8px;padding:12px;">
+      <div style="font-size:13px;color:#ffd08a;letter-spacing:2px;text-align:center;padding-bottom:6px;border-bottom:1px solid #6a4a2833;margin-bottom:8px;">ТВОЙ ИНВЕНТАРЬ (клик = положить →)</div>
+      <div id="chestMyInv" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;"></div>
+    </div>
+  </div>
+  <div style="margin-top:12px;font-size:12px;color:#8a7050;text-align:center;">Левая колонка — вещи сундука (общее для всего лобби). Правая — твои вещи. ESC или отойди — закрыть.</div>
 `;
 document.body.appendChild(chestPanel);
 let openChestIndex = -1; // -1 = закрыт
@@ -149,11 +161,29 @@ loadoutPanel.innerHTML = V31_MODE ? `
     <!-- ЛЕВАЯ КОЛОНКА: НАДЕТО -->
     <div style="display:flex;flex-direction:column;gap:12px;background:#0000002a;border:1px solid #6a4a2844;border-radius:8px;padding:14px;">
       <div style="font-size:13px;color:#ffd08a;letter-spacing:2px;text-align:center;padding-bottom:6px;border-bottom:1px solid #6a4a2833;">НАДЕТО</div>
-      <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
         <div style="font-size:11px;color:#8a7050;letter-spacing:1px;">ОРУЖИЕ</div>
-        <div id="lpWeapon" class="lp-slot lp-weapon" data-slot="weapon" style="width:120px;height:120px;background:#00000044;border:2px dashed #6a4a28;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#4a3520;"></div>
+        <div id="lpWeapon" class="lp-slot lp-weapon" data-slot="weapon" style="width:96px;height:96px;background:#00000044;border:2px dashed #6a4a28;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#4a3520;"></div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;margin-top:2px;">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="font-size:10px;color:#8a7050;letter-spacing:1px;">ЛЕВАЯ</div>
+          <div id="lpLeftHand" style="width:56px;height:56px;background:#00000044;border:2px dashed #6a4a28;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#4a3520;text-align:center;"></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="font-size:10px;color:#8a7050;letter-spacing:1px;">ПРАВАЯ</div>
+          <div id="lpRightHand" style="width:56px;height:56px;background:#00000044;border:2px dashed #6a4a28;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#4a3520;text-align:center;"></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="font-size:10px;color:#8a7050;letter-spacing:1px;">НОГИ</div>
+          <div id="lpLegs" style="width:56px;height:56px;background:#00000044;border:2px dashed #6a4a28;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#4a3520;text-align:center;"></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="font-size:10px;color:#8a7050;letter-spacing:1px;">ПАССИВ</div>
+          <div id="lpPassive" style="width:56px;height:56px;background:#00000044;border:2px dashed #6a4a28;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#4a3520;text-align:center;"></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px;">
         <div style="font-size:11px;color:#8a7050;letter-spacing:1px;text-align:center;">КАРТЫ (10 слотов)</div>
         <div id="lpCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;"></div>
       </div>
@@ -195,12 +225,36 @@ function hideLoadoutPanel() {
   loadoutPanel.style.display = "none";
 }
 
-// v0.0.3.1: иконки для инвентаря (backpack / cards / weapons)
+// v0.0.3.1: иконки для инвентаря. v0.0.3.4: SVG-генерация для всего
+function svgIcon(bg, fg, emoji) {
+  const s = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>
+    <defs><radialGradient id='g' cx='50%' cy='40%' r='60%'><stop offset='0' stop-color='${bg}' stop-opacity='0.9'/><stop offset='1' stop-color='#000' stop-opacity='0.9'/></radialGradient></defs>
+    <rect width='64' height='64' fill='url(#g)'/>
+    <text x='32' y='40' font-size='34' text-anchor='middle' fill='${fg}' font-family='Segoe UI Emoji,Apple Color Emoji,sans-serif'>${emoji}</text>
+  </svg>`;
+  return "data:image/svg+xml;utf8," + encodeURIComponent(s);
+}
 const V31_ICON = {
-  "CARD:ANGER":       { src: "/assets/v031/card-anger.jpg",  label: "Ярость", desc: "Ударь вдвое" },
-  "WEAPON:STAR_SWORD":{ src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "Активное оружие" },
+  "CARD:ANGER":         { src: "/assets/v031/card-anger.jpg",  label: "Ярость",       desc: "Ударь вдвое" },
+  "WEAPON:STAR_SWORD":  { src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "Активное оружие" },
+  "WEAPON:SWORD":       { src: svgIcon("#c8a05a", "#fff", "⚔️"), label: "Меч",           desc: "Основное оружие" },
+  "HAND:FIRE":          { src: svgIcon("#c04010", "#fff", "🔥"), label: "Огненная",     desc: "Файербол" },
+  "HAND:ICE":           { src: svgIcon("#3080c0", "#fff", "❄️"), label: "Ледяная",      desc: "Ледяная стрела" },
+  "HAND:BONE":          { src: svgIcon("#8a7050", "#fff", "🦴"), label: "Костяная",     desc: "Костяной копьё" },
+  "HAND:CHAIN":         { src: svgIcon("#2080a0", "#fff", "⚡"), label: "Грозовая",     desc: "Цепная молния" },
+  "LEG:":               { src: svgIcon("#20604a", "#fff", "🦵"), label: "Нога",          desc: "Скорость бега" },
+  "ITEM:BLOODSTONE":    { src: svgIcon("#a02020", "#fff", "💎"), label: "Кровник",     desc: "+Макс HP" },
+  "ITEM:SIGIL_DASH":    { src: svgIcon("#4080a0", "#fff", "💨"), label: "Сигил Рывка", desc: "Короткий КД dash" },
 };
-function v31IconFor(raw) { return V31_ICON[raw] || { src: "", label: raw, desc: "" }; }
+function v31IconFor(raw) {
+  if (V31_ICON[raw]) return V31_ICON[raw];
+  // Фолбэк: по префиксу
+  const [kind, sub] = String(raw).split(":");
+  if (kind === "CARD") return { src: svgIcon("#c08040", "#fff", "🃏"), label: sub || "Карта", desc: "Карта модификатор" };
+  if (kind === "ITEM") return { src: svgIcon("#805020", "#fff", "📦"), label: sub || "Предмет", desc: "Пассивный предмет" };
+  if (kind === "WEAPON") return { src: svgIcon("#c8a05a", "#fff", "⚔️"), label: sub || "Оружие", desc: "Оружие" };
+  return { src: svgIcon("#666", "#fff", "❓"), label: raw, desc: "" };
+}
 // v0.0.3.3: все действия в инвентаре — через атомарный op:"swap" (from,to)
 function v31SendSwap(from, to) {
   if (!room) return;
@@ -416,6 +470,40 @@ function renderLoadoutPanel() {
       if (bpCount) bpCount.textContent = bp.length === 1 ? "1 предмет" : (bp.length + " предметов");
     }
     v31InstallBackpackDrop(); // можно кидать в пустое место рюкзака
+    // v0.0.3.4: отображение надетых рук/ног/пассивки в НАДЕТО (только read-only иконка + tooltip)
+    const renderEquip = (elId, raw, empty) => {
+      const el = document.getElementById(elId);
+      if (!el) return;
+      el.innerHTML = "";
+      if (!raw) {
+        el.textContent = empty; el.style.borderStyle = "dashed"; el.style.borderColor = "#6a4a28"; el.style.color = "#4a3520"; el.title = ""; return;
+      }
+      const info = v31IconFor(raw);
+      const img = document.createElement("img");
+      img.src = info.src;
+      img.style.cssText = "width:100%;height:100%;object-fit:cover;pointer-events:none;border-radius:4px;";
+      img.draggable = false;
+      el.appendChild(img);
+      el.style.borderStyle = "solid"; el.style.borderColor = "#c08858"; el.style.color = "#e6d9c2";
+      el.title = info.label + (info.desc ? " — " + info.desc : "");
+    };
+    renderEquip("lpLeftHand",  myPlayer.hasLeftHand  ? ("HAND:" + myPlayer.leftHandType)  : "", "–");
+    renderEquip("lpRightHand", myPlayer.hasRightHand ? ("HAND:" + myPlayer.rightHandType) : "", "–");
+    const legsEl = document.getElementById("lpLegs");
+    if (legsEl) {
+      legsEl.innerHTML = "";
+      const n = myPlayer.hasLegs || 0;
+      if (n > 0) {
+        legsEl.textContent = "🦵×" + n;
+        legsEl.style.borderStyle = "solid"; legsEl.style.borderColor = "#4aa070"; legsEl.style.color = "#a0e0b0";
+        legsEl.title = "Ноги: " + n + "/2 — скорость бега";
+      } else {
+        legsEl.textContent = "–";
+        legsEl.style.borderStyle = "dashed"; legsEl.style.borderColor = "#6a4a28"; legsEl.style.color = "#4a3520";
+        legsEl.title = "";
+      }
+    }
+    renderEquip("lpPassive",   myPlayer.passiveItemId ? ("ITEM:" + myPlayer.passiveItemId) : "", "–");
     return;
   }
   const hands = document.getElementById("lpHands");
@@ -2012,7 +2100,7 @@ function renderChestPanel() {
   const grid = document.getElementById("chestGrid");
   const counter = document.getElementById("chestCounter");
   const n = chest.contents.length;
-  const CAP = 12; // логический лимит ячеек для сетки 4х3
+  const CAP = 24; // v0.0.3.4: сетка 4х6 — лимит сундука на сервере
   counter.textContent = `${n} / ${CAP}`;
   grid.innerHTML = "";
   const total = Math.max(CAP, Math.ceil(n / 4) * 4);
@@ -2055,6 +2143,60 @@ function renderChestPanel() {
       cell.addEventListener("mouseleave", () => { cell.style.borderColor = "#3a2818"; });
     }
     grid.appendChild(cell);
+  }
+  // v0.0.3.4: ПРАВАЯ КОЛОНКА — мой инвентарь (клик → hub_put_chest)
+  const myGrid = document.getElementById("chestMyInv");
+  if (myGrid && myPlayer) {
+    myGrid.innerHTML = "";
+    const myItems = [];
+    if (myPlayer.hasLeftHand)  myItems.push({ raw: "HAND:" + myPlayer.leftHandType,  what: "leftHand",  label: "Левая: " + handTypeName(myPlayer.leftHandType) });
+    if (myPlayer.hasRightHand) myItems.push({ raw: "HAND:" + myPlayer.rightHandType, what: "rightHand", label: "Правая: " + handTypeName(myPlayer.rightHandType) });
+    for (let k = 0; k < (myPlayer.hasLegs || 0); k++) myItems.push({ raw: "LEG:", what: "leg", label: "Нога" });
+    if (myPlayer.passiveItemId) myItems.push({ raw: "ITEM:" + myPlayer.passiveItemId, what: "passive", label: "Пассивка: " + myPlayer.passiveItemId });
+    if (myPlayer.itemsInBody && myPlayer.itemsInBody.length) {
+      const arr = myPlayer.itemsInBody.toArray ? myPlayer.itemsInBody.toArray() : [...myPlayer.itemsInBody];
+      arr.forEach(id => myItems.push({ raw: "ITEM:" + id, what: "item", label: "Предмет: " + id }));
+    }
+    if (myPlayer.weaponSlot) myItems.push({ raw: "WEAPON:" + myPlayer.weaponSlot, what: "weapon", label: "Оружие: " + myPlayer.weaponSlot });
+    if (myPlayer.cards) {
+      const arr = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
+      arr.forEach((c, i) => { if (c) myItems.push({ raw: "CARD:" + c, what: "card:" + i, label: "Карта: " + c }); });
+    }
+    const CAP2 = 24;
+    const total2 = Math.max(CAP2, Math.ceil(myItems.length / 4) * 4);
+    for (let i = 0; i < total2; i++) {
+      const cell = document.createElement("div");
+      cell.style.cssText = [
+        "aspect-ratio:1",
+        "background:linear-gradient(180deg,#1a0f08 0%,#0a0503 100%)",
+        "border:2px solid #3a2818",
+        "border-radius:6px",
+        "display:flex", "flex-direction:column",
+        "align-items:center", "justify-content:center", "position:relative",
+        i < myItems.length ? "cursor:pointer" : "opacity:0.35",
+        i < myItems.length ? "box-shadow:inset 0 0 8px rgba(100,200,255,0.25)" : "",
+      ].join(";");
+      if (i < myItems.length) {
+        const it = myItems[i];
+        const cnv = document.createElement("canvas");
+        cnv.width = 64; cnv.height = 64;
+        cnv.style.cssText = "width:56px;height:56px;image-rendering:crisp-edges;";
+        drawChestIcon(cnv.getContext("2d"), it.raw, 64);
+        cell.appendChild(cnv);
+        const label = document.createElement("div");
+        label.style.cssText = "font-size:10px;color:#c8d8f0;margin-top:2px;text-align:center;line-height:1.1;padding:0 2px;";
+        label.textContent = it.label;
+        cell.appendChild(label);
+        cell.addEventListener("click", () => {
+          room.send("hub_put_chest", { index: openChestIndex, what: it.what });
+          playSound("pickup");
+          setTimeout(renderChestPanel, 120);
+        });
+        cell.addEventListener("mouseenter", () => { cell.style.borderColor = "#5a90d4"; });
+        cell.addEventListener("mouseleave", () => { cell.style.borderColor = "#3a2818"; });
+      }
+      myGrid.appendChild(cell);
+    }
   }
 }
 function openChestPanel(i) {
