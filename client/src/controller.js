@@ -135,10 +135,14 @@ export class FpsController {
     if (this.position.x < -R) this.position.x = -R;
     if (this.position.z > R) this.position.z = R;
     if (this.position.z < -R) this.position.z = -R;
-    // v0.0.3.7: в хабе пол всегда y=1.6 (плоский). Только на арене используем terrainHeight.
-    const inHub = window.room?.state?.phase === "hub";
-    const groundY = inHub ? 1.6 : (1.6 + terrainHeight(this.position.x, this.position.z));
-    // Проверка попадания в дыру на арене (arenaGroup.userData.holes) — если в радиусе, не ставим ground
+    // v0.0.3.9: везде плоский пол y=1.6. terrainHeight отключён как физика:
+    // в setupArena пол визуально плоский (PlaneGeometry y=0), а контроллер до этого
+    // применял синусоиду ±14м — игрок прыгал на ±5 между кадрами при беге.
+    // Сейчас groundY = 1.6 везде кроме дыр (свободное падение).
+    const groundY = 1.6;
+    // Проверка попадания в дыру на арене (arenaGroup.userData.holes) — только вне хаба
+    const phase = window.room?.state?.phase;
+    const inHub = phase === "hub" || phase === undefined || phase == null;
     let inHole = false;
     try {
       const holes = window._arenaHoles;
@@ -154,7 +158,6 @@ export class FpsController {
       if (this.position.y > 60) this.position.y = 60;
     } else if (inHole) {
       // в дыре — свободное падение до y=-10 (fall→respawn)
-      // гравитация уже действует, не трогаем ground
       this.grounded = false;
     } else if (this.position.y <= groundY) {
       this.position.y = groundY;
