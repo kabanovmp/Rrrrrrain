@@ -9,6 +9,9 @@ export class FpsController {
   constructor(camera, canvas) {
     this.camera = camera;
     this.canvas = canvas;
+    // ФИКС: YXZ order выставляем единожды, чтобы camera.rotation.y = yaw
+    // везде давал одинаковую матрицу (без этого Mac мог получать XYZ).
+    camera.rotation.order = "YXZ";
     this.position = new THREE.Vector3(0, 1.6, 4);
     this.yaw = 0;
     this.pitch = 0;
