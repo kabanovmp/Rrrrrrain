@@ -426,7 +426,10 @@ export class ArenaRoom extends Room {
         const idx = Math.max(0, Math.min(chest.contents.length - 1, msg.item | 0));
         const raw = chest.contents[idx];
         const [kind, val] = String(raw).split(":");
-        const handType = kind === "HAND" ? (val || "") : "";
+        // v0.0.3.8: проверяем что grantToPlayer поддерживает kind — иначе не сплайсим (предмет не исчезнет).
+        const supported = kind === "HAND" || kind === "LEG" || kind === "ITEM" || kind === "WEAPON" || kind === "CARD";
+        if (!supported) return;
+        const handType = (kind === "HAND" || kind === "WEAPON" || kind === "CARD") ? (val || "") : "";
         const itemId = kind === "ITEM" ? (val || "") : "";
         this.grantToPlayer(p, kind, handType, itemId);
         chest.contents.splice(idx, 1);
@@ -709,6 +712,20 @@ export class ArenaRoom extends Room {
       p.hasLegs = Math.min(2, (p.hasLegs || 0) + 1);
     } else if (kind === "ITEM") {
       this.equipItem(p, itemId);
+    } else if (kind === "WEAPON") {
+      // v0.0.3.8: оружие из сундука. Если слот занят — старое в рюкзак.
+      const wid = String(handType || itemId || "").trim();
+      if (!wid) return;
+      if (p.weaponSlot) p.backpack.push("WEAPON:" + p.weaponSlot);
+      p.weaponSlot = wid;
+    } else if (kind === "CARD") {
+      // v0.0.3.8: карта из сундука. В первый свободный слот, иначе в рюкзак.
+      const cid = String(handType || itemId || "").trim();
+      if (!cid) return;
+      while (p.cards.length < 10) p.cards.push("");
+      let placed = false;
+      for (let i = 0; i < 10; i++) { if (!p.cards[i]) { p.cards[i] = cid; placed = true; break; } }
+      if (!placed) p.backpack.push("CARD:" + cid);
     }
   }
 
