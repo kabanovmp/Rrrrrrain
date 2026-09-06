@@ -22,6 +22,13 @@ export class Player extends Schema {
     this.itemsInBody = new ArraySchema();
     this.passiveItemId = "";
     this.name = "";
+    // v0.0.3.1: активное оружие в руке + карты + рюкзак + Звёздный Блок
+    this.weaponSlot = "STAR_SWORD"; // id активного оружия
+    this.cards = new ArraySchema();      // 10 слотов, строки вида "ANGER" или ""
+    this.backpack = new ArraySchema();   // бесконечный скролл, строки вида "CARD:ANGER" | "WEAPON:STAR_SWORD"
+    this.blockActiveUntil = 0;   // сек-таймстамп когда блок активен (0 = не активен)
+    this.blockAbsorbLeft = 0;    // сколько HP ещё может поглотить
+    this.blockCdUntil = 0;       // когда Стар-блок снова готов
   }
 }
 type(Vec3)(Player.prototype, "pos");
@@ -39,6 +46,12 @@ type("string")(Player.prototype, "rightHandType");
 type(["string"])(Player.prototype, "itemsInBody");
 type("string")(Player.prototype, "passiveItemId");
 type("string")(Player.prototype, "name");
+type("string")(Player.prototype, "weaponSlot");
+type(["string"])(Player.prototype, "cards");
+type(["string"])(Player.prototype, "backpack");
+type("number")(Player.prototype, "blockActiveUntil");
+type("number")(Player.prototype, "blockAbsorbLeft");
+type("number")(Player.prototype, "blockCdUntil");
 
 export class Enemy extends Schema {
   constructor() {
@@ -49,6 +62,12 @@ export class Enemy extends Schema {
     this.maxHp = 2;
     this.alive = true;
     this.targetId = "";
+    // v0.0.3.1
+    this.variant = 0;         // вариация (для Ground Crawler 0..4)
+    this.state = "patrol";    // patrol | aggro | shooting | emerging | dying
+    this.corpseUntil = 0;     // секунд когда труп убрать
+    this.emergeUntil = 0;     // время всплытия из земли
+    this.spawnedAt = 0;
   }
 }
 type(Vec3)(Enemy.prototype, "pos");
@@ -57,6 +76,11 @@ type("number")(Enemy.prototype, "hp");
 type("number")(Enemy.prototype, "maxHp");
 type("boolean")(Enemy.prototype, "alive");
 type("string")(Enemy.prototype, "targetId");
+type("number")(Enemy.prototype, "variant");
+type("string")(Enemy.prototype, "state");
+type("number")(Enemy.prototype, "corpseUntil");
+type("number")(Enemy.prototype, "emergeUntil");
+type("number")(Enemy.prototype, "spawnedAt");
 
 export class Pickup extends Schema {
   constructor() {
@@ -123,6 +147,12 @@ export class GameState extends Schema {
     this.hubSlots = new ArraySchema();
     this.hubChests = new ArraySchema();
     this.hubReforgeSlots = new ArraySchema(); // до 3 строк типа "HAND:FIREBALL_HAND"
+    // v0.0.3.1
+    this.aiBudget = 10000;         // текущий бюджет AI Director
+    this.aiNextWaveAt = 0;         // когда следующая волна может спавниться
+    this.levelIndex = 0;           // 0..5 (5 = boss)
+    this.dbgDither = 3;            // агрессивность дизеринга 1..10
+    this.dbgWeaponDmgMul = 1.0;    // множитель урона активного оружия
   }
 }
 type({ map: Player })(GameState.prototype, "players");
@@ -144,3 +174,8 @@ type("boolean")(GameState.prototype, "dbgFly");
 type([HubSlot])(GameState.prototype, "hubSlots");
 type([HubChest])(GameState.prototype, "hubChests");
 type(["string"])(GameState.prototype, "hubReforgeSlots");
+type("number")(GameState.prototype, "aiBudget");
+type("number")(GameState.prototype, "aiNextWaveAt");
+type("number")(GameState.prototype, "levelIndex");
+type("number")(GameState.prototype, "dbgDither");
+type("number")(GameState.prototype, "dbgWeaponDmgMul");

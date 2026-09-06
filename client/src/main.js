@@ -5,8 +5,9 @@ import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, 
 import { setupTerrainV3, terrainHeight } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
 
-// v0.0.3.0 — новый режим "terrain 1200м + меч + Cacodemon" по большому ТЗ
+// v0.0.3.1 — Звёздный Блок (ПКМ) + AI Director + Flying Shooter + карты/инвентарь
 const V3_MODE = true;
+const V31_MODE = true;
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
 import { createHandsGroup, animateHands, setSpellInHand, showHandDamage, fadeHandCracks } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
@@ -56,6 +57,24 @@ document.body.appendChild(swordHud);
 let swordBob = 0, swordSwing = 0, swordSwingV = 0;
 function triggerSwordSwing() { swordSwingV = 6.0; }
 
+// v0.0.3.1: HUD звёздного блока (абсорб — в центре экрана)
+const blockHud = document.createElement("div");
+blockHud.id = "blockHud";
+blockHud.style.cssText = "position:fixed;left:50%;top:60%;transform:translateX(-50%);width:220px;height:14px;border:2px solid #ff40a0;background:rgba(0,0,0,0.55);border-radius:7px;overflow:hidden;pointer-events:none;z-index:14;opacity:0;transition:opacity .2s;box-shadow:0 0 12px rgba(255,64,160,0.7);";
+const blockHudFill = document.createElement("div");
+blockHudFill.style.cssText = "width:100%;height:100%;background:linear-gradient(90deg,#ff8ac8,#ff40a0);transition:width .1s;";
+blockHud.appendChild(blockHudFill);
+const blockHudLabel = document.createElement("div");
+blockHudLabel.style.cssText = "position:absolute;left:0;top:14px;width:100%;text-align:center;color:#ffcce6;font-family:sans-serif;font-size:11px;letter-spacing:1px;text-shadow:0 0 4px #000;";
+blockHud.appendChild(blockHudLabel);
+document.body.appendChild(blockHud);
+
+// v0.0.3.1: HUD-кулдаун звёздного блока (в нижнем-левом)
+const blockCdHud = document.createElement("div");
+blockCdHud.style.cssText = "position:fixed;left:20px;bottom:80px;width:60px;height:60px;border:2px solid #ff40a0;border-radius:50%;background:rgba(0,0,0,0.6);color:#ffcce6;font-family:sans-serif;font-size:14px;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:14;text-shadow:0 0 4px #000;box-shadow:0 0 8px rgba(255,64,160,0.5);";
+blockCdHud.textContent = "☆";
+document.body.appendChild(blockCdHud);
+
 // HUD-подсказка (центр экрана)
 const hintText = document.createElement("div");
 hintText.style.cssText = "position:fixed;top:35%;left:50%;transform:translateX(-50%);color:#fff;text-shadow:0 0 8px #000;font-family:sans-serif;font-size:20px;padding:12px 18px;background:rgba(0,0,0,0.6);border-radius:8px;pointer-events:none;z-index:16;opacity:0;transition:opacity .3s;";
@@ -99,18 +118,50 @@ function handTypeToVisual(ht) {
   return ({ FIRE: "fireball", ICE: "ice", BONE: "bone", CHAIN: "chain" })[ht] || "fireball";
 }
 
-// ── Панель снаряжения (TAB, hold) ────────────────────
+// ── v0.0.3.1 ПАНЕЛЬ СНАРЯЖЕНИЯ: свиток-папирус (TAB — hold) ──────────────
 const loadoutPanel = document.createElement("div");
 loadoutPanel.id = "loadoutPanel";
 loadoutPanel.style.cssText = [
   "position:fixed", "left:50%", "top:50%", "transform:translate(-50%,-50%)",
   "z-index:29", "display:none", "font-family:'Trebuchet MS',sans-serif",
-  "background:linear-gradient(180deg,#1a1210 0%,#0b0806 100%)",
-  "border:3px solid #6a4a28", "border-radius:10px",
+  V31_MODE
+    ? "background:#1a0f05 url('/assets/v031/inventory-scroll.jpg') center/100% 100% no-repeat"
+    : "background:linear-gradient(180deg,#1a1210 0%,#0b0806 100%)",
+  V31_MODE ? "border:none" : "border:3px solid #6a4a28",
+  "border-radius:14px",
   "box-shadow:0 0 40px rgba(255,170,50,0.4),inset 0 0 20px rgba(0,0,0,0.6)",
-  "padding:18px 24px", "min-width:560px", "color:#f0d090",
+  V31_MODE ? "padding:40px 60px" : "padding:18px 24px",
+  V31_MODE ? "width:920px;height:640px" : "min-width:560px",
+  "color:#3a2410",
 ].join(";");
-loadoutPanel.innerHTML = `
+loadoutPanel.innerHTML = V31_MODE ? `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div style="font-size:26px;font-weight:bold;letter-spacing:3px;color:#4a2a10;text-shadow:0 0 6px rgba(220,180,120,0.6);font-family:serif;">СНАРЯЖЕНИЕ</div>
+    <div id="loadoutHp" style="font-size:16px;color:#5a2818;font-family:serif;font-weight:bold;">HP: –</div>
+    <div style="font-size:12px;color:#7a4020;font-family:serif;">держи TAB</div>
+  </div>
+  <div style="display:grid;grid-template-columns:220px 1fr;gap:24px;height:540px;">
+    <!-- ЛЕВАЯ: меч + карты + персонаж -->
+    <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
+      <div style="font-size:11px;color:#7a4020;font-family:serif;letter-spacing:1px;">ОРУЖИЕ</div>
+      <div id="lpWeapon" class="lp-slot lp-weapon" data-slot="weapon" style="width:96px;height:96px;background:#00000022;border:2px dashed #6a4a28;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:grab;"></div>
+      <div style="font-size:11px;color:#7a4020;font-family:serif;letter-spacing:1px;margin-top:6px;">КАРТЫ (10)</div>
+      <div id="lpCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;width:200px;"></div>
+      <div style="margin-top:8px;font-size:11px;color:#5a2818;font-family:serif;text-align:center;line-height:1.3;">
+        ЛКМ: Звёздопад (25–35 HP)<br>ПКМ: Звёздный Блок (50 HP / 10с)
+      </div>
+    </div>
+    <!-- ПРАВАЯ: рюкзак (бесконечный скролл, авто-сорт) -->
+    <div style="display:flex;flex-direction:column;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:11px;color:#7a4020;font-family:serif;letter-spacing:1px;">РЮКЗАК (перетащи карту в слот)</div>
+        <div id="lpBpCount" style="font-size:11px;color:#5a2818;font-family:serif;">0</div>
+      </div>
+      <div id="lpBackpack" style="flex:1;margin-top:6px;display:grid;grid-template-columns:repeat(8,1fr);gap:4px;overflow-y:auto;padding:6px;background:#00000018;border:1px solid #6a4a2866;border-radius:6px;align-content:start;"></div>
+    </div>
+  </div>
+  <div style="margin-top:10px;text-align:center;font-size:11px;color:#5a2818;font-family:serif;">Отпусти TAB чтобы закрыть • Кликни по карте — вернётся в рюкзак</div>
+` : `
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #6a4a28;">
     <div style="font-size:22px;font-weight:bold;letter-spacing:2px;text-shadow:0 0 8px rgba(255,170,50,0.6);">СНАРЯЖЕНИЕ</div>
     <div id="loadoutHp" style="font-size:16px;color:#e0c090;">HP: –</div>
@@ -132,6 +183,110 @@ function showLoadoutPanel() {
 function hideLoadoutPanel() {
   loadoutOpen = false;
   loadoutPanel.style.display = "none";
+}
+
+// v0.0.3.1: иконки для инвентаря (backpack / cards / weapons)
+const V31_ICON = {
+  "CARD:ANGER":       { src: "/assets/v031/card-anger.jpg",  label: "Ярость", desc: "Ударь вдвое" },
+  "WEAPON:STAR_SWORD":{ src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "Активное оружие" },
+};
+function v31IconFor(raw) { return V31_ICON[raw] || { src: "", label: raw, desc: "" }; }
+function v31CardCell(cardId, slotIndex) {
+  const has = !!cardId;
+  const info = has ? v31IconFor("CARD:" + cardId) : null;
+  const cell = document.createElement("div");
+  cell.className = "lp-slot lp-card";
+  cell.dataset.slotType = "card";
+  cell.dataset.slotIndex = String(slotIndex);
+  cell.style.cssText = `aspect-ratio:1;background:${has ? "#00000022" : "#00000011"};border:2px ${has ? "solid" : "dashed"} ${has ? "#a06848" : "#6a4a2888"};border-radius:6px;position:relative;overflow:hidden;cursor:${has ? "grab" : "default"};display:flex;align-items:center;justify-content:center;`;
+  if (has) {
+    const img = document.createElement("img");
+    img.src = info.src; img.style.cssText = "width:100%;height:100%;object-fit:cover;pointer-events:none;";
+    img.draggable = false;
+    cell.appendChild(img);
+    const lbl = document.createElement("div");
+    lbl.style.cssText = "position:absolute;bottom:1px;left:0;right:0;font-size:8px;text-align:center;color:#fff;text-shadow:0 0 3px #000;font-family:serif;";
+    lbl.textContent = info.label;
+    cell.appendChild(lbl);
+    cell.draggable = true;
+    cell.addEventListener("dragstart", (ev) => { ev.dataTransfer.setData("text/plain", JSON.stringify({ from: "card", index: slotIndex, raw: "CARD:" + cardId })); ev.dataTransfer.effectAllowed = "move"; });
+    cell.addEventListener("click", () => v31MoveToBackpack("card", slotIndex, "CARD:" + cardId));
+  }
+  cell.addEventListener("dragover", (ev) => { ev.preventDefault(); cell.style.borderColor = "#ffbb44"; });
+  cell.addEventListener("dragleave", () => { cell.style.borderColor = has ? "#a06848" : "#6a4a2888"; });
+  cell.addEventListener("drop", (ev) => { ev.preventDefault(); v31HandleDrop(ev, "card", slotIndex); });
+  return cell;
+}
+function v31BackpackCell(raw, bpIndex) {
+  const info = v31IconFor(raw);
+  const cell = document.createElement("div");
+  cell.style.cssText = "aspect-ratio:1;background:#00000022;border:2px solid #a06848;border-radius:6px;position:relative;overflow:hidden;cursor:grab;";
+  const img = document.createElement("img");
+  img.src = info.src; img.style.cssText = "width:100%;height:100%;object-fit:cover;pointer-events:none;";
+  img.draggable = false;
+  cell.appendChild(img);
+  const lbl = document.createElement("div");
+  lbl.style.cssText = "position:absolute;bottom:1px;left:0;right:0;font-size:9px;text-align:center;color:#fff;text-shadow:0 0 3px #000;font-family:serif;";
+  lbl.textContent = info.label;
+  cell.appendChild(lbl);
+  cell.draggable = true;
+  cell.addEventListener("dragstart", (ev) => { ev.dataTransfer.setData("text/plain", JSON.stringify({ from: "backpack", index: bpIndex, raw })); ev.dataTransfer.effectAllowed = "move"; });
+  return cell;
+}
+function v31WeaponSlot(weaponId) {
+  const el = document.getElementById("lpWeapon");
+  if (!el) return;
+  el.innerHTML = "";
+  el.style.cursor = weaponId ? "grab" : "default";
+  if (weaponId) {
+    const info = v31IconFor("WEAPON:" + weaponId);
+    const img = document.createElement("img");
+    img.src = info.src; img.style.cssText = "width:100%;height:100%;object-fit:cover;";
+    img.draggable = false;
+    el.appendChild(img);
+    el.draggable = true;
+    el.ondragstart = (ev) => { ev.dataTransfer.setData("text/plain", JSON.stringify({ from: "weapon", raw: "WEAPON:" + weaponId })); ev.dataTransfer.effectAllowed = "move"; };
+    el.onclick = () => v31MoveToBackpack("weapon", 0, "WEAPON:" + weaponId);
+  } else {
+    el.textContent = "―";
+    el.style.color = "#7a4020";
+    el.draggable = false;
+    el.ondragstart = null;
+    el.onclick = null;
+  }
+  el.ondragover = (ev) => { ev.preventDefault(); el.style.borderColor = "#ffbb44"; };
+  el.ondragleave = () => { el.style.borderColor = "#6a4a28"; };
+  el.ondrop = (ev) => { ev.preventDefault(); v31HandleDrop(ev, "weapon", 0); };
+}
+function v31HandleDrop(ev, toType, toIndex) {
+  let d; try { d = JSON.parse(ev.dataTransfer.getData("text/plain") || "{}"); } catch { return; }
+  if (!room || !d.raw) return;
+  const [kind, id] = String(d.raw).split(":");
+  // совместимость типов
+  if (toType === "card" && kind !== "CARD") return;
+  if (toType === "weapon" && kind !== "WEAPON") return;
+  // сначала убираем из источника (если это бэкпак)
+  if (d.from === "backpack") room.send("inv", { op: "backpack_remove", index: d.index });
+  if (d.from === "card") room.send("inv", { op: "card_set", index: d.index, cardId: null });
+  if (d.from === "weapon") room.send("inv", { op: "weapon_set", weaponId: null });
+  // вытесненный предмет в целевом слоте — в рюкзак (своп)
+  const before = (toType === "card" && myPlayer && myPlayer.cards)
+    ? myPlayer.cards[toIndex]
+    : (toType === "weapon" && myPlayer) ? myPlayer.weaponSlot : null;
+  if (before) {
+    const swapRaw = (toType === "card" ? "CARD:" : "WEAPON:") + before;
+    room.send("inv", { op: "backpack_add", raw: swapRaw });
+  }
+  if (toType === "card") room.send("inv", { op: "card_set", index: toIndex, cardId: id });
+  if (toType === "weapon") room.send("inv", { op: "weapon_set", weaponId: id });
+  setTimeout(renderLoadoutPanel, 100);
+}
+function v31MoveToBackpack(fromType, fromIndex, raw) {
+  if (!room) return;
+  if (fromType === "card") room.send("inv", { op: "card_set", index: fromIndex, cardId: null });
+  if (fromType === "weapon") room.send("inv", { op: "weapon_set", weaponId: null });
+  room.send("inv", { op: "backpack_add", raw });
+  setTimeout(renderLoadoutPanel, 100);
 }
 function handTypeName(ht) {
   return ({ FIRE: "Огненная", ICE: "Ледяная", BONE: "Костяная", CHAIN: "Грозовая" })[ht] || "—";
@@ -177,6 +332,34 @@ function renderLoadoutPanel() {
   if (!myPlayer) return;
   const hpEl = document.getElementById("loadoutHp");
   hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • ПРИЗРАК" : "");
+  if (V31_MODE) {
+    // Оружие
+    v31WeaponSlot(myPlayer.weaponSlot || "");
+    // Карты (10)
+    const cardsEl = document.getElementById("lpCards");
+    if (cardsEl) {
+      cardsEl.innerHTML = "";
+      const cards = (myPlayer.cards && myPlayer.cards.toArray) ? myPlayer.cards.toArray() : [...(myPlayer.cards || [])];
+      for (let i = 0; i < 10; i++) cardsEl.appendChild(v31CardCell(cards[i] || "", i));
+    }
+    // Рюкзак
+    const bpEl = document.getElementById("lpBackpack");
+    const bpCount = document.getElementById("lpBpCount");
+    if (bpEl) {
+      bpEl.innerHTML = "";
+      const bp = (myPlayer.backpack && myPlayer.backpack.toArray) ? myPlayer.backpack.toArray() : [...(myPlayer.backpack || [])];
+      // авто-сорт: WEAPON вперёд, затем CARD стабильно (indexed)
+      const sorted = bp.map((raw, i) => ({ raw, i })).sort((a, b) => {
+        const ka = a.raw.startsWith("WEAPON:") ? 0 : 1;
+        const kb = b.raw.startsWith("WEAPON:") ? 0 : 1;
+        if (ka !== kb) return ka - kb;
+        return a.raw.localeCompare(b.raw);
+      });
+      sorted.forEach(x => bpEl.appendChild(v31BackpackCell(x.raw, x.i)));
+      if (bpCount) bpCount.textContent = String(bp.length);
+    }
+    return;
+  }
   const hands = document.getElementById("lpHands");
   const legHtml = `<div style="background:linear-gradient(180deg,#1a0f08,#0a0503);border:2px solid #3a2818;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:center;${myPlayer.hasLegs>0?"box-shadow:inset 0 0 10px #66ff9933;":"opacity:0.55;"}">
     <div style="width:44px;height:44px;border-radius:6px;background:#0a1a10;border:1px solid #66ff99;color:#66ff99;display:flex;align-items:center;justify-content:center;font-size:22px;">⚚</div>
@@ -318,6 +501,23 @@ function sendDebug(payload) {
       farV.textContent = String(v);
       localStorage.setItem("rain_far", String(v));
       if (window.__setRenderFar) window.__setRenderFar(v);
+    });
+  }
+  // v0.0.3.1: dithering + weapon damage
+  const dith = document.getElementById("dbg-dither");
+  const dithV = document.getElementById("dbg-dither-v");
+  if (dith && dithV) {
+    dith.addEventListener("input", () => {
+      dithV.textContent = dith.value;
+      sendDebug({ dither: parseInt(dith.value, 10) });
+    });
+  }
+  const wdmg = document.getElementById("dbg-wdmg");
+  const wdmgV = document.getElementById("dbg-wdmg-v");
+  if (wdmg && wdmgV) {
+    wdmg.addEventListener("input", () => {
+      wdmgV.textContent = wdmg.value;
+      sendDebug({ weaponDmgMul: parseFloat(wdmg.value) });
     });
   }
   const pix = document.getElementById("dbg-pix");
@@ -1055,6 +1255,42 @@ function setupRoomHandlers() {
       spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
       playSound("fireball_impact", { volume: 0.35 });
     }
+    else if (msg.type === "star_block") {
+      // v0.0.3.1: вспышка в точке блока
+      const sx = msg.x ?? (myPlayer ? myPlayer.pos.x : 0);
+      const sy = (msg.y ?? (myPlayer ? myPlayer.pos.y : 1.5)) + 0.5;
+      const sz = msg.z ?? (myPlayer ? myPlayer.pos.z : 0);
+      spawnWaveFx(sx, sy, sz, 3);
+      // Круговой венец звёзд вокруг игрока
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * Math.PI * 2;
+        spawnShotFx(sx + Math.cos(ang) * 1.6, sy, sz + Math.sin(ang) * 1.6, 0xff40a0, 0, 0, 0);
+      }
+      playSound("fireball_impact", { volume: 0.35 });
+    }
+    else if (msg.type === "block_absorb") {
+      // мигание HUD блока
+      blockHud.style.opacity = 1; setTimeout(() => { blockHud.style.opacity = 0.7; }, 100);
+    }
+    else if (msg.type === "fall_respawn" && msg.target === selfId) {
+      fellFlashUntil = performance.now() + 400;
+      hintText.textContent = "Ты упал — возврат к краю (–гора HP)";
+      hintText.style.opacity = 1;
+      setTimeout(() => { hintText.style.opacity = 0; }, 1800);
+      if (msg.x != null && msg.z != null) controller.setPosition(msg.x, 2, msg.z);
+      playSound("teleport");
+    }
+    else if (msg.type === "caco_shoot") {
+      // v0.0.3.1: вражеский фаербол от Cacodemon/Flying Shooter — летит к (tx,ty,tz)
+      const dx = (msg.tx - msg.x), dy = (msg.ty - msg.y), dz = (msg.tz - msg.z);
+      const len = Math.hypot(dx, dy, dz) || 1;
+      const speed = 22;
+      spawnFireballFx(msg.x, msg.y, msg.z, msg.color || 0xff5a1f, dx / len * speed, dy / len * speed, dz / len * speed);
+      playSound("fireball_cast", { volume: 0.4 });
+    }
+    else if (msg.type === "enemy_spawn") {
+      // без аудио пока
+    }
     else if (msg.type === "starfall") {
       // v0.0.3.0 Звёздопад: гроздь звёзд падает в точке, AoE-вспышка
       spawnWaveFx(msg.x, msg.y, msg.z, msg.r || 5);
@@ -1135,10 +1371,19 @@ canvas.addEventListener("mousedown", (ev) => {
         ox: origin.x, oy: origin.y, oz: origin.z, hand: "right",
       });
     } else if (ev.button === 2) {
-      // Блок — пока заглушка, в следующем этапе
-      hintText.textContent = "[Звёздный Блок] — будет в v0.0.3.1";
-      hintText.style.opacity = 1;
-      setTimeout(() => { hintText.style.opacity = 0; }, 1500);
+      // v0.0.3.1: Звёздный Блок — поглощает 50 HP / КД 10с
+      const nowSecClient = Date.now() / 1000;
+      const cdLeft = (myPlayer.blockCdUntil || 0) - nowSecClient;
+      if (cdLeft > 0) {
+        hintText.textContent = `Звёздный Блок: КД ${cdLeft.toFixed(1)}с`;
+        hintText.style.opacity = 1; setTimeout(() => { hintText.style.opacity = 0; }, 1200);
+        return;
+      }
+      triggerSwordSwing();
+      sendInput();
+      room.send("cast", { spell: "STAR_BLOCK", hand: "right" });
+      // локально — отклик HUD сразу
+      startCooldown("right", 10000);
     }
     return;
   }
@@ -1694,6 +1939,43 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   controller.update(dt, myPlayer);
 
+  // v0.0.3.1: ПАДЕНИЕ С КРАЯ НА АРЕНЕ → сервер возвращает игрока на край с 5% HP
+  if (room && myPlayer && room.state.phase === "arena") {
+    const p = controller.position;
+    if (p.y < -5 && !myPlayer.isGhost) {
+      // send once every 2s
+      if (!animate._lastFallSend || performance.now() - animate._lastFallSend > 2000) {
+        animate._lastFallSend = performance.now();
+        room.send("fall", { x: p.x, z: p.z });
+      }
+    }
+  }
+  // v0.0.3.1: HUD Звёздного Блока
+  if (myPlayer && V31_MODE) {
+    const nowSec = Date.now() / 1000;
+    const active = nowSec < (myPlayer.blockActiveUntil || 0) && (myPlayer.blockAbsorbLeft || 0) > 0;
+    if (active) {
+      const pct = Math.max(0, Math.min(1, (myPlayer.blockAbsorbLeft || 0) / 50));
+      blockHudFill.style.width = (pct * 100).toFixed(1) + "%";
+      blockHudLabel.textContent = `ЗВЁЗДНЫЙ БЛОК: ${Math.round(myPlayer.blockAbsorbLeft)} HP`;
+      blockHud.style.opacity = 0.9;
+    } else {
+      blockHud.style.opacity = 0;
+    }
+    // Кулдаун-индикатор
+    const cd = Math.max(0, (myPlayer.blockCdUntil || 0) - nowSec);
+    if (cd > 0) {
+      blockCdHud.textContent = cd.toFixed(1) + "с";
+      blockCdHud.style.background = "rgba(50,10,20,0.7)";
+      blockCdHud.style.color = "#aa5577";
+      blockCdHud.style.borderColor = "#772244";
+    } else {
+      blockCdHud.textContent = "☆";
+      blockCdHud.style.background = "rgba(0,0,0,0.6)";
+      blockCdHud.style.color = "#ffcce6";
+      blockCdHud.style.borderColor = "#ff40a0";
+    }
+  }
   // ── ПАДЕНИЕ С КРАЯ: смерть + респаун в центре хаба ────────
   if (room && myPlayer && room.state.phase === "hub") {
     const p = controller.position;

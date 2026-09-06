@@ -1,7 +1,7 @@
 import colyseus from "colyseus";
 import { GameState, Player, Enemy, Pickup, Vec3, HubSlot, HubChest } from "./schema.js";
 const { Room } = colyseus.default || colyseus;
-import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom } from "../../shared/index.js";
+import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS } from "../../shared/index.js";
 
 const TICK_MS = 1000 / NET.TICK_RATE;
 const ENEMY_GRACE_SEC = 2.0;   // 2 сек нельзя атаковать после спавна
@@ -100,19 +100,41 @@ export class ArenaRoom extends Room {
           y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
           z: typeof msg.oz === "number" ? msg.oz : p.pos.z,
         };
-        const tx = origin.x + dir.x * spell.range;
-        const ty = origin.y + dir.y * spell.range;
-        const tz = origin.z + dir.z * spell.range;
-        let hitCount = 0;
-        this.state.enemies.forEach(e => {
-          if (!e.alive) return;
-          const dx = e.pos.x - tx, dy = e.pos.y - ty, dz = e.pos.z - tz;
-          if (dx*dx+dy*dy+dz*dz <= spell.radius*spell.radius) {
-            this.damageEnemy(e, spell.damage * dmgMult);
-            hitCount++;
-          }
-        });
-        this.broadcast("fx", { type: "starfall", x: tx, y: ty, z: tz, r: spell.radius, color: spell.color, count: hitCount });
+        // v0.0.3.1: Прицельный разброс (aimSpread) — смещаем точку падения на величину в XZ.
+        // Если активна карта ANGER (совместимость с doubleShot) — два удара.
+        const hasAnger = this.playerHasCard(p, "ANGER");
+        const shots = hasAnger ? 2 : 1;
+        const dmgMulSf = dmgMult * (this.state.dbgWeaponDmgMul || 1);
+        for (let sh = 0; sh < shots; sh++) {
+          const spread = spell.aimSpread || 0;
+          const jx = (Math.random() - 0.5) * spread * 2;
+          const jz = (Math.random() - 0.5) * spread * 2;
+          const tx = origin.x + dir.x * spell.range + jx;
+          const ty = origin.y + dir.y * spell.range;
+          const tz = origin.z + dir.z * spell.range + jz;
+          const dmgVal = spell.damageMin + Math.random() * (spell.damageMax - spell.damageMin);
+          let hitCount = 0;
+          this.state.enemies.forEach(e => {
+            if (!e.alive) return;
+            const dx = e.pos.x - tx, dy = e.pos.y - ty, dz = e.pos.z - tz;
+            if (dx*dx+dy*dy+dz*dz <= spell.radius*spell.radius) {
+              this.damageEnemy(e, dmgVal * dmgMulSf);
+              hitCount++;
+            }
+          });
+          this.broadcast("fx", { type: "starfall", x: tx, y: ty, z: tz, r: spell.radius, color: spell.color, count: hitCount });
+        }
+      } else if (spell.isBlock) {
+        // v0.0.3.1: Звёздный Блок мечом
+        const now = Date.now() / 1000;
+        if (now < (p.blockCdUntil || 0)) {
+          // на кулдауне — тихо игнор
+          return;
+        }
+        p.blockActiveUntil = now + spell.duration;
+        p.blockAbsorbLeft = spell.absorb;
+        p.blockCdUntil = now + spell.cooldown;
+        this.broadcast("fx", { type: "star_block", target: client.sessionId, color: spell.color, dur: spell.duration });
       } else if (spell.isAoe) {
         this.state.enemies.forEach(e => {
           if (!e.alive) return;
@@ -156,6 +178,49 @@ export class ArenaRoom extends Room {
       }
     });
 
+    // v0.0.3.1: Клиент сообщает что упал в дыру — респаун на краю с 5% HP
+    this.onMessage("fall", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      // Респауним на ближайшем краю карты (WORLD.ARENA_RADIUS)
+      const R = WORLD.ARENA_RADIUS * 0.9;
+      const px = typeof msg?.x === "number" ? msg.x : p.pos.x;
+      const pz = typeof msg?.z === "number" ? msg.z : p.pos.z;
+      const ang = Math.atan2(px, pz);
+      p.pos.x = Math.sin(ang) * R;
+      p.pos.z = Math.cos(ang) * R;
+      p.pos.y = 3;
+      p.hp = Math.max(1, Math.floor(p.maxHp * COMBAT.FALL_RESPAWN_HP_PCT));
+      this.broadcast("fx", { type: "fall_respawn", target: client.sessionId, x: p.pos.x, z: p.pos.z });
+    });
+
+    // v0.0.3.1: клиент шлёт изменения инвентаря (drag-and-drop)
+    this.onMessage("inv", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p || !msg) return;
+      // op: "card_set" { slot: 0..9, cardId: "ANGER"|"" }
+      // op: "weapon_set" { weaponId: "STAR_SWORD"|"" }
+      // op: "backpack_add" { item: "CARD:ANGER"|"WEAPON:STAR_SWORD" }
+      // op: "backpack_remove" { index }
+      if (msg.op === "card_set") {
+        const slot = Math.max(0, Math.min(9, msg.slot | 0));
+        const cardId = String(msg.cardId || "");
+        if (cardId && !CARDS[cardId]) return;
+        while (p.cards.length < 10) p.cards.push("");
+        p.cards[slot] = cardId;
+      } else if (msg.op === "weapon_set") {
+        const wid = String(msg.weaponId || "");
+        if (wid && !WEAPONS[wid]) return;
+        p.weaponSlot = wid;
+      } else if (msg.op === "backpack_add") {
+        const item = String(msg.item || "");
+        if (item) p.backpack.push(item);
+      } else if (msg.op === "backpack_remove") {
+        const idx = msg.index | 0;
+        if (idx >= 0 && idx < p.backpack.length) p.backpack.splice(idx, 1);
+      }
+    });
+
     this.onMessage("respawn", (client) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
@@ -176,6 +241,9 @@ export class ArenaRoom extends Room {
       if (typeof msg.speedMul === "number") s.dbgSpeedMul = Math.max(0.1, Math.min(10, msg.speedMul));
       if (typeof msg.damageMul === "number") s.dbgDamageMul = Math.max(0.1, Math.min(20, msg.damageMul));
       if (typeof msg.spawnMul === "number") s.dbgSpawnMul = Math.max(0, Math.min(10, msg.spawnMul));
+      // v0.0.3.1: дизеринг + урон активного оружия
+      if (typeof msg.dither === "number") s.dbgDither = Math.max(1, Math.min(10, msg.dither));
+      if (typeof msg.weaponDmgMul === "number") s.dbgWeaponDmgMul = Math.max(0.1, Math.min(20, msg.weaponDmgMul));
       if (msg.action === "respawn") {
         const p = this.state.players.get(client.sessionId);
         if (p) { p.maxHp = this.playerMaxHp(p); p.hp = p.maxHp; p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: client.sessionId }); }
@@ -238,7 +306,8 @@ export class ArenaRoom extends Room {
       if (dx * dx + dz * dz > PORTAL_INTERACT_RANGE * PORTAL_INTERACT_RANGE) return;
       this.state.portalActive = true;
       this.state.portalCharge = 0;
-      this.spawnWaveOfType("IMP", 4);
+      // v0.0.3.1: при активации портала подливаем crawler'ов
+      this.spawnWaveOfType("GROUND_CRAWLER", 4);
       this.broadcast("fx", { type: "portal_activated", x: this.state.portalX, y: 0, z: this.state.portalZ });
     });
 
@@ -358,8 +427,19 @@ export class ArenaRoom extends Room {
     p.pos.x = (Math.random() - 0.5) * 4;
     p.pos.y = 1.6;
     p.pos.z = (Math.random() - 0.5) * 4;
+    // v0.0.3.1: стартовый инвентарь — Звёздный Меч в руке, ANGER в первом слоте карт
+    p.weaponSlot = "STAR_SWORD";
+    for (let i = 0; i < 10; i++) p.cards.push(i === 0 ? "ANGER" : "");
+    // Заполним рюкзак парой пустых слотов (клиент сам добавит если нужно)
     this.state.players.set(client.sessionId, p);
     console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
+  }
+
+  // v0.0.3.1: вспомогательное — есть ли у игрока активная карта в слотах
+  playerHasCard(p, cardId) {
+    if (!p || !p.cards) return false;
+    for (let i = 0; i < p.cards.length; i++) if (p.cards[i] === cardId) return true;
+    return false;
   }
 
   // Расчёт maxHp с учётом надетой пассивки
@@ -530,8 +610,10 @@ export class ArenaRoom extends Room {
     this.state.pickups.clear();
     this.spawnArenaPickups();
     this.state.enemies.clear();
-    // Первая волна — IMP, чтобы было с кем играть пока ищешь портал
-    this.spawnWaveOfType("IMP", 3);
+    // v0.0.3.1: AI Director бюджет сбрасывается + первая волна GROUND_CRAWLER
+    this.state.aiBudget = AI_DIRECTOR.BUDGET_START;
+    this.state.aiNextWaveAt = 0;
+    this.spawnWaveOfType("GROUND_CRAWLER", 3);
   }
 
   resetArena() {
@@ -598,16 +680,40 @@ export class ArenaRoom extends Room {
     const t = ENEMY_TYPES[typeId]; if (!t) return;
     const e = new Enemy();
     e.enemyType = typeId;
-    e.hp = t.armored ? COMBAT.ARMORED_ENEMY_MAX_HP : COMBAT.ENEMY_MAX_HP;
+    // v0.0.3.1: hp по типу, а не статический ENEMY_MAX_HP
+    let baseHp = t.hp;
+    if (typeof baseHp !== "number" || baseHp < 5) {
+      baseHp = t.armored ? COMBAT.ARMORED_ENEMY_MAX_HP : COMBAT.ENEMY_MAX_HP;
+    }
+    // v0.0.3.1: variant для Ground Crawler (0..4)
+    if (typeId === "GROUND_CRAWLER") {
+      const v = Math.floor(Math.random() * GROUND_CRAWLER_VARIANTS.length);
+      const vv = GROUND_CRAWLER_VARIANTS[v];
+      e.variant = v;
+      baseHp = Math.round(baseHp * (vv.hpMul || 1));
+    }
+    e.hp = baseHp;
     e.maxHp = e.hp;
+    e.spawnedAt = Date.now() / 1000;
     // v0.0.3.0: спавним врагов 40-80м от центра — в радиусе тумана, но видны
     const r = 40 + Math.random() * 40;
     e.pos.x = Math.sin(angle) * r;
-    e.pos.y = t.flying ? FLY_MIN_Y + Math.random() * 2 : 1;
+    // v0.0.3.1: Ground Crawler спавнится в земле (y=-1.5) и всплывает
+    if (typeId === "GROUND_CRAWLER") {
+      e.pos.y = -1.5;
+      e.state = "emerging";
+      e.emergeUntil = Date.now() / 1000 + (t.emergeTime || 1.2);
+    } else if (typeId === "FLYING_SHOOTER") {
+      e.pos.y = t.hoverY || 6.5;
+      e.state = "aggro";
+    } else {
+      e.pos.y = t.flying ? FLY_MIN_Y + Math.random() * 2 : 1;
+    }
     e.pos.z = Math.cos(angle) * r;
     const id = `e${++this.enemySeq}`;
     this.state.enemies.set(id, e);
     e._grace = ENEMY_GRACE_SEC;
+    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant });
     return id;
   }
 
@@ -649,8 +755,9 @@ export class ArenaRoom extends Room {
           this.broadcast("fx", { type: "portal_ready" });
         }
       }
-      const idEntry = [...this.state.enemies.entries()].find(([, v]) => v === e);
-      if (idEntry) setTimeout(() => this.state.enemies.delete(idEntry[0]), 400);
+      // v0.0.3.1: труп лежит CORPSE_LINGER_S сек (сносится в tick по corpseUntil)
+      e.state = "dying";
+      e.corpseUntil = Date.now() / 1000 + AI_DIRECTOR.CORPSE_LINGER_S;
     }
   }
 
@@ -659,6 +766,16 @@ export class ArenaRoom extends Room {
     if (this.state.dbgGodMode) return;
     // В хабе урона нет (мобы не атакуют)
     if (this.state.phase !== "arena" && this.state.phase !== "portal_ready") return;
+    // v0.0.3.1: Звёздный Блок — поглощает урон пока активен
+    const nowSec = Date.now() / 1000;
+    if (nowSec < (p.blockActiveUntil || 0) && (p.blockAbsorbLeft || 0) > 0) {
+      const absorb = Math.min(p.blockAbsorbLeft, dmg);
+      p.blockAbsorbLeft -= absorb;
+      dmg -= absorb;
+      this.broadcast("fx", { type: "block_absorb", target: sessionId, absorb });
+      if (p.blockAbsorbLeft <= 0) { p.blockActiveUntil = 0; }
+      if (dmg <= 0) return;
+    }
     p.hp -= dmg;
     p._lastDmgAt = Date.now(); // для HP-регенерации вне боя
     if (p.hp <= 0) {
@@ -734,10 +851,29 @@ export class ArenaRoom extends Room {
       if (hit || pr.life <= 0) this.projectiles.splice(i, 1);
     }
 
+    // v0.0.3.1: Фалл→респаун + 5% HP при падении в дыру (клиент шлёт fall)
+    // (само событие приходит через onMessage("fall"))
+
     // Мобы
-    this.state.enemies.forEach(e => {
-      if (!e.alive) return;
+    this.state.enemies.forEach((e, eid) => {
+      if (!e.alive) {
+        // v0.0.3.1: труп лежит CORPSE_LINGER_S сек, потом удаляем
+        if (e.corpseUntil && Date.now() / 1000 > e.corpseUntil) {
+          this.state.enemies.delete(eid);
+        }
+        return;
+      }
       if (e._grace > 0) e._grace -= dt;
+      // v0.0.3.1: всплытие Ground Crawler'а из земли
+      if (e.state === "emerging") {
+        if (Date.now() / 1000 < e.emergeUntil) {
+          // выдвигается вверх
+          e.pos.y = Math.min(1, e.pos.y + dt * 1.5);
+          return;
+        } else {
+          e.state = "aggro"; e.pos.y = 1;
+        }
+      }
       const t = ENEMY_TYPES[e.enemyType];
       let nearest = null, nd = Infinity, nid = "";
       this.state.players.forEach((p, sid) => {
@@ -747,6 +883,23 @@ export class ArenaRoom extends Room {
         if (d2 < nd) { nd = d2; nearest = p; nid = sid; }
       });
       if (!nearest) return;
+      // v0.0.3.1: патруль вне аггро-радиуса
+      const aggro = AI_DIRECTOR.AGGRO_RANGE;
+      if (Math.sqrt(nd) > aggro) {
+        // Патруль: медленно блуждаем вокруг spawn-точки
+        e.state = "patrol";
+        if (e._patrolAng == null) e._patrolAng = Math.random() * Math.PI * 2;
+        e._patrolAng += dt * 0.3;
+        const speedP = (t.speed || 3) * 0.3;
+        e.pos.x += Math.sin(e._patrolAng) * speedP * dt;
+        e.pos.z += Math.cos(e._patrolAng) * speedP * dt;
+        if (t.flying) {
+          const targetY = (t.hoverY || FLY_MIN_Y) + Math.sin(Date.now() * 0.001) * 0.5;
+          e.pos.y += (targetY - e.pos.y) * dt * 2;
+        }
+        return;
+      }
+      e.state = "aggro";
       e.targetId = nid;
 
       const dx = nearest.pos.x - e.pos.x;
@@ -800,6 +953,35 @@ export class ArenaRoom extends Room {
       e.pos.y = newY;
       e.pos.z = newZ;
 
+      // v0.0.3.1: Flying Shooter — дистанционная атака огненными шарами
+      if (e.enemyType === "FLYING_SHOOTER" && e._grace <= 0) {
+        e._fireCd = (e._fireCd || 0) - dt;
+        e._burstIdx = e._burstIdx || 0;
+        e._burstCount = e._burstCount || 0;
+        if (e._fireCd <= 0 && horizD < t.engageRange) {
+          if (e._burstIdx >= e._burstCount) {
+            // Начать новый burst 1-3 шара + кулдаун между burst'ами
+            e._burstCount = 1 + Math.floor(Math.random() * t.fireCount);
+            e._burstIdx = 0;
+          }
+          const px = nearest.pos.x, py = nearest.pos.y, pz = nearest.pos.z;
+          const dxF = px - e.pos.x, dyF = py - e.pos.y, dzF = pz - e.pos.z;
+          const dL = Math.max(0.001, Math.sqrt(dxF*dxF+dyF*dyF+dzF*dzF));
+          this.projectiles.push({
+            ownerId: null,
+            enemyProjectile: true,
+            x: e.pos.x, y: e.pos.y, z: e.pos.z,
+            vx: (dxF / dL) * t.fireSpeed, vy: (dyF / dL) * t.fireSpeed, vz: (dzF / dL) * t.fireSpeed,
+            life: 3.0, damage: t.fireDamage, radius: 0.7, color: 0xff5a1f,
+          });
+          this.broadcast("fx", { type: "caco_shoot", x: e.pos.x, y: e.pos.y, z: e.pos.z, tx: px, ty: py, tz: pz, color: 0xff5a1f });
+          e._burstIdx++;
+          e._fireCd = e._burstIdx < e._burstCount ? t.fireCooldown : (2.0 + Math.random() * 1.5);
+        }
+        // Не летает вплотную: останавливается когда в engageRange
+        return;
+      }
+
       // Атака: горизонтальная дистанция ближняя И (для летающих) игрок должен быть примерно на той же высоте
       const canAttack = horizD < MELEE_RANGE + t.size * 0.3
         && (!t.flying || Math.abs(nearest.pos.y - e.pos.y) < 3)
@@ -813,24 +995,59 @@ export class ArenaRoom extends Room {
       }
     });
 
-    // ── Спавн волн: всегда по таймеру, независимо от портала ─────────
-    if (this.state.phase === "arena") {
-      // Зарядка портала — только от крови (в damageEnemy), таймер убран
+    // v0.0.3.1: вражеские снаряды бьют игроков (код выше только по врагам) — работаем в том же tick
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const pr = this.projectiles[i];
+      if (!pr.enemyProjectile) continue;
+      let hitAny = false;
+      this.state.players.forEach((pl, sid) => {
+        if (hitAny || pl.isGhost || pl.hp <= 0) return;
+        const dx = pl.pos.x - pr.x, dy = pl.pos.y - pr.y, dz = pl.pos.z - pr.z;
+        const r = pr.radius + 0.8;
+        if (dx*dx+dy*dy+dz*dz <= r*r) {
+          this.damagePlayer(pl, pr.damage, sid, pr.x, pr.z);
+          hitAny = true;
+        }
+      });
+      if (hitAny) this.projectiles.splice(i, 1);
+    }
 
-      // Считаем живых
+    // ── v0.0.3.1: AI Director — бюджет-based спавн волнами ───────────
+    if (this.state.phase === "arena") {
+      // Регенерация бюджета
+      this.state.aiBudget = Math.min(AI_DIRECTOR.BUDGET_START,
+        (this.state.aiBudget || 0) + AI_DIRECTOR.BUDGET_REGEN_PER_SEC * dt);
       let aliveCount = 0;
       this.state.enemies.forEach(e => { if (e.alive) aliveCount++; });
-
-      // Таймер волн: тикает всегда
-      this.waveTimer -= dt;
-      if (this.waveTimer <= 0 && aliveCount < MAX_ALIVE_ENEMIES) {
-        this.waveTimer = SPAWN_INTERVAL_SEC;
-        // Чем дольше забег (чем больше wave), тем толстее волна
-        this.state.wave += 1;
-        // Если портал активирован — подливаем агрессивнее (мешаем заряжать)
-        const aggressive = this.state.portalActive;
-        this.spawnWave(this.state.wave, aggressive);
+      const nowT = Date.now() / 1000;
+      if (nowT >= (this.state.aiNextWaveAt || 0) && aliveCount < MAX_ALIVE_ENEMIES && this.state.aiBudget > 30) {
+        this.aiDirectorSpawnWave();
+        const interval = AI_DIRECTOR.WAVE_INTERVAL_MIN + Math.random() * (AI_DIRECTOR.WAVE_INTERVAL_MAX - AI_DIRECTOR.WAVE_INTERVAL_MIN);
+        this.state.aiNextWaveAt = nowT + interval;
       }
+    }
+  }
+
+  // v0.0.3.1: AI Director — спавн одной волны в рамках бюджета
+  aiDirectorSpawnWave() {
+    const size = AI_DIRECTOR.WAVE_MIN_SIZE + Math.floor(Math.random() * (AI_DIRECTOR.WAVE_MAX_SIZE - AI_DIRECTOR.WAVE_MIN_SIZE + 1));
+    // Группа спавнится вокруг общего угла (как в текущем коде)
+    const frontAngle = this.getPlayerFrontAngle() + (Math.random() - 0.5) * 1.2;
+    // Строим список кандидатов: большая вероятность для Ground Crawler, в меньшей Cacodemon shooter
+    const pool = [
+      { id: "GROUND_CRAWLER", w: 0.65 },
+      { id: "FLYING_SHOOTER", w: 0.25 },
+      { id: "CACO", w: 0.10 },
+    ];
+    for (let i = 0; i < size; i++) {
+      const roll = Math.random();
+      let acc = 0, chosen = pool[0].id;
+      for (const c of pool) { acc += c.w; if (roll < acc) { chosen = c.id; break; } }
+      const cost = AI_DIRECTOR.COSTS[chosen] || 50;
+      if (this.state.aiBudget < cost) break;
+      this.state.aiBudget -= cost;
+      const spread = (Math.random() - 0.5) * (Math.PI * 2 / 3);
+      this.addEnemyAt(chosen, frontAngle + spread);
     }
   }
 }
