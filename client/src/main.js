@@ -36,21 +36,23 @@ dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:1
 document.body.appendChild(dmgOverlay);
 let dmgAngle = 0, dmgTimer = 0;
 
-// v0.0.3.0 HUD: плоская рука с мечом (sword-hand.jpg), снизу-справа
+// v0.0.3.2 HUD: плоская рука с мечом (sword-hand.png — PNG с alpha), снизу-справа
+// Масштаб под высоту экрана: меч занимает весомую часть нижне-правого угла
 const swordHud = document.createElement("img");
-swordHud.src = "/assets/sword-hand.jpg";
+swordHud.src = "/assets/sword-hand.png";
 swordHud.style.cssText = [
   "position:fixed",
-  "right:-40px",
-  "bottom:-60px",
-  "width:520px",
-  "height:auto",
+  "right:-4vh",
+  "bottom:-6vh",
+  "height:65vh",     // в 3× крупнее, привязано к высоте вьюпорта
+  "width:auto",
   "pointer-events:none",
   "z-index:12",
-  "filter:brightness(0.9) contrast(1.1) drop-shadow(0 -8px 24px rgba(255,50,50,0.4))",
-  "mix-blend-mode:screen",  // чёрный фон станет прозрачным
+  "filter:brightness(1.0) contrast(1.05) drop-shadow(0 -12px 32px rgba(255,50,50,0.55))",
   "transform-origin:80% 90%",
   "transition:transform 0.06s",
+  "image-rendering:pixelated",
+  "user-select:none",
 ].join(";");
 swordHud.hidden = true; // показать после pointerlock
 document.body.appendChild(swordHud);
@@ -1287,6 +1289,16 @@ function setupRoomHandlers() {
       const speed = 22;
       spawnFireballFx(msg.x, msg.y, msg.z, msg.color || 0xff5a1f, dx / len * speed, dy / len * speed, dz / len * speed);
       playSound("fireball_cast", { volume: 0.4 });
+      // v0.0.3.2: пометить ближайшего какодемона как "attacking" на 400мс — чтобы стрелял лицом
+      let bestEntry = null, bestD = 4;
+      enemyMeshes.forEach((entry) => {
+        const m = entry.mesh;
+        if (!m || !m.userData.cacoV3) return;
+        const ddx = m.position.x - msg.x, ddy = m.position.y - msg.y, ddz = m.position.z - msg.z;
+        const d = Math.hypot(ddx, ddy, ddz);
+        if (d < bestD) { bestD = d; bestEntry = entry; }
+      });
+      if (bestEntry) bestEntry._attackingUntil = performance.now() + 400;
     }
     else if (msg.type === "enemy_spawn") {
       // без аудио пока
@@ -2037,9 +2049,11 @@ function animate() {
       }
     }
     if (m.userData.cacoV3) {
-      // v3: fake-3D sprite direction
+      // v0.0.3.2: всегда фронтом к игроку (билборд через THREE.Sprite),
+      // атака — когда недавно был caco_shoot fx
       entry.animPhase = ((entry.animPhase || 0) + dt * 4) % 1;
-      updateCacodemonSprite(m, camera, m.rotation.y, entry.animPhase, true);
+      const attacking = entry._attackingUntil && performance.now() < entry._attackingUntil;
+      updateCacodemonSprite(m, camera, 0, entry.animPhase, true, attacking);
     } else {
       animateEnemy(m, dt, moved);
     }

@@ -1,6 +1,6 @@
-// v0.0.3.0 — 1 враг Cacodemon из атласа enemy-sprite.jpg
-// Атлас 500x434, 6 рядов, 7 колонок = 42 ячейки (последний ряд неполный)
-// Используем как fake-3D: выбираем кадр по углу камеры относительно врага.
+// v0.0.3.2 — Cacodemon PNG-атлас с alpha (вырезан белый фон)
+// Правило: спрайт ВСЕГДА повёрнут лицом к камере (нет direction-frames)
+// Атлас 500x434, 6 рядов, 7 колонок = 42 ячейки
 
 import * as THREE from "three";
 
@@ -8,7 +8,8 @@ let atlasTexture = null;
 export function loadEnemyAtlas() {
   if (atlasTexture) return atlasTexture;
   const loader = new THREE.TextureLoader();
-  atlasTexture = loader.load("/assets/enemy-sprite.jpg");
+  // v0.0.3.2: PNG с прозрачностью вместо JPG с белым фоном
+  atlasTexture = loader.load("/assets/enemy-sprite.png");
   atlasTexture.magFilter = THREE.NearestFilter;
   atlasTexture.minFilter = THREE.NearestFilter;
   atlasTexture.colorSpace = THREE.SRGBColorSpace;
@@ -20,20 +21,10 @@ export function loadEnemyAtlas() {
 const ATLAS_COLS = 7;
 const ATLAS_ROWS = 6;
 
-// Выбираем "лучший" кадр из атласа. Мы просто разворачиваем в 8 направлений
-// (0..7) по углу между камерой и передом врага. Первые 8 кадров = 8 направлений
-// idle. Остальные — атака, полёт и т.д.
-function directionFrame(camPos, enemyPos, enemyYaw) {
-  const dx = camPos.x - enemyPos.x;
-  const dz = camPos.z - enemyPos.z;
-  const angleToCam = Math.atan2(dx, dz);
-  let rel = angleToCam - enemyYaw;
-  while (rel > Math.PI) rel -= 2 * Math.PI;
-  while (rel < -Math.PI) rel += 2 * Math.PI;
-  // rel в [-PI, PI]. 8 направлений.
-  const dir = Math.round(((rel + Math.PI) / (2 * Math.PI)) * 8) % 8;
-  return dir; // 0..7
-}
+// v0.0.3.2: правило — какодемон ВСЕГДА повернут лицом к игроку-наблюдателю.
+// Используем только фронтальный кадр (0) для idle и атаки — никаких боковых/задних углов.
+const FRONT_IDLE_FRAME = 0;      // ряд 0, колонка 0 — фронтальный idle
+const FRONT_ATTACK_FRAMES = [7, 8, 9, 10]; // ряд 1 — фронтальная атака (морда, зубы)
 
 export function createCacodemonSprite() {
   const tex = loadEnemyAtlas().clone();
@@ -44,8 +35,9 @@ export function createCacodemonSprite() {
   const mat = new THREE.SpriteMaterial({
     map: tex,
     transparent: true,
-    alphaTest: 0.5,
+    alphaTest: 0.1,   // v0.0.3.2: мягче для PNG с alpha-градиентом по краям
     color: 0xffffff,
+    depthWrite: false,
   });
   // UV в атласе для первого кадра (0,0 — верхний-левый; но в THREE UV снизу-слева)
   const cw = 1 / ATLAS_COLS;
@@ -58,15 +50,23 @@ export function createCacodemonSprite() {
   return sprite;
 }
 
-export function updateCacodemonSprite(sprite, camera, enemyYaw, animPhase, alive = true) {
+// v0.0.3.2: sprite THREE.Sprite сам билбордится к камере — нам достаточно только
+// выбрать кадр. Никакого direction: используем фронтальный idle или цикл фронт-атаки.
+// enemyYaw больше не используется, но параметр оставлен для обратной совместимости.
+export function updateCacodemonSprite(sprite, camera, enemyYaw, animPhase, alive = true, attacking = false) {
   const data = sprite.userData.cacoAtlas;
   if (!data) return;
-  const dir = directionFrame(camera.position, sprite.position, enemyYaw || 0);
-  // Первые 8 кадров — direction idle (row 0-1, cols 0-6 + row 1 col 0)
-  // Атака: кадры 8-15 (row 1 col 1..7 + row 2)
-  // Смерть: последние 3 (маленькие)
-  const attackFrame = Math.floor(animPhase * 8) % 8 + 8;
-  const frame = alive ? dir : Math.min(41, 32 + Math.floor(animPhase * 3));
+  let frame;
+  if (!alive) {
+    // Смерть: последние 3 маленьких кадра (39-41)
+    frame = Math.min(41, 39 + Math.floor(animPhase * 3));
+  } else if (attacking) {
+    // Фронтальная атака — цикл по FRONT_ATTACK_FRAMES
+    frame = FRONT_ATTACK_FRAMES[Math.floor(animPhase * FRONT_ATTACK_FRAMES.length) % FRONT_ATTACK_FRAMES.length];
+  } else {
+    // Фронтальный idle с лёгким "дыханием": чередуем 0 и 1 колонку периодически
+    frame = FRONT_IDLE_FRAME;
+  }
   if (frame === data.curFrame) return;
   data.curFrame = frame;
   const col = frame % ATLAS_COLS;
