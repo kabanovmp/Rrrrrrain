@@ -8,7 +8,7 @@ type("number")(Vec3.prototype, "z");
 export class Player extends Schema {
   constructor() {
     super();
-    this.pos = new Vec3(); this.pos.x = 0; this.pos.y = 0; this.pos.z = 0;
+    this.pos = new Vec3(); this.pos.x = 0; this.pos.y = 2; this.pos.z = 0;
     this.vel = new Vec3(); this.vel.x = 0; this.vel.y = 0; this.vel.z = 0;
     this.yaw = 0; this.pitch = 0;
     this.hp = 3;
