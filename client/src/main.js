@@ -305,6 +305,16 @@ function v31CardCell(cardId, slotIndex) {
     // в card-слот можно только CARD
     if (!String(d.raw).startsWith("CARD:")) return;
     v31SendSwap({ type: d.type, index: d.index }, { type: "card", index: slotIndex });
+    // v0.0.3.7: fallback — если через 200мс слот всё ещё пуст и старый в бэкпэке — вызовем legacy ops
+    if (d.type === "backpack") {
+      const cardId = String(d.raw).split(":")[1];
+      setTimeout(() => {
+        if (!myPlayer || myPlayer.cards[slotIndex]) return;
+        room.send("inv", { op: "card_set", slot: slotIndex, cardId });
+        room.send("inv", { op: "backpack_remove", index: d.index });
+        setTimeout(renderLoadoutPanel, 120);
+      }, 200);
+    }
   });
   return cell;
 }
@@ -333,7 +343,17 @@ function v31BackpackCell(raw, bpIndex) {
       v31SendSwap({ type: "backpack", index: bpIndex }, { type: "weapon", index: 0 });
     } else if (raw.startsWith("CARD:")) {
       const free = v31FirstFreeCard();
-      if (free >= 0) v31SendSwap({ type: "backpack", index: bpIndex }, { type: "card", index: free });
+      if (free < 0) return;
+      // v0.0.3.7: двойной fallback — swap мог не сработать если backpack уже изменился. Продублируем legacy card_set + backpack_remove.
+      v31SendSwap({ type: "backpack", index: bpIndex }, { type: "card", index: free });
+      setTimeout(() => {
+        if (!myPlayer || !myPlayer.cards || myPlayer.cards[free]) return;
+        const cardId = raw.split(":")[1];
+        if (!cardId) return;
+        room.send("inv", { op: "card_set", slot: free, cardId });
+        room.send("inv", { op: "backpack_remove", index: bpIndex });
+        setTimeout(renderLoadoutPanel, 120);
+      }, 200);
     }
   });
   return cell;

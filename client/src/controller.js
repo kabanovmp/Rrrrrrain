@@ -135,13 +135,14 @@ export class FpsController {
     if (this.position.x < -R) this.position.x = -R;
     if (this.position.z > R) this.position.z = R;
     if (this.position.z < -R) this.position.z = -R;
-    // v0.0.3.4: плоский пол (terrainHeight===0). Eye height 1.6м. Дыры в полу — реально проваливаются (-10m).
-    const groundY = 1.6 + terrainHeight(this.position.x, this.position.z);
+    // v0.0.3.7: в хабе пол всегда y=1.6 (плоский). Только на арене используем terrainHeight.
+    const inHub = window.room?.state?.phase === "hub";
+    const groundY = inHub ? 1.6 : (1.6 + terrainHeight(this.position.x, this.position.z));
     // Проверка попадания в дыру на арене (arenaGroup.userData.holes) — если в радиусе, не ставим ground
     let inHole = false;
     try {
       const holes = window._arenaHoles;
-      if (holes && holes.length && !dbgFly) {
+      if (holes && holes.length && !dbgFly && !inHub) {
         for (const h of holes) {
           const dx = this.position.x - h.x, dz = this.position.z - h.z;
           if (dx*dx + dz*dz < h.r * h.r) { inHole = true; break; }
