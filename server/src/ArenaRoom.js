@@ -11,7 +11,7 @@ const ATTACK_COOLDOWN = 2.0;   // 1 удар в 2 сек
 
 // СПАВНЕР ВОЛН: свежие враги каждые SPAWN_INTERVAL_SEC всегда, даже при активном портале
 const SPAWN_INTERVAL_SEC = 8;
-const MAX_ALIVE_ENEMIES = 25;   // потолок — чтобы не затопить арену
+const MAX_ALIVE_ENEMIES = 48;   // потолок — FRENZY ×3 не должен сразу упираться в лимит
 // ПОРТАЛ: как в RoR2 — спрятан на арене, активация по F, потом таймер зарядки
 const PORTAL_INTERACT_RANGE = 3.5;
 
@@ -27,10 +27,8 @@ export class ArenaRoom extends Room {
     this.waveTimer = 0;              // таймер между волнами (волны всегда)
     this.spawnInitialPickups();
     this.setupHubStorage();
-    // v0.0.3.4: стартуем в ХАБЕ (как просили). Арена — через кровать в хабе (E)
     this.state.phase = "hub";
-    // arena готовим, но врагов не спавним — они появятся когда игроки войдут в arena
-    this.startArena();
+    // Арену и врагов поднимаем только когда игроки выходят из хаба
     this.setSimulationInterval(dt => this.tick(dt / 1000), TICK_MS);
 
     this.onMessage("input", (client, msg) => {
@@ -49,6 +47,9 @@ export class ArenaRoom extends Room {
       const spellId = msg.spell;
       const spell = SPELLS[spellId];
       if (!spell) return;
+      const combatPhase = this.state.phase === "arena" || this.state.phase === "portal_ready";
+      if (!combatPhase) return;
+      if ((spell.isStarfall || spell.isBlock) && !p.weaponSlot) return;
       const dmgMult = (p.isGhost ? COMBAT.GHOST_STAT_MULT : 1) * this.playerDamageMult(p);
       if (spell.isChain) {
         // ЦЕПНАЯ МОЛНИЯ: мгновенный хит, прыгает от врага к врагу
@@ -96,25 +97,23 @@ export class ArenaRoom extends Room {
         }
         this.broadcast("fx", { type: "chain", color: spell.color, points: chain });
       } else if (spell.isStarfall) {
-        // v0.0.3.0: Звёздопад — AoE в точке на range по взгляду
         const dir = { x: msg.dx || 0, y: msg.dy || 0, z: msg.dz || 0 };
         const origin = {
           x: typeof msg.ox === "number" ? msg.ox : p.pos.x,
           y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
           z: typeof msg.oz === "number" ? msg.oz : p.pos.z,
         };
-        // v0.0.3.1: Прицельный разброс (aimSpread) — смещаем точку падения на величину в XZ.
-        // Если активна карта ANGER (совместимость с doubleShot) — два удара.
         const hasAnger = this.playerHasCard(p, "ANGER");
         const shots = hasAnger ? 2 : 1;
         const dmgMulSf = dmgMult * (this.state.dbgWeaponDmgMul || 1);
+        const aimed = this.pickStarfallImpact(origin, dir, spell);
         for (let sh = 0; sh < shots; sh++) {
-          const spread = spell.aimSpread || 0;
+          const spread = aimed.lock ? 0 : (spell.aimSpread || 0);
           const jx = (Math.random() - 0.5) * spread * 2;
           const jz = (Math.random() - 0.5) * spread * 2;
-          const tx = origin.x + dir.x * spell.range + jx;
-          const ty = origin.y + dir.y * spell.range;
-          const tz = origin.z + dir.z * spell.range + jz;
+          const tx = aimed.x + jx;
+          const ty = aimed.y;
+          const tz = aimed.z + jz;
           const dmgVal = spell.damageMin + Math.random() * (spell.damageMax - spell.damageMin);
           let hitCount = 0;
           this.state.enemies.forEach(e => {
@@ -171,13 +170,10 @@ export class ArenaRoom extends Room {
       const dx = item.pos.x - p.pos.x, dy = item.pos.y - p.pos.y, dz = item.pos.z - p.pos.z;
       if (dx*dx+dy*dy+dz*dz > 9) return;
       item.taken = true;
-      if (item.kind === "HAND") {
-        if (!p.hasLeftHand)  { p.hasLeftHand = true;  p.leftHandType = item.handType; }
-        else if (!p.hasRightHand) { p.hasRightHand = true; p.rightHandType = item.handType; }
-      } else if (item.kind === "LEG") {
-        p.hasLegs = Math.min(2, p.hasLegs + 1);
-      } else if (item.kind === "ITEM") {
-        this.equipItem(p, item.itemId);
+      if (item.kind === "CARD") {
+        this.grantToPlayer(p, "CARD", item.handType || item.itemId, "");
+      } else if (item.kind === "WEAPON") {
+        this.grantToPlayer(p, "WEAPON", item.handType || item.itemId, "");
       }
     });
 
@@ -418,6 +414,10 @@ export class ArenaRoom extends Room {
       if (msg.source === "slot") {
         const slot = this.state.hubSlots[msg.index];
         if (!slot || slot.empty) return;
+        if (slot.kind !== "WEAPON" && slot.kind !== "CARD") {
+          slot.kind = ""; slot.handType = ""; slot.itemId = ""; slot.empty = true;
+          return;
+        }
         this.grantToPlayer(p, slot.kind, slot.handType, slot.itemId);
         slot.kind = ""; slot.handType = ""; slot.itemId = ""; slot.empty = true;
       } else if (msg.source === "chest") {
@@ -427,11 +427,9 @@ export class ArenaRoom extends Room {
         const raw = chest.contents[idx];
         const [kind, val] = String(raw).split(":");
         // v0.0.3.8: проверяем что grantToPlayer поддерживает kind — иначе не сплайсим (предмет не исчезнет).
-        const supported = kind === "HAND" || kind === "LEG" || kind === "ITEM" || kind === "WEAPON" || kind === "CARD";
+        const supported = kind === "WEAPON" || kind === "CARD";
         if (!supported) return;
-        const handType = (kind === "HAND" || kind === "WEAPON" || kind === "CARD") ? (val || "") : "";
-        const itemId = kind === "ITEM" ? (val || "") : "";
-        this.grantToPlayer(p, kind, handType, itemId);
+        this.grantToPlayer(p, kind, val || "", "");
         chest.contents.splice(idx, 1);
       }
     });
@@ -445,23 +443,21 @@ export class ArenaRoom extends Room {
       const slot = this.state.hubSlots[msg.index];
       if (!slot || !slot.empty) return;
       const what = String(msg.what || "");
-      if (what === "leftHand" && p.hasLeftHand) {
-        slot.kind = "HAND"; slot.handType = p.leftHandType; slot.itemId = ""; slot.empty = false;
-        p.hasLeftHand = false; p.leftHandType = "";
-      } else if (what === "rightHand" && p.hasRightHand) {
-        slot.kind = "HAND"; slot.handType = p.rightHandType; slot.itemId = ""; slot.empty = false;
-        p.hasRightHand = false; p.rightHandType = "";
-      } else if (what === "leg" && p.hasLegs > 0) {
-        slot.kind = "LEG"; slot.handType = ""; slot.itemId = ""; slot.empty = false;
-        p.hasLegs--;
-      } else if (what === "passive" && p.passiveItemId) {
-        slot.kind = "ITEM"; slot.handType = ""; slot.itemId = p.passiveItemId; slot.empty = false;
-        p.passiveItemId = "";
-        p.maxHp = COMBAT.PLAYER_MAX_HP;
-        if (p.hp > p.maxHp) p.hp = p.maxHp;
-      } else if (what === "item" && p.itemsInBody.length > 0) {
-        const it = p.itemsInBody.pop();
-        slot.kind = "ITEM"; slot.handType = ""; slot.itemId = it; slot.empty = false;
+      if (what === "backpack" && p.backpack.length > 0) {
+        const raw = p.backpack[0];
+        const [kind, val] = String(raw).split(":");
+        if (kind !== "WEAPON" && kind !== "CARD") return;
+        p.backpack.splice(0, 1);
+        slot.kind = kind; slot.handType = val || ""; slot.itemId = ""; slot.empty = false;
+      } else if (what === "weapon" && p.weaponSlot) {
+        slot.kind = "WEAPON"; slot.handType = p.weaponSlot; slot.itemId = ""; slot.empty = false;
+        p.weaponSlot = "";
+      } else if (what.startsWith("card:")) {
+        const idx = parseInt(what.slice(5), 10);
+        if (idx >= 0 && idx < 10 && p.cards[idx]) {
+          slot.kind = "CARD"; slot.handType = p.cards[idx]; slot.itemId = ""; slot.empty = false;
+          p.cards[idx] = "";
+        }
       }
     });
 
@@ -489,24 +485,7 @@ export class ArenaRoom extends Room {
       if (!chest) return;
       if (chest.contents.length >= 24) return; // лимит сундука
       const what = String(msg.what || "");
-      if (what === "leftHand" && p.hasLeftHand) {
-        chest.contents.push("HAND:" + p.leftHandType);
-        p.hasLeftHand = false; p.leftHandType = "";
-      } else if (what === "rightHand" && p.hasRightHand) {
-        chest.contents.push("HAND:" + p.rightHandType);
-        p.hasRightHand = false; p.rightHandType = "";
-      } else if (what === "leg" && p.hasLegs > 0) {
-        chest.contents.push("LEG:");
-        p.hasLegs--;
-      } else if (what === "passive" && p.passiveItemId) {
-        chest.contents.push("ITEM:" + p.passiveItemId);
-        p.passiveItemId = "";
-        p.maxHp = COMBAT.PLAYER_MAX_HP;
-        if (p.hp > p.maxHp) p.hp = p.maxHp;
-      } else if (what === "item" && p.itemsInBody.length > 0) {
-        const it = p.itemsInBody.pop();
-        chest.contents.push("ITEM:" + it);
-      } else if (what === "weapon" && p.weaponSlot) {
+      if (what === "weapon" && p.weaponSlot) {
         chest.contents.push("WEAPON:" + p.weaponSlot);
         p.weaponSlot = "";
       } else if (what.startsWith("card:")) {
@@ -514,6 +493,15 @@ export class ArenaRoom extends Room {
         if (idx >= 0 && idx < 10 && p.cards[idx]) {
           chest.contents.push("CARD:" + p.cards[idx]);
           p.cards[idx] = "";
+        }
+      } else if (what.startsWith("backpack:")) {
+        const idx = parseInt(what.slice(9), 10);
+        if (idx >= 0 && idx < p.backpack.length) {
+          const raw = p.backpack[idx];
+          if (String(raw).startsWith("WEAPON:") || String(raw).startsWith("CARD:")) {
+            chest.contents.push(raw);
+            p.backpack.splice(idx, 1);
+          }
         }
       }
     });
@@ -586,7 +574,8 @@ export class ArenaRoom extends Room {
     // v0.0.3.1: стартовый инвентарь — Звёздный Меч в руке, ANGER в первом слоте карт
     p.weaponSlot = "STAR_SWORD";
     for (let i = 0; i < 10; i++) p.cards.push(i === 0 ? "ANGER" : "");
-    // Заполним рюкзак парой пустых слотов (клиент сам добавит если нужно)
+    p.backpack.push("CARD:FRENZY");
+    p.backpack.push("CARD:RAIN");
     this.state.players.set(client.sessionId, p);
     console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
   }
@@ -596,6 +585,16 @@ export class ArenaRoom extends Room {
     if (!p || !p.cards) return false;
     for (let i = 0; i < p.cards.length; i++) if (p.cards[i] === cardId) return true;
     return false;
+  }
+
+  anyPlayerHasCard(cardId) {
+    let hit = false;
+    this.state.players.forEach(p => { if (!hit && this.playerHasCard(p, cardId)) hit = true; });
+    return hit;
+  }
+
+  cardSpawnMul() {
+    return this.anyPlayerHasCard("FRENZY") ? (CARDS.FRENZY.spawnMul || 3) : 1;
   }
 
   // Расчёт maxHp с учётом надетой пассивки
@@ -652,22 +651,24 @@ export class ArenaRoom extends Room {
 
   // Положить пикап в первый свободный слот, иначе в первый непустой сундук
   depositToHub(kind, handType, itemId) {
+    const val = (kind === "HAND" || kind === "WEAPON" || kind === "CARD")
+      ? (handType || "")
+      : (itemId || "");
     for (const s of this.state.hubSlots) {
       if (s.empty) {
         s.kind = kind || "";
-        s.handType = handType || "";
-        s.itemId = itemId || "";
+        s.handType = (kind === "HAND" || kind === "WEAPON" || kind === "CARD") ? val : "";
+        s.itemId = kind === "ITEM" ? val : "";
         s.empty = false;
         return true;
       }
     }
-    // Все слоты заняты — в сундук с минимальным содержимым
     let best = null, bestLen = Infinity;
     for (const c of this.state.hubChests) {
       if (c.contents.length < bestLen) { bestLen = c.contents.length; best = c; }
     }
     if (best) {
-      best.contents.push((kind || "") + ":" + (kind === "HAND" ? (handType || "") : (kind === "ITEM" ? (itemId || "") : "")));
+      best.contents.push((kind || "") + ":" + val);
       return true;
     }
     return false;
@@ -697,6 +698,7 @@ export class ArenaRoom extends Room {
         this.depositToHub("ITEM", "", p.passiveItemId);
         p.passiveItemId = "";
       }
+      // Оружие и карты остаются на игроке — это весь билд
       p.maxHp = COMBAT.PLAYER_MAX_HP;
       p.hp = p.maxHp;
       p.isGhost = false;
@@ -704,15 +706,7 @@ export class ArenaRoom extends Room {
   }
 
   grantToPlayer(p, kind, handType, itemId) {
-    if (kind === "HAND") {
-      if (!p.hasLeftHand) { p.hasLeftHand = true; p.leftHandType = handType || "FIRE"; }
-      else if (!p.hasRightHand) { p.hasRightHand = true; p.rightHandType = handType || "FIRE"; }
-      // если обе руки заняты — тихо игнорим (в реализации UI можно показать подсказку)
-    } else if (kind === "LEG") {
-      p.hasLegs = Math.min(2, (p.hasLegs || 0) + 1);
-    } else if (kind === "ITEM") {
-      this.equipItem(p, itemId);
-    } else if (kind === "WEAPON") {
+    if (kind === "WEAPON") {
       // v0.0.3.8: оружие из сундука. Если слот занят — старое в рюкзак.
       const wid = String(handType || itemId || "").trim();
       if (!wid) return;
@@ -736,21 +730,17 @@ export class ArenaRoom extends Room {
 
   // Стартовые пикапы для АРЕНЫ: всегда минимум 1 HAND на команду
   spawnArenaPickups() {
-    const R = WORLD.ARENA_RADIUS * 0.35;
-    // Гарантированно: FIRE-HAND, ICE-HAND, BONE-HAND, 1 LEG, 1 ITEM (случайная пассивка)
-    const passive = pickRandom(ITEMS);
+    const R = WORLD.PICKUP_RING || 32;
     const kinds = [
-      { kind: "HAND", handType: "FIRE" },
-      { kind: "HAND", handType: "ICE" },
-      { kind: "HAND", handType: "BONE" },
-      { kind: "LEG" },
-      { kind: "ITEM", itemId: passive.id },
+      { kind: "CARD", handType: "ANGER" },
+      { kind: "CARD", handType: "FRENZY" },
+      { kind: "CARD", handType: "RAIN" },
     ];
     for (let i = 0; i < kinds.length; i++) {
       const a = (i / kinds.length) * Math.PI * 2;
       const k = kinds[i];
       this.addPickup({
-        kind: k.kind, itemId: k.itemId || "", handType: k.handType || "",
+        kind: k.kind, itemId: "", handType: k.handType,
         x: Math.cos(a) * R, y: 1.2, z: Math.sin(a) * R,
       });
     }
@@ -789,8 +779,44 @@ export class ArenaRoom extends Room {
 
   resetArena() {
     this.state.wave = 0;
+    this.state.portalActive = false;
+    this.state.portalCharge = 0;
     this.state.enemies.clear();
     this.projectiles.length = 0;
+    this.state.pickups.clear();
+  }
+
+  // Точка Звёздопада: ближайший враг на луче взгляда, иначе пол по прицелу.
+  pickStarfallImpact(origin, dir, spell) {
+    const range = spell.range || 15;
+    const tube = spell.aimTube || 2.8;
+    const len = Math.hypot(dir.x || 0, dir.y || 0, dir.z || 0) || 1;
+    const dx = dir.x / len, dy = dir.y / len, dz = dir.z / len;
+    let bestT = Infinity;
+    let best = null;
+    this.state.enemies.forEach(e => {
+      if (!e.alive) return;
+      const vx = e.pos.x - origin.x, vy = e.pos.y - origin.y, vz = e.pos.z - origin.z;
+      const t = vx * dx + vy * dy + vz * dz;
+      if (t < 0.2 || t > range) return;
+      const px = origin.x + dx * t, py = origin.y + dy * t, pz = origin.z + dz * t;
+      const dist = Math.hypot(e.pos.x - px, e.pos.y - py, e.pos.z - pz);
+      const hitR = tube + (ENEMY_TYPES[e.enemyType]?.size || 1) * 0.5;
+      if (dist <= hitR && t < bestT) {
+        bestT = t;
+        best = { x: e.pos.x, y: e.pos.y, z: e.pos.z, lock: true };
+      }
+    });
+    if (best) return best;
+    const groundY = 1.0;
+    if (dy < -0.02) {
+      const tG = (groundY - origin.y) / dy;
+      if (tG > 0.15 && tG <= range) {
+        return { x: origin.x + dx * tG, y: groundY, z: origin.z + dz * tG, lock: false };
+      }
+    }
+    const tFar = Math.min(range, 8);
+    return { x: origin.x + dx * tFar, y: groundY, z: origin.z + dz * tFar, lock: false };
   }
 
   getPlayerFrontAngle() {
@@ -807,7 +833,7 @@ export class ArenaRoom extends Room {
 
   spawnWaveOfType(typeId, count) {
     const frontAngle = this.getPlayerFrontAngle();
-    const mul = this.state.dbgSpawnMul == null ? 1 : this.state.dbgSpawnMul;
+    const mul = (this.state.dbgSpawnMul == null ? 1 : this.state.dbgSpawnMul) * this.cardSpawnMul();
     const finalCount = Math.max(0, Math.round(count * mul));
     for (let i = 0; i < finalCount; i++) {
       const spread = (Math.random() - 0.5) * (Math.PI * 2 / 3);
@@ -869,16 +895,12 @@ export class ArenaRoom extends Room {
     // v0.0.3.0: спавним врагов 40-80м от центра — в радиусе тумана, но видны
     const r = 40 + Math.random() * 40;
     e.pos.x = Math.sin(angle) * r;
-    // v0.0.3.1: Ground Crawler спавнится в земле (y=-1.5) и всплывает
-    if (typeId === "GROUND_CRAWLER") {
-      e.pos.y = -1.5;
-      e.state = "emerging";
-      e.emergeUntil = Date.now() / 1000 + (t.emergeTime || 1.2);
-    } else if (typeId === "FLYING_SHOOTER") {
-      e.pos.y = t.hoverY || 6.5;
+    if (t.flying) {
+      e.pos.y = t.hoverY || FLY_MIN_Y + Math.random() * 1.5;
       e.state = "aggro";
     } else {
-      e.pos.y = t.flying ? FLY_MIN_Y + Math.random() * 2 : 1;
+      e.pos.y = 1;
+      e.state = "aggro";
     }
     e.pos.z = Math.cos(angle) * r;
     const id = `e${++this.enemySeq}`;
@@ -1022,6 +1044,9 @@ export class ArenaRoom extends Room {
       if (hit || pr.life <= 0) this.projectiles.splice(i, 1);
     }
 
+    const combatPhase = this.state.phase === "arena" || this.state.phase === "portal_ready";
+    if (!combatPhase) return;
+
     // v0.0.3.1: Фалл→респаун + 5% HP при падении в дыру (клиент шлёт fall)
     // (само событие приходит через onMessage("fall"))
 
@@ -1115,7 +1140,7 @@ export class ArenaRoom extends Room {
       let newY;
       if (t.flying) {
         // Летающие держат высоту, слегка колышутся
-        const targetY = FLY_MIN_Y + 1.5 + Math.sin(Date.now() * 0.001 + e._grace) * 0.5;
+        const targetY = (t.hoverY || FLY_MIN_Y + 1.5) + Math.sin(Date.now() * 0.001 + e._grace) * 0.55;
         newY = e.pos.y + (targetY - e.pos.y) * dt * 2;
       } else {
         newY = 1;
@@ -1124,8 +1149,8 @@ export class ArenaRoom extends Room {
       e.pos.y = newY;
       e.pos.z = newZ;
 
-      // v0.0.3.1: Flying Shooter — дистанционная атака огненными шарами
-      if (e.enemyType === "FLYING_SHOOTER" && e._grace <= 0) {
+      // Дистанционная атака огненными шарами (летающий какодемон)
+      if (t.fireCount && e._grace <= 0) {
         e._fireCd = (e._fireCd || 0) - dt;
         e._burstIdx = e._burstIdx || 0;
         e._burstCount = e._burstCount || 0;
@@ -1135,7 +1160,7 @@ export class ArenaRoom extends Room {
             e._burstCount = 1 + Math.floor(Math.random() * t.fireCount);
             e._burstIdx = 0;
           }
-          const px = nearest.pos.x, py = nearest.pos.y, pz = nearest.pos.z;
+          const px = nearest.pos.x, py = nearest.pos.y + 1.15, pz = nearest.pos.z;
           const dxF = px - e.pos.x, dyF = py - e.pos.y, dzF = pz - e.pos.z;
           const dL = Math.max(0.001, Math.sqrt(dxF*dxF+dyF*dyF+dzF*dzF));
           this.projectiles.push({
@@ -1143,7 +1168,7 @@ export class ArenaRoom extends Room {
             enemyProjectile: true,
             x: e.pos.x, y: e.pos.y, z: e.pos.z,
             vx: (dxF / dL) * t.fireSpeed, vy: (dyF / dL) * t.fireSpeed, vz: (dzF / dL) * t.fireSpeed,
-            life: 3.0, damage: t.fireDamage, radius: 0.7, color: 0xff5a1f,
+            life: 3.8, damage: t.fireDamage, radius: 0.75, color: 0xff2a12,
           });
           this.broadcast("fx", { type: "caco_shoot", x: e.pos.x, y: e.pos.y, z: e.pos.z, tx: px, ty: py, tz: pz, color: 0xff5a1f });
           e._burstIdx++;
@@ -1183,6 +1208,9 @@ export class ArenaRoom extends Room {
       if (hitAny) this.projectiles.splice(i, 1);
     }
 
+    // Карта RAIN — метеоритный дождь в радиусе видимости носителя
+    this.tickMeteorRain(dt);
+
     // ── v0.0.3.1: AI Director — бюджет-based спавн волнами ───────────
     if (this.state.phase === "arena") {
       // Регенерация бюджета
@@ -1204,7 +1232,10 @@ export class ArenaRoom extends Room {
 
   // v0.0.3.1: AI Director — спавн одной волны в рамках бюджета
   aiDirectorSpawnWave() {
-    const size = AI_DIRECTOR.WAVE_MIN_SIZE + Math.floor(Math.random() * (AI_DIRECTOR.WAVE_MAX_SIZE - AI_DIRECTOR.WAVE_MIN_SIZE + 1));
+    const size = Math.round(
+      (AI_DIRECTOR.WAVE_MIN_SIZE + Math.floor(Math.random() * (AI_DIRECTOR.WAVE_MAX_SIZE - AI_DIRECTOR.WAVE_MIN_SIZE + 1)))
+      * this.cardSpawnMul()
+    );
     // Группа спавнится вокруг общего угла (как в текущем коде)
     const frontAngle = this.getPlayerFrontAngle() + (Math.random() - 0.5) * 1.2;
     // Строим список кандидатов: большая вероятность для Ground Crawler, в меньшей Cacodemon shooter
@@ -1221,6 +1252,41 @@ export class ArenaRoom extends Room {
       this.state.aiBudget -= cost;
       const spread = (Math.random() - 0.5) * (Math.PI * 2 / 3);
       this.addEnemyAt(chosen, frontAngle + spread);
+    }
+  }
+
+  tickMeteorRain(dt) {
+    const def = CARDS.RAIN;
+    if (!def) return;
+    const casters = [];
+    this.state.players.forEach((p, sid) => {
+      if (p.isGhost || p.hp <= 0) return;
+      if (this.playerHasCard(p, "RAIN")) casters.push({ p, sid });
+    });
+    if (!casters.length) { this._meteorAcc = 0; return; }
+    this._meteorAcc = (this._meteorAcc || 0) + dt;
+    const interval = def.interval || 0.42;
+    const vis = def.visRange || 90;
+    const r = def.radius || 7;
+    while (this._meteorAcc >= interval) {
+      this._meteorAcc -= interval;
+      const { p, sid } = casters[Math.floor(Math.random() * casters.length)];
+      const ang = Math.random() * Math.PI * 2;
+      const dist = Math.sqrt(Math.random()) * vis;
+      const x = p.pos.x + Math.sin(ang) * dist;
+      const z = p.pos.z + Math.cos(ang) * dist;
+      const r2 = r * r;
+      this.state.enemies.forEach(e => {
+        if (!e.alive) return;
+        const dx = e.pos.x - x, dz = e.pos.z - z;
+        if (dx * dx + dz * dz <= r2) this.damageEnemy(e, def.enemyDamage || 28);
+      });
+      this.state.players.forEach((pl, psid) => {
+        if (pl.isGhost || pl.hp <= 0) return;
+        const dx = pl.pos.x - x, dz = pl.pos.z - z;
+        if (dx * dx + dz * dz <= r2) this.damagePlayer(pl, def.playerDamage || 10, psid, x, z);
+      });
+      this.broadcast("fx", { type: "meteor", x, y: 22, z, tx: x, ty: 1, tz: z, r, color: 0xff3311 });
     }
   }
 }

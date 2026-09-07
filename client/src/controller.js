@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { WORLD } from "@mhfps/shared";
-import { terrainHeight } from "./worldV3.js";
 
 // FPS controller: gravity + jump, no flight. Pointer-lock.
 const GRAVITY = 20;
@@ -80,8 +79,7 @@ export class FpsController {
     if (this.keys.KeyA) move.sub(right);
     if (move.lengthSq() > 0) move.normalize();
 
-    const hasLegs = myPlayer?.hasLegs ?? 0;
-    const baseSpeed = hasLegs >= 2 ? WORLD.BASE_MOVE_SPEED : WORLD.BASE_FLY_SPEED;
+    const baseSpeed = WORLD.BASE_MOVE_SPEED;
 
     // v0.0.3.0: Q/E — дэш влево/вправо. Shift — бег x1.5 без стамины.
     if (this.dashCd <= 0) {
@@ -95,11 +93,13 @@ export class FpsController {
     }
     let speed = baseSpeed;
     if (this.keys.ShiftLeft || this.keys.ShiftRight) speed *= RUN_MULT;
-    // Дебаг: множитель скорости
     const mul = window.room?.state?.dbgSpeedMul;
     if (mul && mul !== 1) speed *= mul;
-    // Пассивка SWIFTBOOT — +30% скорости
-    if (myPlayer?.passiveItemId === "SWIFTBOOT") speed *= 1.3;
+    // Карта FRENZY (надета) — ×2 к перемещению
+    if (myPlayer?.cards) {
+      const cards = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
+      if (cards.includes("FRENZY")) speed *= 2;
+    }
     this.dashCd = Math.max(0, this.dashCd - dt);
 
     this.vel.x = move.x * speed;
@@ -129,20 +129,20 @@ export class FpsController {
 
     this.position.addScaledVector(this.vel, dt);
 
-    // v0.0.3.0: карта 1200м (radius 600), терраин height
-    const R = WORLD.ARENA_RADIUS || 100;
-    if (this.position.x > R) this.position.x = R;
-    if (this.position.x < -R) this.position.x = -R;
-    if (this.position.z > R) this.position.z = R;
-    if (this.position.z < -R) this.position.z = -R;
-    // v0.0.3.9: везде плоский пол y=1.6. terrainHeight отключён как физика:
-    // в setupArena пол визуально плоский (PlaneGeometry y=0), а контроллер до этого
-    // применял синусоиду ±14м — игрок прыгал на ±5 между кадрами при беге.
-    // Сейчас groundY = 1.6 везде кроме дыр (свободное падение).
-    const groundY = 1.6;
-    // Проверка попадания в дыру на арене (arenaGroup.userData.holes) — только вне хаба
     const phase = window.room?.state?.phase;
     const inHub = phase === "hub" || phase === undefined || phase == null;
+    const hubR = WORLD.HUB_RADIUS || 36;
+    const distXZ = Math.hypot(this.position.x, this.position.z);
+
+    if (!inHub) {
+      const R = WORLD.ARENA_RADIUS || 100;
+      if (this.position.x > R) this.position.x = R;
+      if (this.position.x < -R) this.position.x = -R;
+      if (this.position.z > R) this.position.z = R;
+      if (this.position.z < -R) this.position.z = -R;
+    }
+
+    const groundY = 1.6;
     let inHole = false;
     try {
       const holes = window._arenaHoles;
@@ -156,8 +156,9 @@ export class FpsController {
     if (dbgFly) {
       if (this.position.y < groundY) this.position.y = groundY;
       if (this.position.y > 60) this.position.y = 60;
+    } else if (inHub && distXZ > hubR * 1.02) {
+      this.grounded = false;
     } else if (inHole) {
-      // в дыре — свободное падение до y=-10 (fall→respawn)
       this.grounded = false;
     } else if (this.position.y <= groundY) {
       this.position.y = groundY;
