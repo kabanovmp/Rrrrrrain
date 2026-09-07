@@ -1,100 +1,250 @@
-// Портал в стиле Minecraft Nether: обсидиановая рамка 4×5 и фиолетовая «вода».
+// Портал как в Minecraft Nether: рамка 4×5 из обсидиана и вертикальная
+// фиолетовая «вода» 2×3, пиксельная, с частицами.
+
 import * as THREE from "three";
 
-function makePortalSwirlTex() {
+function makeObsidianTexture() {
+  const s = 16;
   const c = document.createElement("canvas");
-  c.width = 64;
-  c.height = 96;
+  c.width = s; c.height = s;
+  const ctx = c.getContext("2d");
+  const img = ctx.createImageData(s, s);
+  for (let i = 0; i < s * s; i++) {
+    const n = Math.random();
+    let r, g, b;
+    if (n < 0.5) { r = 10 + n * 22; g = 8; b = 14; }
+    else if (n < 0.78) { r = 26; g = 16; b = 36; }
+    else if (n < 0.92) { r = 6; g = 6; b = 8; }
+    else { r = 42; g = 28; b = 52; }
+    const o = i * 4;
+    img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function makePortalCanvas() {
+  const c = document.createElement("canvas");
+  c.width = 32;
+  c.height = 48;
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
   tex.colorSpace = THREE.SRGBColorSpace;
   return { canvas: c, tex };
 }
 
-function paintPortal(canvas, t) {
+export function paintNetherWater(canvas, t) {
   const ctx = canvas.getContext("2d");
   const w = canvas.width, h = canvas.height;
   const img = ctx.createImageData(w, h);
   const d = img.data;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const u = x / w, v = y / h;
-      const swirl = Math.sin((u * 8 + Math.sin(v * 6 + t * 1.7)) + t * 2.4)
-        + Math.sin(v * 10 - t * 1.9) * 0.7
-        + Math.sin((u + v) * 14 + t * 3.2) * 0.35;
-      const n = (swirl + 2.2) / 4.4;
+      const u = (x + 0.5) / w;
+      const v = (y + 0.5) / h;
+      const swirl = Math.sin(u * Math.PI * 5.5 + Math.sin(v * 9 + t * 1.7) * 0.85);
+      const flow = (v * 2.4 - t * 0.62 + Math.sin(u * 8 + t * 0.9) * 0.12 + 8) % 1;
+      const n = swirl * 0.28 + flow * 0.72;
       const i = (y * w + x) * 4;
-      // фиолетово-чёрная «вода» Незера
-      d[i] = 40 + n * 160;
-      d[i + 1] = 8 + n * 30;
-      d[i + 2] = 70 + n * 185;
-      d[i + 3] = 230;
+      if (n < 0.18) { d[i] = 12; d[i + 1] = 0; d[i + 2] = 22; }
+      else if (n < 0.38) { d[i] = 58; d[i + 1] = 0; d[i + 2] = 98; }
+      else if (n < 0.62) { d[i] = 118; d[i + 1] = 12; d[i + 2] = 188; }
+      else if (n < 0.82) { d[i] = 176; d[i + 1] = 48; d[i + 2] = 235; }
+      else { d[i] = 230; d[i + 1] = 140; d[i + 2] = 255; }
+      d[i + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
 }
 
-export function createNetherPortal({ scale = 1, idle = false } = {}) {
-  const group = new THREE.Group();
-  const BS = 1.2 * scale;
-  const obs = new THREE.MeshStandardMaterial({
-    color: 0x15121c, roughness: 0.96, metalness: 0.04,
-    emissive: 0x2a1038, emissiveIntensity: idle ? 0.12 : 0.28,
+function makeSparks(bs) {
+  const n = 70;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(n * 3);
+  const vel = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    pos[i * 3] = (Math.random() - 0.5) * bs * 1.85;
+    pos[i * 3 + 1] = bs + Math.random() * bs * 3;
+    pos[i * 3 + 2] = (Math.random() - 0.5) * 0.22;
+    vel[i] = 0.6 + Math.random() * 1.4;
+  }
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xe080ff, size: 0.11, transparent: true, opacity: 0.85,
+    depthWrite: false, sizeAttenuation: true,
   });
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false;
+  pts.userData.vel = vel;
+  pts.userData.bs = bs;
+  return pts;
+}
+
+export function createNetherPortal({ scale = 1, lit = true, idle = false } = {}) {
+  if (idle) lit = false;
+  const group = new THREE.Group();
+  const BS = 1.05 * scale;
+  const obsTex = makeObsidianTexture();
   const W = 4, H = 5;
-  let first = null;
+  const blocks = [];
   for (let x = 0; x < W; x++) {
     for (let y = 0; y < H; y++) {
       const inner = x > 0 && x < W - 1 && y > 0 && y < H - 1;
       if (inner) continue;
-      const b = new THREE.Mesh(new THREE.BoxGeometry(BS * 1.02, BS * 1.02, BS * 0.72), obs);
+      const tint = 0.82 + Math.random() * 0.22;
+      const mat = new THREE.MeshStandardMaterial({
+        map: obsTex,
+        color: new THREE.Color(tint * 0.55, tint * 0.5, tint * 0.62),
+        roughness: 0.97,
+        metalness: 0.02,
+        emissive: new THREE.Color(0x140818),
+        emissiveIntensity: lit ? 0.22 : 0.06,
+      });
+      const b = new THREE.Mesh(new THREE.BoxGeometry(BS, BS, BS * 0.92), mat);
       b.position.set((x - (W - 1) / 2) * BS, y * BS + BS * 0.5, 0);
-      if (!first) first = b;
       group.add(b);
+      blocks.push(b);
     }
   }
-  const { canvas, tex } = makePortalSwirlTex();
-  paintPortal(canvas, 0);
+
+  const { canvas, tex } = makePortalCanvas();
+  paintNetherWater(canvas, 0);
   tex.needsUpdate = true;
-  const pw = 2 * BS * 0.96, ph = 3 * BS * 0.96;
-  const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(pw, ph),
+  const pw = 2 * BS * 0.98, ph = 3 * BS * 0.98;
+  const waterMat = new THREE.MeshBasicMaterial({
+    map: tex, color: 0xffffff, transparent: true, opacity: lit ? 1 : 0,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), waterMat);
+  water.position.y = 2.5 * BS;
+  water.position.z = 0.02;
+  water.visible = lit;
+  water.renderOrder = 2;
+  group.add(water);
+
+  const glow = new THREE.Mesh(
+    new THREE.PlaneGeometry(pw * 1.08, ph * 1.08),
     new THREE.MeshBasicMaterial({
-      map: tex, color: 0xffffff, transparent: true, opacity: idle ? 0.55 : 0.85,
+      color: 0xaa44ff, transparent: true, opacity: lit ? 0.18 : 0,
       side: THREE.DoubleSide, depthWrite: false,
     })
   );
-  water.position.y = 2.5 * BS;
-  group.add(water);
+  glow.position.copy(water.position);
+  glow.position.z = 0.04;
+  glow.renderOrder = 1;
+  group.add(glow);
 
-  const base = new THREE.Mesh(
-    new THREE.CircleGeometry(2.4 * scale, 24),
-    new THREE.MeshBasicMaterial({
-      color: 0x4a1a6a, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false,
-    })
-  );
-  base.rotation.x = -Math.PI / 2;
-  base.position.y = 0.03;
-  group.add(base);
+  const light = new THREE.PointLight(0xb14cff, lit ? 4.2 : 0.15, 18, 1.6);
+  light.position.set(0, 2.5 * BS, 0.4);
+  group.add(light);
+
+  const sparks = makeSparks(BS);
+  sparks.position.y = 0;
+  sparks.visible = lit;
+  group.add(sparks);
 
   group.userData.isPortal = true;
-  group.userData.arch = first;
+  group.userData.bs = BS;
+  group.userData.blocks = blocks;
   group.userData.water = water;
-  group.userData.base = base;
+  group.userData.glow = glow;
+  group.userData.light = light;
+  group.userData.sparks = sparks;
   group.userData.portalCanvas = canvas;
   group.userData.portalTex = tex;
-  group.userData.obsMat = obs;
+  group.userData.obsMat = blocks[0]?.material;
+  group.userData.arch = blocks[0];
+  group.userData.lit = lit;
+  group.userData.base = group;
   return group;
 }
 
 export function tickNetherPortal(group, tSec) {
   if (!group?.userData?.portalCanvas) return;
-  if (!group.userData._pt || tSec - group.userData._pt > 0.05) {
+  if (!group.userData.water?.visible) return;
+  if (!group.userData._pt || tSec - group.userData._pt > 0.045) {
     group.userData._pt = tSec;
-    paintPortal(group.userData.portalCanvas, tSec);
+    paintNetherWater(group.userData.portalCanvas, tSec);
     group.userData.portalTex.needsUpdate = true;
   }
+  const sparks = group.userData.sparks;
+  if (sparks?.visible) {
+    const pos = sparks.geometry.attributes.position;
+    const vel = sparks.userData.vel;
+    const bs = sparks.userData.bs;
+    const dt = 0.045;
+    for (let i = 0; i < vel.length; i++) {
+      pos.array[i * 3 + 1] += vel[i] * dt;
+      if (pos.array[i * 3 + 1] > bs * 4.05) {
+        pos.array[i * 3 + 1] = bs * 1.05;
+        pos.array[i * 3] = (Math.random() - 0.5) * bs * 1.85;
+      }
+    }
+    pos.needsUpdate = true;
+  }
+}
+
+export function setNetherPortalState(group, state, chargeRatio = 0, tSec = 0) {
+  if (!group?.userData?.water) return;
+  const { water, glow, light, sparks, blocks } = group.userData;
+  const cr = Math.max(0, Math.min(1, chargeRatio));
+  const pulse = 0.85 + Math.sin(tSec * 5.2) * 0.15;
+  let lit = 1, intensity = 4.2, glowOp = 0.2, waterOp = 1, em = 0.28;
+  if (state === "idle") {
+    lit = 0; intensity = 0.12; glowOp = 0; waterOp = 0; em = 0.05;
+  } else if (state === "charging") {
+    lit = 1; intensity = 1.2 + 5 * cr; glowOp = 0.08 + 0.22 * cr;
+    waterOp = 0.35 + 0.65 * cr; em = 0.12 + 0.55 * cr;
+  } else if (state === "ready") {
+    lit = 1; intensity = 6.5 * pulse; glowOp = 0.28 * pulse;
+    waterOp = 1; em = 0.45 + 0.35 * pulse;
+  } else if (state === "hold") {
+    lit = 1; intensity = 8; glowOp = 0.4; waterOp = 1; em = 0.7;
+  }
+  water.visible = lit > 0 && waterOp > 0.02;
+  sparks.visible = water.visible;
+  glow.visible = water.visible;
+  water.material.opacity = waterOp;
+  glow.material.opacity = glowOp;
+  light.intensity = intensity;
+  if (state === "charging") {
+    water.scale.set(1, Math.max(0.12, cr), 1);
+    water.position.y = group.userData.bs * (1 + 1.5 * Math.max(0.12, cr));
+  } else {
+    water.scale.set(1, 1, 1);
+    water.position.y = 2.5 * group.userData.bs;
+  }
+  glow.position.y = water.position.y;
+  glow.scale.copy(water.scale);
+  for (const b of blocks) {
+    if (!b.material) continue;
+    b.material.emissiveIntensity = em;
+    if (state === "idle") b.material.emissive.setHex(0x0a060c);
+    else b.material.emissive.setHex(0x4a1480);
+  }
+  tickNetherPortal(group, tSec);
+}
+
+const _local = new THREE.Vector3();
+export function isInsideNetherPortal(group, x, y, z) {
+  if (!group) return false;
+  _local.set(x, y, z);
+  group.worldToLocal(_local);
+  const bs = group.userData.bs || 1;
+  return Math.abs(_local.x) < bs * 1.12
+    && _local.y > bs * 0.25 && _local.y < bs * 4.2
+    && Math.abs(_local.z) < 1.25;
+}
+
+export function nearNetherPortal(group, x, z, range = 5) {
+  if (!group) return false;
+  const dx = x - group.position.x, dz = z - group.position.z;
+  return dx * dx + dz * dz <= range * range;
 }

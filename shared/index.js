@@ -22,6 +22,8 @@ export const WORLD = {
   FOG_NEAR: 60,                  // начало тумана
   FOG_FAR: 100,                  // полный туман (ТЗ: обзор 100м)
   PICKUP_RING: 32,               // пикапы арены — внутри тумана, видны со спавна
+  PORTAL_DIST: 34,               // арена: портал внутри тумана (~100м), не за 240м
+  PORTAL_HOLD_S: 1.5,
 };
 
 // v0.0.3.0: HP=100 по ТЗ
@@ -64,7 +66,7 @@ export const SPELLS = {
   },
   STAR_BOLT: {
     cooldown: 1.0, isHoming: true, damage: 34, projectileSpeed: 34,
-    visRange: 100, life: 4.2, radius: 0.55, color: 0xff40a0,
+    visRange: 100, visConeCos: 0.12, life: 4.2, radius: 0.55, color: 0xff40a0,
   },
   STAR_SHIELD: {
     cooldown: 2.0, isShield: true, absorb: 100, duration: 0, color: 0xff40a0,

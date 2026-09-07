@@ -6,7 +6,8 @@ import * as THREE from "three";
 import { WORLD } from "@mhfps/shared";
 import { getTexture } from "./assets.js";
 import { createFloatingLootCard } from "./pedestal.js";
-import { createNetherPortal, tickNetherPortal } from "./netherPortal.js";
+import { createNetherPortal, setNetherPortalState, isInsideNetherPortal, nearNetherPortal } from "./netherPortal.js";
+import { terrainHeight } from "./worldV3.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // ХАБ: комната в космосе
@@ -82,19 +83,19 @@ export function setupHub(group) {
 
 
   // ── ПОРТАЛ НА АРЕНУ (край хаба) ───────────────────────────
-  const hubPortal = createNetherPortal({ scale: 0.85, idle: false });
+  const hubPortal = createNetherPortal({ scale: 1.05, lit: true });
   hubPortal.userData.isHubPortal = true;
-  hubPortal.position.set(0, 0, -R * 0.9);
+  hubPortal.position.set(0, 0, -R * 0.55);
   group.add(hubPortal);
   group.userData.hubPortal = hubPortal;
 
   // Светящаяся метка над порталом
   const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.15, 8, 6),
-    new THREE.MeshBasicMaterial({ color: 0x66ccff })
+    new THREE.SphereGeometry(0.18, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xcc66ff })
   );
   marker.position.copy(hubPortal.position);
-  marker.position.y = 4.2;
+  marker.position.y = 6.2;
   marker.userData.isPortalMarker = true;
   group.add(marker);
 
@@ -230,40 +231,9 @@ export function setupArena(group) {
   }
 
   // ── Освещение арены ──────────────────────────────────
-  // ── ПОРТАЛ в центре арены (возврат в хаб) ──────────────
-  const portal = new THREE.Group();
-  portal.userData.isPortal = true;
-  const arch = new THREE.Mesh(
-    new THREE.TorusGeometry(2.5, 0.35, 10, 20),
-    new THREE.MeshStandardMaterial({
-      color: 0x666677, roughness: 0.9,
-      emissive: 0x442288, emissiveIntensity: 0.2,
-    })
-  );
-  arch.position.y = 2.8;
-  portal.add(arch);
-  portal.userData.arch = arch;
-  const water = new THREE.Mesh(
-    new THREE.CircleGeometry(2.4, 20),
-    new THREE.MeshBasicMaterial({
-      color: 0x220044, transparent: true, opacity: 0.75, side: THREE.DoubleSide,
-    })
-  );
-  water.position.y = 2.8;
-  portal.add(water);
-  portal.userData.water = water;
-  const base = new THREE.Mesh(
-    new THREE.RingGeometry(2.5, 3.3, 20),
-    new THREE.MeshBasicMaterial({
-      color: 0x442266, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false,
-    })
-  );
-  base.rotation.x = -Math.PI / 2;
-  base.position.y = 0.05;
-  portal.add(base);
-  portal.userData.base = base;
-  // Портал — у края арены, не в центре (чтобы не был среди врагов)
-  portal.position.set(0, 0, R * 0.75);
+  // Портал возврата — рамка Незера (позицию задаёт сервер)
+  const portal = createNetherPortal({ scale: 1.2, lit: false });
+  portal.position.set(WORLD.PORTAL_DIST || 34, 0, 0);
   group.add(portal);
   group.userData.portal = portal;
 
@@ -551,83 +521,40 @@ function addTorch(group, x, y, z, tall = false) {
 export function updateArenaPortal(arenaGroup, state, tSec, chargeRatio = 0) {
   const p = arenaGroup.userData.portal;
   if (!p) return;
-  const water = p.userData.water;
-  const arch = p.userData.arch;
-  const base = p.userData.base;
-  // Лениво создаём луч вверх (RoR2 beam) при первом вызове
-  if (!p.userData.beam) {
-    const beamGeo = new THREE.CylinderGeometry(0.9, 1.4, 60, 12, 1, true);
-    const beamMat = new THREE.MeshBasicMaterial({ color: 0xaa66ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
-    const beam = new THREE.Mesh(beamGeo, beamMat);
-    beam.position.y = 30;
-    p.add(beam);
-    p.userData.beam = beam;
-  }
-  const beam = p.userData.beam;
-  if (state === "idle") {
-    // Спящий: тёмный камень, ведва заметный, надо найти
-    water.material.color.setHex(0x1a1420);
-    water.material.opacity = 0.35;
-    arch.material.emissive.setHex(0x221122);
-    arch.material.emissiveIntensity = 0.05;
-    base.material.color.setHex(0x201820);
-    base.material.opacity = 0.55;
-    beam.material.opacity = 0;
-  } else if (state === "charging") {
-    // Копит энергию: цвет грется, луч растёт от chargeRatio
-    const pulse = 0.7 + Math.sin(tSec * 6) * 0.3;
-    const cr = Math.max(0, Math.min(1, chargeRatio));
-    water.material.color.setHex(0x664488);
-    water.material.opacity = 0.7 * pulse;
-    arch.material.emissive.setHex(0x8844ff);
-    arch.material.emissiveIntensity = 0.5 + 0.8 * cr;
-    base.material.color.setHex(0x8844ff);
-    base.material.opacity = 0.5 + 0.4 * cr;
-    beam.material.opacity = 0.15 + 0.35 * cr * pulse;
-  } else if (state === "ready") {
-    // Полный яркий пульс + столб света
-    const pulse = 0.85 + Math.sin(tSec * 5) * 0.15;
-    water.material.color.setHex(0xaa66ff);
-    water.material.opacity = 0.95 * pulse;
-    arch.material.emissive.setHex(0xcc88ff);
-    arch.material.emissiveIntensity = 1.4 * pulse;
-    base.material.color.setHex(0xcc88ff);
-    base.material.opacity = 0.85 * pulse;
-    beam.material.opacity = 0.55 * pulse;
-  }
-  water.rotation.z = tSec * 0.15;
-  beam.rotation.y = tSec * 0.3;
-  tickNetherPortal(p, tSec);
+  setNetherPortalState(p, state, chargeRatio, tSec);
 }
 
-// Переместить меш портала в заданную точку на арене
 export function setArenaPortalPosition(arenaGroup, x, z) {
   const p = arenaGroup.userData.portal;
   if (!p) return;
   p.position.x = x;
   p.position.z = z;
+  p.position.y = Math.max(0, terrainHeight(x, z));
+  p.lookAt(0, p.position.y, 0);
 }
 
-// Позиция портала на арене (для проверки дистанции)
 export function getArenaPortalPos(arenaGroup) {
   const p = arenaGroup.userData.portal;
   return p ? p.position : null;
 }
 
-// Позиция портала в хабе
 export function getHubPortalPos(hubGroup) {
   const p = hubGroup.userData.hubPortal;
   return p ? p.position : null;
 }
 
-// Анимация портала в хабе (всегда активен)
+export function playerInsidePortal(group, x, y, z) {
+  return isInsideNetherPortal(group, x, y, z);
+}
+
+export function playerNearPortal(group, x, z, range) {
+  return nearNetherPortal(group, x, z, range);
+}
+
 export function updateHubPortal(hubGroup, tSec) {
   const p = hubGroup.userData.hubPortal;
   if (!p) return;
-  tickNetherPortal(p, tSec);
-  const water = p.userData.water;
-  const pulse = 0.75 + Math.sin(tSec * 2.2) * 0.15;
-  if (water) water.material.opacity = 0.65 + pulse * 0.2;
+  setNetherPortalState(p, "ready", 1, tSec);
 }
 
 // Пульсация опасных зон

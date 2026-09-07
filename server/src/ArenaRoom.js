@@ -13,7 +13,7 @@ const ATTACK_COOLDOWN = 2.0;   // 1 удар в 2 сек
 const SPAWN_INTERVAL_SEC = 8;
 const MAX_ALIVE_ENEMIES = 48;   // потолок — FRENZY ×3 не должен сразу упираться в лимит
 // ПОРТАЛ: как в RoR2 — спрятан на арене, активация по F, потом таймер зарядки
-const PORTAL_INTERACT_RANGE = 3.5;
+const PORTAL_INTERACT_RANGE = 5.5;
 
 export class ArenaRoom extends Room {
   onCreate(opts) {
@@ -109,7 +109,7 @@ export class ArenaRoom extends Room {
         const shots = this.playerHasCard(p, "ANGER") ? 2 : 1;
         const vis = spell.visRange || WORLD.FOG_FAR;
         for (let s = 0; s < shots; s++) {
-          const tgt = this.nearestEnemy(origin, vis);
+          const tgt = this.nearestEnemy(origin, vis, dir, spell.visConeCos ?? 0.12);
           this.spawnHoming(client.sessionId, origin, dir, spell, spell.damage * dmgMult, tgt);
         }
         return;
@@ -596,13 +596,20 @@ export class ArenaRoom extends Room {
     return 1;
   }
 
-  nearestEnemy(origin, maxR) {
+  nearestEnemy(origin, maxR, dir = null, minDot = null) {
     let best = null, bd = maxR * maxR, bid = "";
+    const dl = dir ? (Math.hypot(dir.x, dir.y, dir.z) || 1) : 1;
     this.state.enemies.forEach((e, id) => {
       if (!e.alive) return;
       const dx = e.pos.x - origin.x, dy = e.pos.y - origin.y, dz = e.pos.z - origin.z;
       const d2 = dx * dx + dy * dy + dz * dz;
-      if (d2 < bd) { bd = d2; best = e; bid = id; }
+      if (d2 >= bd || d2 < 0.04) return;
+      if (dir && minDot != null) {
+        const dist = Math.sqrt(d2) || 1;
+        const dot = (dx * dir.x + dy * dir.y + dz * dir.z) / (dist * dl);
+        if (dot < minDot) return;
+      }
+      bd = d2; best = e; bid = id;
     });
     return best ? { e: best, id: bid } : null;
   }
@@ -881,13 +888,10 @@ export class ArenaRoom extends Room {
     this.state.wave = 1;
     this.state.portalCharge = 0;
     this.state.portalActive = false;
-    // Портал — случайная точка на арене, не в центре (надо найти)
-    const R = WORLD.ARENA_RADIUS * 0.55;
+    const dist = WORLD.PORTAL_DIST || 34;
     const ang = Math.random() * Math.PI * 2;
-    const dist = R * (0.5 + Math.random() * 0.9);
-    // v0.0.3.11: фикс-позиция портала совпадает с визуалом worldV3 (R*0.4, R*0.3)
-    this.state.portalX = WORLD.ARENA_RADIUS * 0.4;
-    this.state.portalZ = WORLD.ARENA_RADIUS * 0.3;
+    this.state.portalX = Math.sin(ang) * dist;
+    this.state.portalZ = Math.cos(ang) * dist;
     this.waveTimer = 0;
     // Очистить старые пикапы арены
     this.state.pickups.clear();
@@ -1015,7 +1019,7 @@ export class ArenaRoom extends Room {
     e.maxHp = e.hp;
     e.spawnedAt = Date.now() / 1000;
     // v0.0.3.0: спавним врагов 40-80м от центра — в радиусе тумана, но видны
-    const r = 40 + Math.random() * 40;
+    const r = 62 + Math.random() * 32;
     e.pos.x = Math.sin(angle) * r;
     e.pos.z = Math.cos(angle) * r;
     e._homeX = e.pos.x;
