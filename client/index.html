@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Rrrrrrain — v0.0.3.13</title>
+  <title>Rrrrrrain — v0.0.3.14</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #eee; font-family: 'Courier New', monospace; }
@@ -51,8 +51,7 @@
     /* Кулдаун-индикаторы рук */
     .cd-ind { position: fixed; bottom: 24px; width: 44px; height: 44px; border-radius: 50%;
       background: rgba(20,10,10,0.7); border: 2px solid #442; z-index: 20; overflow: hidden; }
-    #cd-left { left: calc(50% - 220px); }
-    #cd-right { right: calc(50% - 220px); }
+    #cd-left, #cd-right { display: none !important; }
     .cd-ind .fill { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, transparent, rgba(155,231,255,0.6)); transition: height 0.1s linear; }
     .cd-ind .label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       font-family: 'Courier New', monospace; font-size: 11px; font-weight: bold; color: #fff; text-shadow: 0 0 3px #000; }
@@ -124,7 +123,7 @@
   <style>.dbg-btn { background:#334; color:#dde; border:1px solid #556; padding:6px; cursor:pointer; font-size:11px; font-family:inherit; border-radius:3px; } .dbg-btn:hover { background:#445; }</style>
   <div id="menu">
     <h1>RRRRRRAIN</h1>
-    <p>кооп-прототип · v0.0.3.13 (альфа) — прицел меча, лут в тумане, хаб без мобов</p>
+    <p>кооп-прототип · v0.0.3.14 (альфа) — меч, магические карты, летающий какодемон</p>
     <div class="row">
       <input id="name" placeholder="твоё имя" value="sgustok" maxlength="20" />
     </div>
@@ -138,7 +137,7 @@
       <button id="play">начать</button>
     </div>
     <p style="margin-top:24px;max-width:520px;text-align:center;font-size:12px;line-height:1.6;">
-      WASD — движение · SPACE — прыжок · SHIFT — бег · Q/E — дэш · ЛКМ — меч · ПКМ — блок · F — взять/взаимодействовать · TAB — инвентарь (держать) · ESC — курсор
+      WASD — движение · SPACE — прыжок · SHIFT — бег · Q/E — дэш · ЛКМ — меч · ПКМ — блок · F — взять/взаимодействовать · TAB — оружие и карты (держать) · ESC — курсор
     </p>
   </div>
   <script type="module" src="/src/main.js"></script>

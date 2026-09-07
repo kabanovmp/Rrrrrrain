@@ -79,8 +79,7 @@ export class FpsController {
     if (this.keys.KeyA) move.sub(right);
     if (move.lengthSq() > 0) move.normalize();
 
-    const hasLegs = myPlayer?.hasLegs ?? 0;
-    const baseSpeed = hasLegs >= 2 ? WORLD.BASE_MOVE_SPEED : WORLD.BASE_FLY_SPEED;
+    const baseSpeed = WORLD.BASE_MOVE_SPEED;
 
     // v0.0.3.0: Q/E — дэш влево/вправо. Shift — бег x1.5 без стамины.
     if (this.dashCd <= 0) {
@@ -94,11 +93,13 @@ export class FpsController {
     }
     let speed = baseSpeed;
     if (this.keys.ShiftLeft || this.keys.ShiftRight) speed *= RUN_MULT;
-    // Дебаг: множитель скорости
     const mul = window.room?.state?.dbgSpeedMul;
     if (mul && mul !== 1) speed *= mul;
-    // Пассивка SWIFTBOOT — +30% скорости
-    if (myPlayer?.passiveItemId === "SWIFTBOOT") speed *= 1.3;
+    // Карта FRENZY (надета) — ×2 к перемещению
+    if (myPlayer?.cards) {
+      const cards = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
+      if (cards.includes("FRENZY")) speed *= 2;
+    }
     this.dashCd = Math.max(0, this.dashCd - dt);
 
     this.vel.x = move.x * speed;

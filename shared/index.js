@@ -76,7 +76,19 @@ export const SPELLS = {
 
 // v0.0.3.1: активные магические карты. Карта модифицирует поведение активного оружия.
 export const CARDS = {
-  ANGER: { id: "ANGER", name: "ANGER", subtitle: "Hit them twice", effect: "doubleShot", color: 0xff2020, icon: "card-anger.jpg" },
+  ANGER: {
+    id: "ANGER", name: "ANGER", subtitle: "Hit them twice",
+    effect: "doubleShot", color: 0xff2020, icon: "card-anger.jpg",
+  },
+  FRENZY: {
+    id: "FRENZY", name: "FRENZY", subtitle: "More of them / run faster",
+    effect: "spawnMove", spawnMul: 3, moveMul: 2, color: 0xff6622, icon: "card-frenzy.jpg",
+  },
+  RAIN: {
+    id: "RAIN", name: "RAIN", subtitle: "It falls on everyone",
+    effect: "meteorRain", color: 0xff3311, icon: "card-rain.jpg",
+    interval: 0.42, radius: 7, enemyDamage: 28, playerDamage: 10, visRange: 90,
+  },
 };
 export const CARDS_BY_ID = CARDS;
 
@@ -96,9 +108,9 @@ export const AI_DIRECTOR = {
   BUDGET_REGEN_PER_SEC: 8,   // приток бюджета в секунду
   WAVE_MIN_SIZE: 3,
   WAVE_MAX_SIZE: 7,
-  WAVE_INTERVAL_MIN: 6,      // сек между волнами
+  WAVE_INTERVAL_MIN: 6,
   WAVE_INTERVAL_MAX: 12,
-  AGGRO_RANGE: 45,           // вне этого — патруль
+  AGGRO_RANGE: 55,
   CORPSE_LINGER_S: 8.0,
   // стоимость в бюджете для каждого типа
   COSTS: {
@@ -122,8 +134,10 @@ export const ENEMY_TYPES = {
   COLOSSUS:  { id: "COLOSSUS",  hp: 10, speed: 1.2, size: 8.0, scale: 30.0, damage: 1, sprite: "colossus",  colorTint: 0xffffff, boss: true     },
   // v0.0.3.1: Наземный вылазок — 5 процедурных вариаций (см. GROUND_CRAWLER_VARIANTS)
   GROUND_CRAWLER: {
-    id: "GROUND_CRAWLER", hp: 15, speed: 3.2, size: 1.1, scale: 1.8, damage: 8,
-    sprite: "crawler", colorTint: 0xffffff, emergeTime: 1.2,
+    id: "GROUND_CRAWLER", hp: 22, speed: 4.2, size: 1.5, scale: 3.2, damage: 8,
+    sprite: "caco", colorTint: 0xffffff, flying: true, hoverY: 6.2,
+    fireCount: 3, fireDamage: 9, fireSpeed: 24, fireCooldown: 0.32,
+    engageRange: 42, disengageRange: 55,
   },
   // v0.0.3.1: Cacodemon Flying Shooter — hover, стреляет 1-3 огненных шара
   FLYING_SHOOTER: {

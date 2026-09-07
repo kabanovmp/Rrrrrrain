@@ -165,24 +165,6 @@ loadoutPanel.innerHTML = V31_MODE ? `
         <div style="font-size:11px;color:#8a7050;letter-spacing:1px;">ОРУЖИЕ</div>
         <div id="lpWeapon" class="lp-slot lp-weapon" data-slot="weapon" style="width:96px;height:96px;background:#00000044;border:2px dashed #6a4a28;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#4a3520;"></div>
       </div>
-      <div style="display:flex;justify-content:space-between;gap:8px;margin-top:2px;">
-        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-          <div style="font-size:10px;color:#8a7050;letter-spacing:1px;">ЛЕВАЯ</div>
-          <div id="lpLeftHand" style="width:56px;height:56px;background:#00000044;border:2px dashed #6a4a28;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#4a3520;text-align:center;"></div>
-        </div>
-        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-          <div style="font-size:10px;color:#8a7050;letter-spacing:1px;">ПРАВАЯ</div>
-          <div id="lpRightHand" style="width:56px;height:56px;background:#00000044;border:2px dashed #6a4a28;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#4a3520;text-align:center;"></div>
-        </div>
-        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-          <div style="font-size:10px;color:#8a7050;letter-spacing:1px;">НОГИ</div>
-          <div id="lpLegs" style="width:56px;height:56px;background:#00000044;border:2px dashed #6a4a28;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:14px;color:#4a3520;text-align:center;"></div>
-        </div>
-        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
-          <div style="font-size:10px;color:#8a7050;letter-spacing:1px;">ПАССИВ</div>
-          <div id="lpPassive" style="width:56px;height:56px;background:#00000044;border:2px dashed #6a4a28;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#4a3520;text-align:center;"></div>
-        </div>
-      </div>
       <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px;">
         <div style="font-size:11px;color:#8a7050;letter-spacing:1px;text-align:center;">КАРТЫ (10 слотов)</div>
         <div id="lpCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;"></div>
@@ -225,6 +207,28 @@ function hideLoadoutPanel() {
   loadoutPanel.style.display = "none";
 }
 
+const cardHud = document.createElement("div");
+cardHud.id = "cardHud";
+cardHud.style.cssText = "position:fixed;left:calc(50% + 180px);bottom:16px;display:flex;gap:8px;z-index:16;pointer-events:none;";
+document.body.appendChild(cardHud);
+function renderCardHud() {
+  if (!myPlayer) { cardHud.innerHTML = ""; return; }
+  const cards = (myPlayer.cards && myPlayer.cards.toArray) ? myPlayer.cards.toArray() : [...(myPlayer.cards || [])];
+  const worn = cards.filter(Boolean);
+  cardHud.innerHTML = "";
+  worn.forEach(id => {
+    const info = v31IconFor("CARD:" + id);
+    const wrap = document.createElement("div");
+    wrap.title = info.label + (info.desc ? " — " + info.desc : "");
+    wrap.style.cssText = "width:44px;height:58px;border:1px solid #c08858;border-radius:4px;overflow:hidden;box-shadow:0 0 10px rgba(255,80,40,0.35);background:#120805;";
+    const img = document.createElement("img");
+    img.src = info.src;
+    img.style.cssText = "width:100%;height:100%;object-fit:cover;";
+    wrap.appendChild(img);
+    cardHud.appendChild(wrap);
+  });
+}
+
 // v0.0.3.1: иконки для инвентаря. v0.0.3.4: SVG-генерация для всего
 function svgIcon(bg, fg, emoji) {
   const s = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>
@@ -236,6 +240,8 @@ function svgIcon(bg, fg, emoji) {
 }
 const V31_ICON = {
   "CARD:ANGER":         { src: "/assets/v031/card-anger.jpg",  label: "Ярость",       desc: "Ударь вдвое" },
+  "CARD:FRENZY":        { src: "/assets/v031/card-frenzy.jpg", label: "Безумие",      desc: "Врагов ×3, бег ×2" },
+  "CARD:RAIN":          { src: "/assets/v031/card-rain.jpg",   label: "Дождь",        desc: "Метеоры бьют всех" },
   "WEAPON:STAR_SWORD":  { src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "Активное оружие" },
   "WEAPON:SWORD":       { src: svgIcon("#c8a05a", "#fff", "⚔️"), label: "Меч",           desc: "Основное оружие" },
   "HAND:FIRE":          { src: svgIcon("#c04010", "#fff", "🔥"), label: "Огненная",     desc: "Файербол" },
@@ -490,40 +496,7 @@ function renderLoadoutPanel() {
       if (bpCount) bpCount.textContent = bp.length === 1 ? "1 предмет" : (bp.length + " предметов");
     }
     v31InstallBackpackDrop(); // можно кидать в пустое место рюкзака
-    // v0.0.3.4: отображение надетых рук/ног/пассивки в НАДЕТО (только read-only иконка + tooltip)
-    const renderEquip = (elId, raw, empty) => {
-      const el = document.getElementById(elId);
-      if (!el) return;
-      el.innerHTML = "";
-      if (!raw) {
-        el.textContent = empty; el.style.borderStyle = "dashed"; el.style.borderColor = "#6a4a28"; el.style.color = "#4a3520"; el.title = ""; return;
-      }
-      const info = v31IconFor(raw);
-      const img = document.createElement("img");
-      img.src = info.src;
-      img.style.cssText = "width:100%;height:100%;object-fit:cover;pointer-events:none;border-radius:4px;";
-      img.draggable = false;
-      el.appendChild(img);
-      el.style.borderStyle = "solid"; el.style.borderColor = "#c08858"; el.style.color = "#e6d9c2";
-      el.title = info.label + (info.desc ? " — " + info.desc : "");
-    };
-    renderEquip("lpLeftHand",  myPlayer.hasLeftHand  ? ("HAND:" + myPlayer.leftHandType)  : "", "–");
-    renderEquip("lpRightHand", myPlayer.hasRightHand ? ("HAND:" + myPlayer.rightHandType) : "", "–");
-    const legsEl = document.getElementById("lpLegs");
-    if (legsEl) {
-      legsEl.innerHTML = "";
-      const n = myPlayer.hasLegs || 0;
-      if (n > 0) {
-        legsEl.textContent = "🦵×" + n;
-        legsEl.style.borderStyle = "solid"; legsEl.style.borderColor = "#4aa070"; legsEl.style.color = "#a0e0b0";
-        legsEl.title = "Ноги: " + n + "/2 — скорость бега";
-      } else {
-        legsEl.textContent = "–";
-        legsEl.style.borderStyle = "dashed"; legsEl.style.borderColor = "#6a4a28"; legsEl.style.color = "#4a3520";
-        legsEl.title = "";
-      }
-    }
-    renderEquip("lpPassive",   myPlayer.passiveItemId ? ("ITEM:" + myPlayer.passiveItemId) : "", "–");
+    renderCardHud();
     return;
   }
   const hands = document.getElementById("lpHands");
@@ -964,14 +937,12 @@ let colorIdxCounter = 0;
 // Пикапы = пьедесталы
 const pickupMeshes = new Map();
 function makePickupMesh(pk) {
-  // Определяем визуальный тип
-  if (pk.kind === "HAND") {
-    const spellType = ({ FIRE: "fireball", ICE: "ice", BONE: "bone", CHAIN: "chain" })[pk.handType] || "fireball";
-    return createPedestalMesh("HAND", spellType);
+  if (pk.kind === "WEAPON") return createPedestalMesh("HAND", "bone");
+  if (pk.kind === "CARD") {
+    const spell = ({ ANGER: "fireball", FRENZY: "chain", RAIN: "ice" })[pk.handType] || "fireball";
+    return createPedestalMesh("ACCESSORY", spell);
   }
-  if (pk.kind === "LEG") return createPedestalMesh("LEG", "chain");
-  if (pk.kind === "ITEM") return createPedestalMesh("ACCESSORY", "bone");
-  return createPedestalMesh("HAND", "fireball");
+  return createPedestalMesh("ACCESSORY", "fireball");
 }
 
 
@@ -1324,16 +1295,17 @@ function setupRoomHandlers() {
       if (id === selfId) {
         // Руки: обновить видимость + заклинания в ладонях
         // Руки всегда видны, меняется только заклинание в ладони
-        if (p.hasLeftHand) {
+        if (p.hasLeftHand && !V3_MODE) {
           setSpellInHand(handsRoot, -1, handTypeToVisual(p.leftHandType));
-        } else {
+        } else if (!V3_MODE) {
           setSpellInHand(handsRoot, -1, null);
         }
-        if (p.hasRightHand) {
+        if (p.hasRightHand && !V3_MODE) {
           setSpellInHand(handsRoot, 1, handTypeToVisual(p.rightHandType));
-        } else {
+        } else if (!V3_MODE) {
           setSpellInHand(handsRoot, 1, null);
         }
+        renderCardHud();
 
         const maxHp = p.maxHp || 3;
         if (p.hp < maxHp && p.hp > 0) crackHud.classList.add("on");
@@ -1374,25 +1346,24 @@ function setupRoomHandlers() {
   // ── Мобы: 3D-модели с интерполяцией ─────────────────────────
   room.state.enemies.onAdd((e, id) => {
     let m;
-    const flying = !!(ENEMY_TYPES[e.enemyType]?.flying);
     if (V3_MODE) {
       m = createCacodemonSprite();
       m.userData.cacoV3 = true;
-      m.userData.flying = flying;
-      if (!flying) m.scale.set(2.2, 2.2, 1);
+      m.userData.flying = true;
+      const sc = ENEMY_TYPES[e.enemyType]?.scale || 3.45;
+      m.scale.set(sc, sc, 1);
+      if (m.userData.cacoAtlas) m.userData.cacoAtlas.baseScale = sc;
     } else {
       m = createEnemy3D(e.enemyType);
     }
-    // Сервер шлёт y=1 для наземных (центр тела) — опускаем на 1, чтобы ноги были на полу.
-    // Летающие (CACO) шлются y=6+, там офсет не нужен.
-    const yOff = m.userData.flying ? 0 : 1.0;
+    const yOff = 0;
     m.userData.yOff = yOff;
     m.position.set(e.pos.x, e.pos.y - yOff, e.pos.z);
     scene.add(m);
     const entry = {
       mesh: m, targetX: e.pos.x, targetY: e.pos.y - yOff, targetZ: e.pos.z,
       prevX: e.pos.x, prevZ: e.pos.z, moving: false,
-      wasAlive: true,
+      wasAlive: true, alive: e.alive !== false,
     };
     enemyMeshes.set(id, entry);
 
@@ -1400,10 +1371,11 @@ function setupRoomHandlers() {
       entry.targetX = e.pos.x;
       entry.targetY = e.pos.y - yOff;
       entry.targetZ = e.pos.z;
+      entry.alive = e.alive !== false;
       if (!e.alive && entry.wasAlive) {
-        // Звук смерти шлётся через fx enemy_die — не дублируем
-        m.visible = false;
         entry.wasAlive = false;
+        entry.deathAt = performance.now();
+        m.visible = true;
       }
     });
     if (e.pos && e.pos.onChange) {
@@ -1520,7 +1492,7 @@ function setupRoomHandlers() {
       spawnFireballFx(msg.x, msg.y, msg.z, msg.color || 0xff5a1f, dx / len * speed, dy / len * speed, dz / len * speed);
       playSound("fireball_cast", { volume: 0.4 });
       // v0.0.3.2: пометить ближайшего какодемона как "attacking" на 400мс — чтобы стрелял лицом
-      let bestEntry = null, bestD = 4;
+      let bestEntry = null, bestD = 10;
       enemyMeshes.forEach((entry) => {
         const m = entry.mesh;
         if (!m || !m.userData.cacoV3) return;
@@ -1528,7 +1500,18 @@ function setupRoomHandlers() {
         const d = Math.hypot(ddx, ddy, ddz);
         if (d < bestD) { bestD = d; bestEntry = entry; }
       });
-      if (bestEntry) bestEntry._attackingUntil = performance.now() + 400;
+      if (bestEntry) bestEntry._attackingUntil = performance.now() + 700;
+    }
+    else if (msg.type === "meteor") {
+      const tx = msg.tx ?? msg.x, tz = msg.tz ?? msg.z, ty = msg.ty ?? 1;
+      spawnFireballFx(msg.x, msg.y ?? 22, msg.z, msg.color || 0xff3311, 0, -38, 0);
+      spawnWaveFx(tx, ty, tz, msg.r || 7);
+      for (let i = 0; i < 5; i++) {
+        const ang = (i / 5) * Math.PI * 2;
+        const off = Math.random() * (msg.r || 6);
+        spawnShotFx(tx + Math.cos(ang) * off, ty + 18 + Math.random() * 8, tz + Math.sin(ang) * off, 0xff4411, 0, -1, 0);
+      }
+      playSound("fireball_impact", { volume: 0.45 });
     }
     else if (msg.type === "enemy_spawn") {
       // без аудио пока
@@ -1562,6 +1545,14 @@ function setupRoomHandlers() {
       // Сервер шлёт для звука попадания + damage number
       playSound("enemy_hit");
       if (msg.dmg) spawnWorldDmgNumber(new THREE.Vector3(msg.x, msg.y + 1.5, msg.z), msg.dmg);
+      let bestE = null, bestD = 6;
+      enemyMeshes.forEach((entry) => {
+        const m = entry.mesh;
+        if (!m || !m.userData.cacoV3) return;
+        const d = Math.hypot(m.position.x - (msg.x || 0), m.position.z - (msg.z || 0));
+        if (d < bestD) { bestD = d; bestE = entry; }
+      });
+      if (bestE) bestE._painUntil = performance.now() + 220;
     }
     else if (msg.type === "enemy_die") {
       spawnDeathBurst(msg.x, msg.y, msg.z, msg.kind);
@@ -1769,14 +1760,9 @@ document.addEventListener("keydown", (ev) => {
         const d = g.position.distanceTo(controller.position);
         if (d < bcD) { bcD = d; bestChest = i; }
       });
-      // Алтарь (центр)
-      const altarD = Math.hypot(controller.position.x, controller.position.z);
-      const nearAltar = altarD < 3;
-      // Приоритет: ближайшее из трёх
       const cands = [];
       if (bestSlot >= 0) cands.push({ kind: "slot", i: bestSlot, d: bsD });
       if (bestChest >= 0) cands.push({ kind: "chest", i: bestChest, d: bcD });
-      if (nearAltar) cands.push({ kind: "altar", d: altarD });
       cands.sort((a, b) => a.d - b.d);
       const c = cands[0];
       if (!c) return;
@@ -1786,43 +1772,25 @@ document.addEventListener("keydown", (ev) => {
           room.send("hub_take", { source: "slot", index: c.i });
           playSound("pickup");
         } else if (slot && slot.empty && myPlayer) {
-          // ПОЛОЖИТЬ: приоритет — левая, правая, лишний item, passive, нога
           let what = null;
-          if (myPlayer.hasLeftHand) what = "leftHand";
-          else if (myPlayer.hasRightHand) what = "rightHand";
-          else if (myPlayer.itemsInBody.length > 0) what = "item";
-          else if (myPlayer.passiveItemId) what = "passive";
-          else if (myPlayer.hasLegs > 0) what = "leg";
+          const bp = myPlayer.backpack && (myPlayer.backpack.toArray ? myPlayer.backpack.toArray() : [...myPlayer.backpack]);
+          if (bp && bp.length) what = "backpack";
+          else if (myPlayer.cards) {
+            const arr = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
+            const idx = arr.findIndex(Boolean);
+            if (idx >= 0) what = "card:" + idx;
+          }
           if (what) {
             room.send("hub_put", { index: c.i, what });
             playSound("pickup");
           }
         }
       } else if (c.kind === "chest") {
-        // По F возле сундука — открываем UI-панель с набором предметов
         openChestPanel(c.i);
-      } else if (c.kind === "altar") {
-        // По F возле алтаря: если у меня есть рука — положить, иначе забрать (если что-то есть)
-        const list = room.state.hubReforgeSlots;
-        if (myPlayer && (myPlayer.hasLeftHand || myPlayer.hasRightHand) && list.length < 3) {
-          room.send("hub_reforge", { op: "put_hand" });
-          playSound("pickup");
-        } else if (list.length > 0) {
-          room.send("hub_reforge", { op: "take" });
-          playSound("pickup");
-        }
       }
     }
   }
   // v0.0.3.6: кровать больше не телепортирует. Единственный путь на арену — портал (см. handlePortalTriggers).
-  // G — скрафтить в алтаре (если стоишь рядом и 3 руки одного типа)
-  if (ev.code === "KeyG" && room.state.phase === "hub") {
-    const altarD = Math.hypot(controller.position.x, controller.position.z);
-    if (altarD < 3 && room.state.hubReforgeSlots.length === 3) {
-      room.send("hub_reforge", { op: "craft" });
-      playSound("teleport");
-    }
-  }
   // E-телепорт убран — телепортация только через порталы или дебаг-панель
   if (ev.code === "Space") {
     playSound("jump");
@@ -1967,14 +1935,13 @@ function updateHubInteractionHint() {
       const slot = room.state.hubSlots[i];
       if (slot && !slot.empty) action = `[F] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}`;
       else if (slot && slot.empty && myPlayer) {
-        // что можно положить — приоритет тот же
-        let lbl = null;
-        if (myPlayer.hasLeftHand) lbl = `левую руку (${myPlayer.leftHandType || "?"})`;
-        else if (myPlayer.hasRightHand) lbl = `правую руку (${myPlayer.rightHandType || "?"})`;
-        else if (myPlayer.itemsInBody.length > 0) lbl = `лишний предмет`;
-        else if (myPlayer.passiveItemId) lbl = `надетый предмет`;
-        else if (myPlayer.hasLegs > 0) lbl = `ногу`;
-        if (lbl) action = `[F] положить ${lbl}`;
+        const bp = myPlayer.backpack && (myPlayer.backpack.toArray ? myPlayer.backpack.toArray() : [...myPlayer.backpack]);
+        if (bp && bp.length) action = `[F] положить ${bp[0]}`;
+        else if (myPlayer.cards) {
+          const arr = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
+          const c = arr.find(Boolean);
+          if (c) action = `[F] положить карту (${c})`;
+        }
       }
     }
   });
@@ -1993,20 +1960,7 @@ function updateHubInteractionHint() {
     const dPortal = Math.hypot(controller.position.x - hubPortalPos.x, controller.position.z - hubPortalPos.z);
     if (dPortal < 2.5) action = "Стой на портале → телепорт на арену";
   }
-  const altarD = Math.hypot(controller.position.x, controller.position.z);
-  if (altarD < 2.5 && !action) {
-    const list = room.state.hubReforgeSlots;
-    if (list.length === 3) {
-      const parts = [...list].map(x => String(x).split(":"));
-      const same = parts.every(([k]) => k === "HAND") && parts.every(([, t]) => t === parts[0][1]);
-      if (same) action = `[G] сплавить 3×${parts[0][1]}`;
-      else action = "[F] забрать (нужны 3 одинаковых)";
-    } else if (list.length > 0) {
-      action = `[F] положить/забрать (${list.length}/3)`;
-    } else if (myPlayer.hasLeftHand || myPlayer.hasRightHand) {
-      action = "[F] положить руку в алтарь";
-    }
-  }
+  // алтарь перековки рук убран
   if (action) {
     hintText.textContent = action;
     hintText.style.opacity = 1.0;
@@ -2041,7 +1995,9 @@ function chestItemLabel(raw) {
     return it ? it.name : (sub || "Предмет");
   }
   if (kind === "WEAPON") return sub === "STAR_SWORD" ? "Звёздный Меч" : (sub || "Оружие");
-  if (kind === "CARD") return sub === "ANGER" ? "Ярость" : (sub || "Карта");
+  if (kind === "CARD") {
+    return ({ ANGER: "Ярость", FRENZY: "Безумие", RAIN: "Дождь" })[sub] || (sub || "Карта");
+  }
   return "Предмет";
 }
 function chestItemColor(raw) {
@@ -2145,7 +2101,7 @@ function drawChestIcon(ctx, raw, size) {
     ctx.font = "bold 16px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("A", cx, cy);
+    ctx.fillText(({ ANGER: "A", FRENZY: "F", RAIN: "R" })[sub] || "C", cx, cy);
   } else {
     ctx.fillStyle = "#666";
     ctx.fillRect(cx - 12, cy - 12, 24, 24);
@@ -2208,18 +2164,17 @@ function renderChestPanel() {
   if (myGrid && myPlayer) {
     myGrid.innerHTML = "";
     const myItems = [];
-    if (myPlayer.hasLeftHand)  myItems.push({ raw: "HAND:" + myPlayer.leftHandType,  what: "leftHand",  label: "Левая: " + handTypeName(myPlayer.leftHandType) });
-    if (myPlayer.hasRightHand) myItems.push({ raw: "HAND:" + myPlayer.rightHandType, what: "rightHand", label: "Правая: " + handTypeName(myPlayer.rightHandType) });
-    for (let k = 0; k < (myPlayer.hasLegs || 0); k++) myItems.push({ raw: "LEG:", what: "leg", label: "Нога" });
-    if (myPlayer.passiveItemId) myItems.push({ raw: "ITEM:" + myPlayer.passiveItemId, what: "passive", label: "Пассивка: " + myPlayer.passiveItemId });
-    if (myPlayer.itemsInBody && myPlayer.itemsInBody.length) {
-      const arr = myPlayer.itemsInBody.toArray ? myPlayer.itemsInBody.toArray() : [...myPlayer.itemsInBody];
-      arr.forEach(id => myItems.push({ raw: "ITEM:" + id, what: "item", label: "Предмет: " + id }));
-    }
     if (myPlayer.weaponSlot) myItems.push({ raw: "WEAPON:" + myPlayer.weaponSlot, what: "weapon", label: "Оружие: " + myPlayer.weaponSlot });
     if (myPlayer.cards) {
       const arr = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
       arr.forEach((c, i) => { if (c) myItems.push({ raw: "CARD:" + c, what: "card:" + i, label: "Карта: " + c }); });
+    }
+    if (myPlayer.backpack && myPlayer.backpack.length) {
+      const bp = myPlayer.backpack.toArray ? myPlayer.backpack.toArray() : [...myPlayer.backpack];
+      bp.forEach((raw, i) => {
+        if (!raw) return;
+        myItems.push({ raw, what: "backpack:" + i, label: "Рюкзак: " + raw });
+      });
     }
     const CAP2 = 24;
     const total2 = Math.max(CAP2, Math.ceil(myItems.length / 4) * 4);
@@ -2361,7 +2316,8 @@ function animate() {
   enemyMeshes.forEach(entry => {
     const m = entry.mesh;
     if (hideEnemies) { m.visible = false; return; }
-    else if (!m.visible && entry.wasAlive) m.visible = true;
+    m.visible = true;
+    if (!entry.alive) entry.targetY = 0.9;
     const a = Math.min(1, dt * lerpSpeed);
     m.position.x += (entry.targetX - m.position.x) * a;
     m.position.y += (entry.targetY - m.position.y) * a;
@@ -2387,11 +2343,15 @@ function animate() {
       }
     }
     if (m.userData.cacoV3) {
-      // v0.0.3.2: всегда фронтом к игроку (билборд через THREE.Sprite),
-      // атака — когда недавно был caco_shoot fx
-      entry.animPhase = ((entry.animPhase || 0) + dt * 4) % 1;
-      const attacking = entry._attackingUntil && performance.now() < entry._attackingUntil;
-      updateCacodemonSprite(m, camera, 0, entry.animPhase, true, attacking);
+      const attacking = !!(entry._attackingUntil && performance.now() < entry._attackingUntil);
+      const inPain = !!(entry._painUntil && performance.now() < entry._painUntil);
+      if (!entry.alive) {
+        const tDeath = Math.min(1, (performance.now() - (entry.deathAt || 0)) / 780);
+        updateCacodemonSprite(m, camera, m.rotation.y, tDeath, false, false, false);
+      } else {
+        entry.animPhase = ((entry.animPhase || 0) + dt * (attacking ? 8 : 3.2)) % 1;
+        updateCacodemonSprite(m, camera, m.rotation.y, entry.animPhase, true, attacking, inPain);
+      }
     } else {
       animateEnemy(m, dt, moved);
     }

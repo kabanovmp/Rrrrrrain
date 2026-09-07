@@ -1,6 +1,5 @@
-// v0.0.3.2 — Cacodemon PNG-атлас с alpha (вырезан белый фон)
-// Правило: спрайт ВСЕГДА повёрнут лицом к камере (нет direction-frames)
-// Атлас 500x434, 6 рядов, 7 колонок = 42 ячейки
+// Cacodemon PNG-атлас 7×6. Спрайт-билборд, кадры по углу обзора (8 направлений),
+// атака / боль / смерть — все ряды атласа.
 
 import * as THREE from "three";
 
@@ -8,7 +7,6 @@ let atlasTexture = null;
 export function loadEnemyAtlas() {
   if (atlasTexture) return atlasTexture;
   const loader = new THREE.TextureLoader();
-  // v0.0.3.2: PNG с прозрачностью вместо JPG с белым фоном
   atlasTexture = loader.load("/assets/enemy-sprite.png");
   atlasTexture.magFilter = THREE.NearestFilter;
   atlasTexture.minFilter = THREE.NearestFilter;
@@ -16,15 +14,35 @@ export function loadEnemyAtlas() {
   return atlasTexture;
 }
 
-// Атлас: 7 колонок x 6 рядов (~42 кадра, но реально 32-35).
-// Ячейка: 500/7 ≈ 71.4 x 434/6 ≈ 72.3 пикселей.
 const ATLAS_COLS = 7;
 const ATLAS_ROWS = 6;
+const BASE_SCALE = 3.45;
 
-// v0.0.3.2: правило — какодемон ВСЕГДА повернут лицом к игроку-наблюдателю.
-// Используем только фронтальный кадр (0) для idle и атаки — никаких боковых/задних углов.
-const FRONT_IDLE_FRAME = 0;      // ряд 0, колонка 0 — фронтальный idle
-const FRONT_ATTACK_FRAMES = [7, 8, 9, 10]; // ряд 1 — фронтальная атака (морда, зубы)
+// Классическая раскладка Doom: 5 уникальных ракурсов + зеркало.
+// ряд 0 — idle, ряд 1–2 — атака, ряд 3 — доп. idle, ряд 4 — боль, ряд 5 — смерть.
+const DIR_COL = [0, 1, 2, 3, 4, 3, 2, 1];
+const DIR_FLIP = [1, 1, 1, 1, 1, -1, -1, -1];
+
+function setFrame(data, sprite, frame, flipX) {
+  if (frame === data.curFrame && flipX === data.curFlip) return;
+  data.curFrame = frame;
+  data.curFlip = flipX;
+  const col = frame % ATLAS_COLS;
+  const row = Math.floor(frame / ATLAS_COLS);
+  data.tex.offset.set(col * data.cw, 1 - (row + 1) * data.ch);
+  const s = data.baseScale;
+  sprite.scale.set(s * flipX, s, 1);
+}
+
+function viewSector(camera, sprite, enemyYaw) {
+  const dx = camera.position.x - sprite.position.x;
+  const dz = camera.position.z - sprite.position.z;
+  const viewYaw = Math.atan2(dx, dz);
+  let rel = viewYaw - (enemyYaw || 0);
+  while (rel < -Math.PI) rel += Math.PI * 2;
+  while (rel > Math.PI) rel -= Math.PI * 2;
+  return ((Math.round(rel / (Math.PI / 4)) % 8) + 8) % 8;
+}
 
 export function createCacodemonSprite() {
   const tex = loadEnemyAtlas().clone();
@@ -35,41 +53,48 @@ export function createCacodemonSprite() {
   const mat = new THREE.SpriteMaterial({
     map: tex,
     transparent: true,
-    alphaTest: 0.1,   // v0.0.3.2: мягче для PNG с alpha-градиентом по краям
-    color: 0xffffff,
+    alphaTest: 0.22,
+    color: 0xffece4,
     depthWrite: false,
   });
-  // UV в атласе для первого кадра (0,0 — верхний-левый; но в THREE UV снизу-слева)
   const cw = 1 / ATLAS_COLS;
   const ch = 1 / ATLAS_ROWS;
   tex.repeat.set(cw, ch);
-  tex.offset.set(0, 1 - ch); // верхний-левый кадр
+  tex.offset.set(0, 1 - ch);
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(3.5, 3.5, 1); // ~3.5м размер
-  sprite.userData.cacoAtlas = { cw, ch, tex, curFrame: -1 };
+  sprite.scale.set(BASE_SCALE, BASE_SCALE, 1);
+  sprite.center.set(0.5, 0.42);
+  sprite.userData.cacoAtlas = { cw, ch, tex, curFrame: -1, curFlip: 1, baseScale: BASE_SCALE };
+  sprite.userData.flying = true;
   return sprite;
 }
 
-// v0.0.3.2: sprite THREE.Sprite сам билбордится к камере — нам достаточно только
-// выбрать кадр. Никакого direction: используем фронтальный idle или цикл фронт-атаки.
-// enemyYaw больше не используется, но параметр оставлен для обратной совместимости.
-export function updateCacodemonSprite(sprite, camera, enemyYaw, animPhase, alive = true, attacking = false) {
+export function updateCacodemonSprite(sprite, camera, enemyYaw, animPhase, alive = true, attacking = false, inPain = false) {
   const data = sprite.userData.cacoAtlas;
   if (!data) return;
-  let frame;
+  const sector = viewSector(camera, sprite, enemyYaw);
+  const col = DIR_COL[sector];
+  const flip = DIR_FLIP[sector];
+
   if (!alive) {
-    // Смерть: последние 3 маленьких кадра (39-41)
-    frame = Math.min(41, 39 + Math.floor(animPhase * 3));
-  } else if (attacking) {
-    // Фронтальная атака — цикл по FRONT_ATTACK_FRAMES
-    frame = FRONT_ATTACK_FRAMES[Math.floor(animPhase * FRONT_ATTACK_FRAMES.length) % FRONT_ATTACK_FRAMES.length];
-  } else {
-    // Фронтальный idle с лёгким "дыханием": чередуем 0 и 1 колонку периодически
-    frame = FRONT_IDLE_FRAME;
+    const deathCols = 5; // последние две ячейки ряда пустые
+    const fi = Math.min(deathCols - 1, Math.floor(Math.max(0, animPhase) * deathCols));
+    const frame = 5 * ATLAS_COLS + fi;
+    data.baseScale = BASE_SCALE * (fi >= 4 ? 0.72 : 1);
+    setFrame(data, sprite, frame, 1);
+    return;
   }
-  if (frame === data.curFrame) return;
-  data.curFrame = frame;
-  const col = frame % ATLAS_COLS;
-  const row = Math.floor(frame / ATLAS_COLS);
-  data.tex.offset.set(col * data.cw, 1 - (row + 1) * data.ch);
+  data.baseScale = BASE_SCALE;
+
+  if (inPain) {
+    setFrame(data, sprite, 4 * ATLAS_COLS + col, flip);
+    return;
+  }
+  if (attacking) {
+    const row = (Math.floor((animPhase || 0) * 4) % 2 === 0) ? 1 : 2;
+    setFrame(data, sprite, row * ATLAS_COLS + col, flip);
+    return;
+  }
+  const bobRow = ((animPhase || 0) < 0.5) ? 0 : 3;
+  setFrame(data, sprite, bobRow * ATLAS_COLS + col, flip);
 }
