@@ -48,22 +48,27 @@ function paintHand(ctx, w, h, palmUp) {
 function paintSword(ctx, w, h) {
   ctx.clearRect(0, 0, w, h);
   ctx.save();
-  ctx.translate(w * 0.62, h * 0.42);
-  ctx.rotate(-0.55);
-  ctx.fillStyle = "#3a2a22";
-  ctx.fillRect(-10, 28, 20, 18);
-  ctx.fillStyle = "#c9a227";
-  ctx.fillRect(-22, 22, 44, 10);
-  const g = ctx.createLinearGradient(0, -90, 0, 24);
-  g.addColorStop(0, "#fff6ff");
-  g.addColorStop(0.4, "#ff80c8");
-  g.addColorStop(1, "#aa2060");
+  ctx.translate(w * 0.58, h * 0.48);
+  ctx.rotate(-0.62);
+  ctx.fillStyle = "#2a1810";
+  ctx.fillRect(-14, 48, 28, 28);
+  ctx.fillStyle = "#e8c44a";
+  ctx.fillRect(-32, 38, 64, 16);
+  const g = ctx.createLinearGradient(0, -140, 0, 40);
+  g.addColorStop(0, "#ffffff");
+  g.addColorStop(0.15, "#ffe0f4");
+  g.addColorStop(0.45, "#ff6ab8");
+  g.addColorStop(1, "#8a1048");
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.moveTo(0, -96); ctx.lineTo(12, 22); ctx.lineTo(-12, 22);
+  ctx.moveTo(0, -148); ctx.lineTo(16, 40); ctx.lineTo(-16, 40);
   ctx.closePath(); ctx.fill();
-  ctx.fillStyle = "#ffe8f4";
-  ctx.fillRect(-3, -88, 6, 100);
+  ctx.fillStyle = "#fff8fc";
+  ctx.fillRect(-4, -130, 8, 160);
+  ctx.fillStyle = "#ffd0ee";
+  ctx.beginPath();
+  ctx.moveTo(0, -148); ctx.lineTo(10, -118); ctx.lineTo(-10, -118);
+  ctx.closePath(); ctx.fill();
   ctx.restore();
 }
 

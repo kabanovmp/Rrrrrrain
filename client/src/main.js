@@ -46,8 +46,8 @@ fpsHud.id = "fpsHud";
 fpsHud.style.cssText = [
   "position:fixed", "left:50%", "bottom:0",
   "transform:translateX(-50%)",
-  "width:min(46vmin, 420px)",
-  "height:min(24vmin, 210px)",
+  "width:min(42vmin, 360px)",
+  "height:min(24vmin, 200px)",
   "pointer-events:none", "z-index:12",
   "transform-origin:50% 100%",
 ].join(";");
@@ -63,14 +63,15 @@ fpsHud.appendChild(handHud);
 fpsHud.appendChild(weaponHud);
 document.body.appendChild(fpsHud);
 let swordBob = 0, swordSwing = 0, swordSwingV = 0, weaponKick = 0;
-function triggerSwordSwing() { swordSwingV = 7.2; weaponKick = 1; }
+let localBlockHp = 0, shieldGraceUntil = 0;
+function triggerSwordSwing() { swordSwingV = 14; weaponKick = 1; }
 
 const wpnCdHud = document.createElement("div");
-wpnCdHud.style.cssText = "position:fixed;left:50%;bottom:min(26vmin, 228px);transform:translateX(-50%);display:flex;gap:10px;pointer-events:none;z-index:14;font-family:sans-serif;";
+wpnCdHud.style.cssText = "position:fixed;left:50%;bottom:min(26vmin, 214px);transform:translateX(-50%);display:flex;gap:10px;pointer-events:none;z-index:14;font-family:sans-serif;";
 function makeCdChip(label) {
   const d = document.createElement("div");
-  d.style.cssText = "min-width:86px;padding:6px 10px;border-radius:8px;background:rgba(0,0,0,0.62);border:1px solid #886;color:#eee;font-size:12px;text-align:center;letter-spacing:0.4px;";
-  d.innerHTML = `<div style="opacity:.7;font-size:10px;">${label}</div><div class="cdv">готово</div>`;
+  d.style.cssText = "position:relative;min-width:110px;padding:7px 12px 9px;border-radius:8px;background:rgba(0,0,0,0.72);border:1px solid #886;color:#eee;font-size:13px;text-align:center;letter-spacing:0.4px;overflow:hidden;";
+  d.innerHTML = `<div style="opacity:.75;font-size:11px;font-weight:700;">${label}</div><div class="cdv">готово</div><div class="cdbar" style="position:absolute;left:0;bottom:0;height:3px;width:0;background:#ffcc66;"></div>`;
   return d;
 }
 const lmbChip = makeCdChip("ЛКМ");
@@ -86,7 +87,7 @@ let lmbHeld = false;
 // v0.0.3.1: HUD звёздного блока (абсорб — в центре экрана)
 const blockHud = document.createElement("div");
 blockHud.id = "blockHud";
-blockHud.style.cssText = "position:fixed;left:50%;top:60%;transform:translateX(-50%);width:220px;height:14px;border:2px solid #ff40a0;background:rgba(0,0,0,0.55);border-radius:7px;overflow:hidden;pointer-events:none;z-index:14;opacity:0;transition:opacity .2s;box-shadow:0 0 12px rgba(255,64,160,0.7);";
+blockHud.style.cssText = "position:fixed;left:50%;top:58%;transform:translateX(-50%);width:260px;height:16px;border:2px solid #ff40a0;background:rgba(0,0,0,0.55);border-radius:7px;overflow:hidden;pointer-events:none;z-index:14;opacity:0;box-shadow:0 0 12px rgba(255,64,160,0.7);";
 const blockHudFill = document.createElement("div");
 blockHudFill.style.cssText = "width:100%;height:100%;background:linear-gradient(90deg,#ff8ac8,#ff40a0);transition:width .1s;";
 blockHud.appendChild(blockHudFill);
@@ -918,19 +919,38 @@ window.__setRenderFar = (v) => {
   }
 };
 
+function layoutHudScale() {
+  const vv = window.visualViewport;
+  const w = (vv && vv.width) || window.innerWidth;
+  const h = (vv && vv.height) || window.innerHeight;
+  const short = Math.min(w, h);
+  // На 13" Mac ~1280×800 при 100% zoom рука должна быть видна, но не перекрывать кадр.
+  // 50% zoom у друга увеличивает CSS-пиксели — vmin сам уменьшает физический размер.
+  const hudH = Math.round(Math.min(200, short * 0.24, h * 0.26));
+  const hudW = Math.round(hudH * 1.6);
+  fpsHud.style.width = hudW + "px";
+  fpsHud.style.height = hudH + "px";
+  const insetBottom = vv ? Math.max(0, window.innerHeight - vv.offsetTop - vv.height) : 0;
+  fpsHud.style.bottom = insetBottom + "px";
+  wpnCdHud.style.bottom = (hudH + 10 + insetBottom) + "px";
+}
+
 function fitToViewport() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  const vv = window.visualViewport;
+  const w = Math.max(1, Math.floor((vv && vv.width) || window.innerWidth));
+  const h = Math.max(1, Math.floor((vv && vv.height) || window.innerHeight));
   if (!w || !h) return;
   camera.aspect = w / h;
-  camera.fov = h < 780 ? 78 : (h < 920 ? 74 : 72);
+  camera.fov = h < 700 ? 84 : (h < 850 ? 80 : (h < 980 ? 76 : 72));
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-  renderer.setSize(w, h, false); // false = НЕ трогать CSS (CSS у нас inset:0), только буфер
+  renderer.setSize(w, h, false);
+  layoutHudScale();
 }
 window.addEventListener("resize", fitToViewport);
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", fitToViewport);
+  window.visualViewport.addEventListener("scroll", fitToViewport);
 }
 fitToViewport();
 
@@ -1197,23 +1217,47 @@ function spawnSmokeFx(x, y, z, blow) {
   }
 }
 
+function spawnStarBoltFx(x, y, z, dx, dy, dz, speed = 34, homeId = "") {
+  const mat = FX_MAT_TPL.basic.clone(); mat.color.setHex(0xff66cc);
+  const m = new THREE.Mesh(FX_GEOM.iceShard, mat);
+  m.position.set(x, y, z);
+  m.scale.setScalar(0.7);
+  const haloMat = FX_MAT_TPL.halo.clone(); haloMat.color.setHex(0xff40a0); haloMat.opacity = 0.55;
+  const halo = new THREE.Mesh(FX_GEOM.sphereHalo, haloMat);
+  m.add(halo);
+  scene.add(m);
+  const L = Math.hypot(dx, dy, dz) || 1;
+  pushShot({
+    mesh: m, ttl: 2.6, maxTtl: 2.6,
+    vx: dx / L * speed, vy: dy / L * speed, vz: dz / L * speed,
+    spin: 14, homeId: homeId || "",
+  });
+}
+
 const starShieldGroup = new THREE.Group();
 {
-  const ring = new THREE.Mesh(
-    new THREE.TorusGeometry(1.55, 0.05, 8, 32),
-    new THREE.MeshBasicMaterial({ color: 0xff40a0, transparent: true, opacity: 0.55 })
-  );
-  ring.rotation.x = Math.PI / 2;
-  starShieldGroup.add(ring);
-  for (let i = 0; i < 8; i++) {
-    const s = new THREE.Mesh(FX_GEOM.sphereSmall, new THREE.MeshBasicMaterial({ color: 0xffc0e8 }));
-    const a = (i / 8) * Math.PI * 2;
-    s.position.set(Math.cos(a) * 1.55, 0, Math.sin(a) * 1.55);
-    s.scale.setScalar(0.35);
+  for (let i = 0; i < 12; i++) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff79d2, transparent: true, opacity: 0.95, depthWrite: false });
+    const s = new THREE.Mesh(FX_GEOM.iceShard, mat);
+    s.userData.ang = (i / 12) * Math.PI * 2;
+    s.scale.setScalar(0.28);
     starShieldGroup.add(s);
   }
   starShieldGroup.visible = false;
+  starShieldGroup.renderOrder = 8;
   scene.add(starShieldGroup);
+}
+const otherShields = new Map();
+function syncOrbitShield(group, x, y, z, dt) {
+  group.visible = true;
+  group.position.set(x, y, z);
+  const t = performance.now() * 0.001;
+  group.children.forEach((ch, i) => {
+    if (ch.userData.ang == null) ch.userData.ang = (i / Math.max(1, group.children.length)) * Math.PI * 2;
+    const a = ch.userData.ang + t * 2.6;
+    ch.position.set(Math.cos(a) * 1.45, Math.sin(a * 2) * 0.32, Math.sin(a) * 1.45);
+    ch.rotation.y += dt * 4;
+  });
 }
 
 // ── ICE: вращающийся кристаллический шип с бледным свечением
@@ -1592,8 +1636,7 @@ function setupRoomHandlers() {
       playSound("fireball_impact", { volume: 0.35 });
     }
     else if (msg.type === "homing") {
-      const sp = 34;
-      spawnFireballFx(msg.x, msg.y, msg.z, msg.color || 0xff40a0, (msg.dx || 0) * sp, (msg.dy || 0) * sp, (msg.dz || 0) * sp, 2.4);
+      spawnStarBoltFx(msg.x, msg.y, msg.z, msg.dx || 0, msg.dy || 0, msg.dz || 0, 34, msg.targetId || "");
       playSound("fireball_cast", { volume: 0.35 });
     }
     else if (msg.type === "hitscan") {
@@ -1602,15 +1645,20 @@ function setupRoomHandlers() {
       playSound("chain_cast");
     }
     else if (msg.type === "star_shield") {
-      spawnWaveFx(msg.x ?? controller.position.x, (msg.y ?? controller.position.y) + 0.5, msg.z ?? controller.position.z, 2.4);
+      if (msg.target === selfId) {
+        localBlockHp = msg.absorb || 100;
+        shieldGraceUntil = performance.now() + 1500;
+      }
       playSound("fireball_impact", { volume: 0.3 });
     }
     else if (msg.type === "cig_puff" || msg.type === "cig_blow") {
       spawnSmokeFx(msg.x, msg.y + 0.4, msg.z, msg.type === "cig_blow");
     }
     else if (msg.type === "block_absorb") {
-      // мигание HUD блока
-      blockHud.style.opacity = 1; setTimeout(() => { blockHud.style.opacity = 0.7; }, 100);
+      if (msg.target === selfId) {
+        if (typeof msg.left === "number") localBlockHp = Math.max(0, msg.left);
+        blockHud.style.opacity = 1;
+      }
     }
     else if (msg.type === "fall_respawn" && msg.target === selfId) {
       fellFlashUntil = performance.now() + 400;
@@ -1742,6 +1790,7 @@ canvas.addEventListener("mousedown", (ev) => {
     const origin = controller.position.clone().add(new THREE.Vector3(0, 0.4, 0));
     sendInput();
     if (spell.isDaggerCharge) return;
+    if (spell.isShield) { localBlockHp = 100; shieldGraceUntil = performance.now() + 1500; }
     room.send("cast", {
       spell: spellId, dx: dir.x, dy: dir.y, dz: dir.z,
       ox: origin.x, oy: origin.y, oz: origin.z, hand: ev.button === 2 ? "right" : "left",
@@ -2393,20 +2442,29 @@ function animate() {
     }
     // ЛКМ / ПКМ кулдауны с сервера
     const wdef = WEAPONS[myPlayer.weaponSlot];
-    const fillChip = (chip, until, hint) => {
+    const fillChip = (chip, until, hint, cdMax) => {
       const left = Math.max(0, (until || 0) - nowS);
       const v = chip.querySelector(".cdv");
+      const bar = chip.querySelector(".cdbar");
       chip.style.opacity = wdef ? "1" : "0.35";
       if (left > 0.05) {
-        v.textContent = left >= 10 ? left.toFixed(0) + "с" : left.toFixed(1) + "с";
-        chip.style.borderColor = "#774";
+        v.textContent = "КД " + (left >= 10 ? left.toFixed(0) : left.toFixed(1)) + "с";
+        chip.style.borderColor = "#a64";
+        if (bar) {
+          const max = Math.max(0.2, cdMax || 1);
+          bar.style.width = Math.min(100, (left / max) * 100).toFixed(1) + "%";
+          bar.style.background = "#ff8844";
+        }
       } else {
         v.textContent = hint || "готово";
-        chip.style.borderColor = "#8a8";
+        chip.style.borderColor = "#6c6";
+        if (bar) { bar.style.width = "100%"; bar.style.background = "#66cc88"; }
       }
     };
-    fillChip(lmbChip, myPlayer.lmbCdUntil, wdef?.lmbHint || "готово");
-    fillChip(rmbChip, myPlayer.rmbCdUntil, wdef?.rmbHint || "готово");
+    const lmbSpell = wdef ? SPELLS[wdef.lmb] : null;
+    const rmbSpell = wdef ? SPELLS[wdef.rmb] : null;
+    fillChip(lmbChip, myPlayer.lmbCdUntil, wdef?.lmbHint || "готово", lmbSpell?.cooldown);
+    fillChip(rmbChip, myPlayer.rmbCdUntil, wdef?.rmbHint || "готово", rmbSpell?.cooldown);
     if (myPlayer.weaponSlot === "DAGGERS") {
       extraChip.style.display = "block";
       extraChip.querySelector(".cdv").textContent = `${myPlayer.daggerCount || 1}/10`;
@@ -2586,6 +2644,20 @@ function animate() {
   for (let i = shots.length - 1; i >= 0; i--) {
     const s = shots[i];
     s.ttl -= dt;
+    if (s.homeId && enemyMeshes) {
+      const tgt = enemyMeshes.get(s.homeId);
+      if (tgt && tgt.mesh && tgt.alive !== false) {
+        const p = tgt.mesh.position;
+        const dx = p.x - s.mesh.position.x, dy = p.y - s.mesh.position.y, dz = p.z - s.mesh.position.z;
+        const L = Math.max(0.001, Math.hypot(dx, dy, dz));
+        const sp = Math.hypot(s.vx, s.vy, s.vz) || 34;
+        s.vx = s.vx * 0.7 + (dx / L) * sp * 0.3;
+        s.vy = s.vy * 0.7 + (dy / L) * sp * 0.3;
+        s.vz = s.vz * 0.7 + (dz / L) * sp * 0.3;
+        const ns = Math.hypot(s.vx, s.vy, s.vz) || 1;
+        s.vx = s.vx / ns * sp; s.vy = s.vy / ns * sp; s.vz = s.vz / ns * sp;
+      }
+    }
     if (s.vx || s.vy || s.vz) {
       s.mesh.position.x += s.vx * dt;
       s.mesh.position.y += s.vy * dt;
@@ -2623,9 +2695,9 @@ function animate() {
 
   // v0.0.3.16: рука всегда; оружие — оверлей; bob сохраняет центрирование
   if (V3_MODE) {
-    const locked = document.pointerLockElement === canvas;
-    fpsHud.style.display = locked ? "block" : "none";
-    wpnCdHud.style.display = locked ? "flex" : "none";
+    const inGame = menu.style.display === "none";
+    fpsHud.style.display = inGame ? "block" : "none";
+    wpnCdHud.style.display = inGame ? "flex" : "none";
     const wdef = WEAPONS[myPlayer?.weaponSlot];
     const palmUp = !!(wdef && wdef.palmUp);
     const wantHand = hudSprite(palmUp ? "handUp" : "hand");
@@ -2647,19 +2719,45 @@ function animate() {
     weaponKick = Math.max(0, weaponKick - dt * 4);
     const bobY = Math.sin(swordBob) * (moved ? 6 : 2);
     const bobX = Math.cos(swordBob * 0.5) * (moved ? 3 : 1);
-    const rot = -swordSwing * 22;
-    const recoil = weaponKick * 18;
-    fpsHud.style.transform = `translateX(-50%) translate(${bobX}px, ${bobY - swordSwing * 28}px) rotate(${rot}deg)`;
-    weaponHud.style.transform = `translateX(-50%) translateY(${-recoil}px)`;
+    const rot = -swordSwing * 32;
+    const recoil = weaponKick * 28;
+    fpsHud.style.transform = `translateX(-50%) translate(${bobX}px, ${bobY - swordSwing * 36}px) rotate(${rot}deg)`;
+    weaponHud.style.transform = `translateX(-50%) translateY(${-recoil}px) rotate(${-weaponKick * 18}deg)`;
   }
   if (starShieldGroup) {
     const on = !!(myPlayer && (myPlayer.blockAbsorbLeft || 0) > 0);
-    starShieldGroup.visible = on;
     if (on) {
       const p = controller.position;
-      starShieldGroup.position.set(p.x, p.y + 0.85, p.z);
-      starShieldGroup.rotation.y += dt * 2.4;
-    }
+      syncOrbitShield(starShieldGroup, p.x, p.y + 0.95, p.z, dt);
+    } else starShieldGroup.visible = false;
+  }
+  if (room && room.state && room.state.players) {
+    const live = new Set();
+    room.state.players.forEach((p, id) => {
+      if (id === selfId) return;
+      if ((p.blockAbsorbLeft || 0) <= 0) return;
+      live.add(id);
+      let g = otherShields.get(id);
+      if (!g) {
+        g = starShieldGroup.clone(true);
+        g.traverse((o) => {
+          if (o.isMesh && o.material) o.material = o.material.clone();
+        });
+        g.children.forEach((ch, i) => {
+          ch.userData.ang = (i / Math.max(1, g.children.length)) * Math.PI * 2;
+        });
+        scene.add(g);
+        otherShields.set(id, g);
+      }
+      const e = otherPlayers.get(id);
+      const x = e ? e.mesh.position.x : p.pos.x;
+      const y = e ? e.mesh.position.y + 0.9 : p.pos.y + 0.9;
+      const z = e ? e.mesh.position.z : p.pos.z;
+      syncOrbitShield(g, x, y, z, dt);
+    });
+    otherShields.forEach((g, id) => {
+      if (!live.has(id)) g.visible = false;
+    });
   }
   fadeHandCracks(handsRoot, dt);
 

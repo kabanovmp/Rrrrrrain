@@ -73,7 +73,7 @@ export function createCacodemonSprite() {
 export function updateCacodemonSprite(sprite, camera, enemyYaw, animPhase, alive = true, attacking = false, inPain = false) {
   const data = sprite.userData.cacoAtlas;
   if (!data) return;
-  const sector = (viewSector(camera, sprite, enemyYaw) + 4) % 8;
+  const sector = viewSector(camera, sprite, enemyYaw);
   const col = DIR_COL[sector];
   const flip = DIR_FLIP[sector];
 

@@ -21,14 +21,17 @@ function paintPortal(canvas, t) {
   const d = img.data;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const n = Math.sin(x * 0.35 + t * 2.1) + Math.sin(y * 0.22 - t * 1.6)
-        + Math.sin((x + y) * 0.18 + t * 3.0);
-      const v = (n + 3) / 6;
+      const u = x / w, v = y / h;
+      const swirl = Math.sin((u * 8 + Math.sin(v * 6 + t * 1.7)) + t * 2.4)
+        + Math.sin(v * 10 - t * 1.9) * 0.7
+        + Math.sin((u + v) * 14 + t * 3.2) * 0.35;
+      const n = (swirl + 2.2) / 4.4;
       const i = (y * w + x) * 4;
-      d[i] = 80 + v * 140;
-      d[i + 1] = 20 + v * 40;
-      d[i + 2] = 140 + v * 115;
-      d[i + 3] = 200 + v * 55;
+      // фиолетово-чёрная «вода» Незера
+      d[i] = 40 + n * 160;
+      d[i + 1] = 8 + n * 30;
+      d[i + 2] = 70 + n * 185;
+      d[i + 3] = 230;
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -38,8 +41,8 @@ export function createNetherPortal({ scale = 1, idle = false } = {}) {
   const group = new THREE.Group();
   const BS = 1.2 * scale;
   const obs = new THREE.MeshStandardMaterial({
-    color: 0x0b0b12, roughness: 0.92, metalness: 0.08,
-    emissive: 0x1a0820, emissiveIntensity: idle ? 0.08 : 0.18,
+    color: 0x15121c, roughness: 0.96, metalness: 0.04,
+    emissive: 0x2a1038, emissiveIntensity: idle ? 0.12 : 0.28,
   });
   const W = 4, H = 5;
   let first = null;

@@ -76,9 +76,14 @@ export class ArenaRoom extends Room {
       }
       if (spell.isShield) {
         p.blockAbsorbLeft = spell.absorb;
-        p.blockActiveUntil = now + 36000;
+        // 0 duration = бессрочно, пока не снимут HP. Legacy-клиенты смотрят blockActiveUntil —
+        // ставим далеко в будущее, чтобы бар не гас через 3с.
+        p.blockActiveUntil = 1e15;
         p[cdField] = now + (spell.cooldown || 2);
-        this.broadcast("fx", { type: "star_shield", target: client.sessionId, absorb: spell.absorb, color: spell.color });
+        this.broadcast("fx", {
+          type: "star_shield", target: client.sessionId, absorb: spell.absorb,
+          x: origin.x, y: origin.y, z: origin.z, color: spell.color,
+        });
         return;
       }
       if (spell.isHitscan) {
@@ -634,7 +639,11 @@ export class ArenaRoom extends Room {
       vx: vx * sp, vy: vy * sp, vz: vz * sp,
       life: spell.life || 4, damage, radius: spell.radius || 0.5, color: spell.color,
     });
-    this.broadcast("fx", { type: "homing", x: origin.x, y: origin.y, z: origin.z, color: spell.color, dx: vx, dy: vy, dz: vz });
+    this.broadcast("fx", {
+      type: "homing", x: origin.x, y: origin.y, z: origin.z,
+      color: spell.color, dx: vx, dy: vy, dz: vz, star: true,
+      targetId: tgt ? tgt.id : "",
+    });
   }
 
   throwDaggers(p, sid, origin, dir, spell, dmgMult) {
@@ -681,13 +690,15 @@ export class ArenaRoom extends Room {
 
   castChainStorm(p, origin, dir, spell, dmgMult) {
     let firstEnemy = null, firstDist = Infinity;
+    const dl = Math.hypot(dir.x, dir.y, dir.z) || 1;
+    const ux = dir.x / dl, uy = dir.y / dl, uz = dir.z / dl;
     this.state.enemies.forEach(e => {
       if (!e.alive) return;
       const dx = e.pos.x - origin.x, dy = e.pos.y - origin.y, dz = e.pos.z - origin.z;
       const dist2 = dx * dx + dy * dy + dz * dz;
       if (dist2 > spell.initialRange * spell.initialRange) return;
       const dist = Math.sqrt(dist2);
-      const dot = (dx * dir.x + dy * dir.y + dz * dir.z) / (dist || 1);
+      const dot = (dx * ux + dy * uy + dz * uz) / (dist || 1);
       if (dot < (spell.initialConeCos || 0.7)) return;
       if (dist < firstDist) { firstDist = dist; firstEnemy = e; }
     });
@@ -1010,7 +1021,7 @@ export class ArenaRoom extends Room {
     e._homeX = e.pos.x;
     e._homeZ = e.pos.z;
     if (t.flying) {
-      e._hoverY = 7 + Math.random() * 12;
+      e._hoverY = 10 + Math.random() * 16;
       e.pos.y = e._hoverY;
       e.state = "patrol";
     } else {
@@ -1079,7 +1090,7 @@ export class ArenaRoom extends Room {
       const absorb = Math.min(p.blockAbsorbLeft, dmg);
       p.blockAbsorbLeft -= absorb;
       dmg -= absorb;
-      this.broadcast("fx", { type: "block_absorb", target: sessionId, absorb });
+      this.broadcast("fx", { type: "block_absorb", target: sessionId, absorb, left: p.blockAbsorbLeft });
       if (p.blockAbsorbLeft <= 0) { p.blockActiveUntil = 0; p.blockAbsorbLeft = 0; }
       if (dmg <= 0) return;
     }

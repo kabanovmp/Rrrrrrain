@@ -67,10 +67,10 @@ export const SPELLS = {
     visRange: 100, life: 4.2, radius: 0.55, color: 0xff40a0,
   },
   STAR_SHIELD: {
-    cooldown: 2.0, isShield: true, absorb: 100, color: 0xff40a0,
+    cooldown: 2.0, isShield: true, absorb: 100, duration: 0, color: 0xff40a0,
   },
   STAR_BLOCK: {
-    cooldown: 2.0, isShield: true, absorb: 100, color: 0xff40a0,
+    cooldown: 2.0, isShield: true, absorb: 100, duration: 0, color: 0xff40a0,
   },
   BOLT_HITSCAN: {
     cooldown: 0.45, isHitscan: true, damage: 42, range: 120, tube: 0.6, color: 0x88eeff,
@@ -143,9 +143,9 @@ export const AI_DIRECTOR = {
   WAVE_MAX_SIZE: 7,
   WAVE_INTERVAL_MIN: 6,
   WAVE_INTERVAL_MAX: 12,
-  AGGRO_RANGE: 34,
-  VISION_RANGE: 34,
-  LEASH_RANGE: 48,
+  AGGRO_RANGE: 92,
+  VISION_RANGE: 92,
+  LEASH_RANGE: 115,
   CORPSE_LINGER_S: 8.0,
   // стоимость в бюджете для каждого типа
   COSTS: {
@@ -172,13 +172,13 @@ export const ENEMY_TYPES = {
     id: "GROUND_CRAWLER", hp: 22, speed: 4.2, size: 1.5, scale: 3.2, damage: 8,
     sprite: "caco", colorTint: 0xffffff, flying: true, hoverY: 10,
     fireCount: 3, fireDamage: 9, fireSpeed: 26, fireCooldown: 0.38,
-    engageRange: 126, disengageRange: 140, fireLife: 11.4, fireSpread: 0.14,
+    engageRange: 126, disengageRange: 140, fireLife: 11.4, fireSpread: 0.22,
   },
   FLYING_SHOOTER: {
     id: "FLYING_SHOOTER", hp: 25, speed: 4.5, size: 1.5, scale: 3.5, damage: 10,
     sprite: "caco", colorTint: 0xffffff, flying: true, hoverY: 12,
     fireCount: 3, fireDamage: 8, fireSpeed: 24, fireCooldown: 0.4, engageRange: 120, disengageRange: 140,
-    fireLife: 11, fireSpread: 0.14,
+    fireLife: 11, fireSpread: 0.22,
   },
 };
 
