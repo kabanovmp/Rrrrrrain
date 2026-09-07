@@ -58,20 +58,34 @@ export const SPELLS = {
     maxJumps: 10,       // макс целей в цепи
     falloff: 0.85,      // урон каждого следующего = 85% от предыдущего
   },
-  // v0.0.3.0: Звёздопад — AoE удар мечом по точке взгляда
   STARFALL: {
     cooldown: 0.5, isStarfall: true, damage: 30, color: 0xff40a0,
-    range: 15,       // макс. дальность прицела
-    radius: 5,       // радиус взрыва в точке попадания
-    aimTube: 2.8,    // толщина луча прицела (бьёт врага под кроссхейром, не фикс. 15м)
-    damageMin: 25,   // ТЗ v0.0.3.1: 25-35 HP
-    damageMax: 35,
-    aimSpread: 0.4,  // разброс только если бьём в пол, не во врага
+    range: 15, radius: 5, aimTube: 2.8, damageMin: 25, damageMax: 35, aimSpread: 0.4,
   },
-  // v0.0.3.1: Звёздный Блок (ПКМ мечом): барьер перед игроком поглощает урон
+  STAR_BOLT: {
+    cooldown: 1.0, isHoming: true, damage: 34, projectileSpeed: 34,
+    visRange: 100, life: 4.2, radius: 0.55, color: 0xff40a0,
+  },
+  STAR_SHIELD: {
+    cooldown: 2.0, isShield: true, absorb: 100, color: 0xff40a0,
+  },
   STAR_BLOCK: {
-    cooldown: 10.0, isBlock: true, absorb: 50, duration: 3.0, color: 0xff40a0,
+    cooldown: 2.0, isShield: true, absorb: 100, color: 0xff40a0,
   },
+  BOLT_HITSCAN: {
+    cooldown: 0.45, isHitscan: true, damage: 42, range: 120, tube: 0.6, color: 0x88eeff,
+  },
+  CHAIN_STORM: {
+    cooldown: 30, isChainStorm: true, damage: 150, damageStep: 10, maxJumps: 10,
+    initialRange: 90, jumpRange: 24, initialConeCos: 0.7, color: 0xaaddff,
+  },
+  DAGGER_CHARGE: { cooldown: 1.0, isDaggerCharge: true },
+  DAGGER_THROW: {
+    cooldown: 0.7, isDaggerThrow: true, damage: 18, projectileSpeed: 38,
+    visRange: 100, life: 3.6, radius: 0.38, color: 0xc8d8e8,
+  },
+  CIG_PUFF: { cooldown: 0.7, isCosmetic: true, fx: "cig_puff", color: 0x888888 },
+  CIG_BLOW: { cooldown: 1.1, isCosmetic: true, fx: "cig_blow", color: 0xbbbbbb },
 };
 
 // v0.0.3.1: активные магические карты. Карта модифицирует поведение активного оружия.
@@ -95,9 +109,28 @@ export const CARDS_BY_ID = CARDS;
 // v0.0.3.1: каталог активного оружия (то что кладётся в руку)
 export const WEAPONS = {
   STAR_SWORD: {
-    id: "STAR_SWORD", name: "Магический Звёздный Меч",
-    lmb: "STARFALL", rmb: "STAR_BLOCK",
-    icon: "card-sword.jpg", handIcon: "sword-hand.jpg", baseCoef: 1.0,
+    id: "STAR_SWORD", name: "Звёздный Меч",
+    lmb: "STAR_BOLT", rmb: "STAR_SHIELD",
+    icon: "card-sword.jpg", hud: "sword",
+    lmbHint: "1 звезда/с, автонаведение", rmbHint: "щит 100 HP вокруг тебя",
+  },
+  LIGHTNING_STAFF: {
+    id: "LIGHTNING_STAFF", name: "Посох Молний",
+    lmb: "BOLT_HITSCAN", rmb: "CHAIN_STORM",
+    icon: "staff", hud: "staff",
+    lmbHint: "молния по лучу взгляда", rmbHint: "цепь 10 целей, КД 30с",
+  },
+  DAGGERS: {
+    id: "DAGGERS", name: "Кинжалы",
+    lmb: "DAGGER_CHARGE", rmb: "DAGGER_THROW",
+    icon: "daggers", hud: "daggers", palmUp: true,
+    lmbHint: "держать: +1 нож/с, макс 10", rmbHint: "все ножи по целям",
+  },
+  CIGARETTE: {
+    id: "CIGARETTE", name: "Сигарета",
+    lmb: "CIG_PUFF", rmb: "CIG_BLOW",
+    icon: "cig", hud: "cig", cosmetic: true,
+    lmbHint: "затянуться", rmbHint: "выпустить дым",
   },
 };
 export const WEAPONS_BY_ID = WEAPONS;
@@ -110,7 +143,9 @@ export const AI_DIRECTOR = {
   WAVE_MAX_SIZE: 7,
   WAVE_INTERVAL_MIN: 6,
   WAVE_INTERVAL_MAX: 12,
-  AGGRO_RANGE: 55,
+  AGGRO_RANGE: 34,
+  VISION_RANGE: 34,
+  LEASH_RANGE: 48,
   CORPSE_LINGER_S: 8.0,
   // стоимость в бюджете для каждого типа
   COSTS: {
@@ -135,15 +170,15 @@ export const ENEMY_TYPES = {
   // v0.0.3.1: Наземный вылазок — 5 процедурных вариаций (см. GROUND_CRAWLER_VARIANTS)
   GROUND_CRAWLER: {
     id: "GROUND_CRAWLER", hp: 22, speed: 4.2, size: 1.5, scale: 3.2, damage: 8,
-    sprite: "caco", colorTint: 0xffffff, flying: true, hoverY: 6.2,
-    fireCount: 3, fireDamage: 9, fireSpeed: 24, fireCooldown: 0.32,
-    engageRange: 42, disengageRange: 55,
+    sprite: "caco", colorTint: 0xffffff, flying: true, hoverY: 10,
+    fireCount: 3, fireDamage: 9, fireSpeed: 26, fireCooldown: 0.38,
+    engageRange: 126, disengageRange: 140, fireLife: 11.4, fireSpread: 0.14,
   },
-  // v0.0.3.1: Cacodemon Flying Shooter — hover, стреляет 1-3 огненных шара
   FLYING_SHOOTER: {
     id: "FLYING_SHOOTER", hp: 25, speed: 4.5, size: 1.5, scale: 3.5, damage: 10,
-    sprite: "caco", colorTint: 0xffffff, flying: true, hoverY: 6.5,
-    fireCount: 3, fireDamage: 8, fireSpeed: 22, fireCooldown: 0.35, engageRange: 40, disengageRange: 55,
+    sprite: "caco", colorTint: 0xffffff, flying: true, hoverY: 12,
+    fireCount: 3, fireDamage: 8, fireSpeed: 24, fireCooldown: 0.4, engageRange: 120, disengageRange: 140,
+    fireLife: 11, fireSpread: 0.14,
   },
 };
 

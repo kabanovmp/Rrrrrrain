@@ -7,6 +7,7 @@
 
 import * as THREE from "three";
 import { WORLD } from "@mhfps/shared";
+import { createNetherPortal } from "./netherPortal.js";
 
 // Простая процедурная heightmap: несколько наложенных синусов.
 // x,z в мировых координатах, возвращаем высоту y.
@@ -119,56 +120,7 @@ export function setupTerrainV3(group, levelIndex = 1) {
   // water: MeshBasicMaterial (плоскость воды, меняется color+opacity)
   // base: MeshBasicMaterial (диск-триггер на полу, меняется color+opacity)
   const portalX = R * 0.4, portalZ = R * 0.3;
-  const portalGroup = new THREE.Group();
-  portalGroup.userData.isPortal = true;
-
-  // Каменная рамка (arch) — StandardMaterial с emissive
-  const archMat = new THREE.MeshStandardMaterial({
-    color: 0x1a0510, roughness: 0.9,
-    emissive: 0x221122, emissiveIntensity: 0.05,
-  });
-  const archGroup = new THREE.Group();
-  for (let side = 0; side < 4; side++) {
-    const w = side < 2 ? 6.4 : 0.4;
-    const h = side < 2 ? 0.4 : 10;
-    const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, 0.4),
-      archMat // общий материал — emissive применяется ко всей рамке
-    );
-    const ox = side < 2 ? 0 : (side === 2 ? -3.2 : 3.2);
-    const oy = side < 2 ? (side === 0 ? -5.2 : 5.2) : 0;
-    frame.position.set(ox, 5.5 + oy, 0);
-    archGroup.add(frame);
-  }
-  // Псевдо-mesh для updateArenaPortal: даём один frame чтобы .material.emissive был доступен
-  const archProxy = archGroup.children[0]; // material === archMat (shared)
-  portalGroup.add(archGroup);
-
-  // Вода в проёме
-  const waterMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(6, 10),
-    new THREE.MeshBasicMaterial({
-      color: 0x1a1420, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
-    })
-  );
-  waterMesh.position.y = 5.5;
-  portalGroup.add(waterMesh);
-
-  // Базовый диск-триггер на полу
-  const baseMesh = new THREE.Mesh(
-    new THREE.CircleGeometry(2.2, 24),
-    new THREE.MeshBasicMaterial({
-      color: 0x201820, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false,
-    })
-  );
-  baseMesh.rotation.x = -Math.PI / 2;
-  baseMesh.position.y = 0.03;
-  portalGroup.add(baseMesh);
-
-  portalGroup.userData.arch = archProxy;
-  portalGroup.userData.water = waterMesh;
-  portalGroup.userData.base = baseMesh;
-
+  const portalGroup = createNetherPortal({ scale: 1.15, idle: true });
   portalGroup.position.set(portalX, 0, portalZ);
   group.add(portalGroup);
   group.userData.portal = portalGroup;
