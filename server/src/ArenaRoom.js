@@ -27,10 +27,8 @@ export class ArenaRoom extends Room {
     this.waveTimer = 0;              // таймер между волнами (волны всегда)
     this.spawnInitialPickups();
     this.setupHubStorage();
-    // v0.0.3.4: стартуем в ХАБЕ (как просили). Арена — через кровать в хабе (E)
     this.state.phase = "hub";
-    // arena готовим, но врагов не спавним — они появятся когда игроки войдут в arena
-    this.startArena();
+    // Арену и врагов поднимаем только когда игроки выходят из хаба
     this.setSimulationInterval(dt => this.tick(dt / 1000), TICK_MS);
 
     this.onMessage("input", (client, msg) => {
@@ -49,6 +47,9 @@ export class ArenaRoom extends Room {
       const spellId = msg.spell;
       const spell = SPELLS[spellId];
       if (!spell) return;
+      const combatPhase = this.state.phase === "arena" || this.state.phase === "portal_ready";
+      if (!combatPhase) return;
+      if ((spell.isStarfall || spell.isBlock) && !p.weaponSlot) return;
       const dmgMult = (p.isGhost ? COMBAT.GHOST_STAT_MULT : 1) * this.playerDamageMult(p);
       if (spell.isChain) {
         // ЦЕПНАЯ МОЛНИЯ: мгновенный хит, прыгает от врага к врагу
@@ -96,25 +97,23 @@ export class ArenaRoom extends Room {
         }
         this.broadcast("fx", { type: "chain", color: spell.color, points: chain });
       } else if (spell.isStarfall) {
-        // v0.0.3.0: Звёздопад — AoE в точке на range по взгляду
         const dir = { x: msg.dx || 0, y: msg.dy || 0, z: msg.dz || 0 };
         const origin = {
           x: typeof msg.ox === "number" ? msg.ox : p.pos.x,
           y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
           z: typeof msg.oz === "number" ? msg.oz : p.pos.z,
         };
-        // v0.0.3.1: Прицельный разброс (aimSpread) — смещаем точку падения на величину в XZ.
-        // Если активна карта ANGER (совместимость с doubleShot) — два удара.
         const hasAnger = this.playerHasCard(p, "ANGER");
         const shots = hasAnger ? 2 : 1;
         const dmgMulSf = dmgMult * (this.state.dbgWeaponDmgMul || 1);
+        const aimed = this.pickStarfallImpact(origin, dir, spell);
         for (let sh = 0; sh < shots; sh++) {
-          const spread = spell.aimSpread || 0;
+          const spread = aimed.lock ? 0 : (spell.aimSpread || 0);
           const jx = (Math.random() - 0.5) * spread * 2;
           const jz = (Math.random() - 0.5) * spread * 2;
-          const tx = origin.x + dir.x * spell.range + jx;
-          const ty = origin.y + dir.y * spell.range;
-          const tz = origin.z + dir.z * spell.range + jz;
+          const tx = aimed.x + jx;
+          const ty = aimed.y;
+          const tz = aimed.z + jz;
           const dmgVal = spell.damageMin + Math.random() * (spell.damageMax - spell.damageMin);
           let hitCount = 0;
           this.state.enemies.forEach(e => {
@@ -652,22 +651,24 @@ export class ArenaRoom extends Room {
 
   // Положить пикап в первый свободный слот, иначе в первый непустой сундук
   depositToHub(kind, handType, itemId) {
+    const val = (kind === "HAND" || kind === "WEAPON" || kind === "CARD")
+      ? (handType || "")
+      : (itemId || "");
     for (const s of this.state.hubSlots) {
       if (s.empty) {
         s.kind = kind || "";
-        s.handType = handType || "";
-        s.itemId = itemId || "";
+        s.handType = (kind === "HAND" || kind === "WEAPON" || kind === "CARD") ? val : "";
+        s.itemId = kind === "ITEM" ? val : "";
         s.empty = false;
         return true;
       }
     }
-    // Все слоты заняты — в сундук с минимальным содержимым
     let best = null, bestLen = Infinity;
     for (const c of this.state.hubChests) {
       if (c.contents.length < bestLen) { bestLen = c.contents.length; best = c; }
     }
     if (best) {
-      best.contents.push((kind || "") + ":" + (kind === "HAND" ? (handType || "") : (kind === "ITEM" ? (itemId || "") : "")));
+      best.contents.push((kind || "") + ":" + val);
       return true;
     }
     return false;
@@ -696,6 +697,27 @@ export class ArenaRoom extends Room {
       if (p.passiveItemId) {
         this.depositToHub("ITEM", "", p.passiveItemId);
         p.passiveItemId = "";
+      }
+      if (p.weaponSlot) {
+        this.depositToHub("WEAPON", p.weaponSlot, "");
+        p.weaponSlot = "";
+      }
+      while (p.cards.length < 10) p.cards.push("");
+      for (let i = 0; i < p.cards.length; i++) {
+        if (p.cards[i]) {
+          this.depositToHub("CARD", p.cards[i], "");
+          p.cards[i] = "";
+        }
+      }
+      while (p.backpack.length > 0) {
+        const last = p.backpack.length - 1;
+        const raw = p.backpack[last];
+        p.backpack.splice(last, 1);
+        const [kind, val] = String(raw).split(":");
+        if (kind === "WEAPON" || kind === "CARD") this.depositToHub(kind, val || "", "");
+        else if (kind === "HAND") this.depositToHub("HAND", val || "", "");
+        else if (kind === "ITEM") this.depositToHub("ITEM", "", val || "");
+        else if (kind === "LEG") this.depositToHub("LEG", "", "");
       }
       p.maxHp = COMBAT.PLAYER_MAX_HP;
       p.hp = p.maxHp;
@@ -736,7 +758,7 @@ export class ArenaRoom extends Room {
 
   // Стартовые пикапы для АРЕНЫ: всегда минимум 1 HAND на команду
   spawnArenaPickups() {
-    const R = WORLD.ARENA_RADIUS * 0.35;
+    const R = WORLD.PICKUP_RING || 32;
     // Гарантированно: FIRE-HAND, ICE-HAND, BONE-HAND, 1 LEG, 1 ITEM (случайная пассивка)
     const passive = pickRandom(ITEMS);
     const kinds = [
@@ -789,8 +811,44 @@ export class ArenaRoom extends Room {
 
   resetArena() {
     this.state.wave = 0;
+    this.state.portalActive = false;
+    this.state.portalCharge = 0;
     this.state.enemies.clear();
     this.projectiles.length = 0;
+    this.state.pickups.clear();
+  }
+
+  // Точка Звёздопада: ближайший враг на луче взгляда, иначе пол по прицелу.
+  pickStarfallImpact(origin, dir, spell) {
+    const range = spell.range || 15;
+    const tube = spell.aimTube || 2.8;
+    const len = Math.hypot(dir.x || 0, dir.y || 0, dir.z || 0) || 1;
+    const dx = dir.x / len, dy = dir.y / len, dz = dir.z / len;
+    let bestT = Infinity;
+    let best = null;
+    this.state.enemies.forEach(e => {
+      if (!e.alive) return;
+      const vx = e.pos.x - origin.x, vy = e.pos.y - origin.y, vz = e.pos.z - origin.z;
+      const t = vx * dx + vy * dy + vz * dz;
+      if (t < 0.2 || t > range) return;
+      const px = origin.x + dx * t, py = origin.y + dy * t, pz = origin.z + dz * t;
+      const dist = Math.hypot(e.pos.x - px, e.pos.y - py, e.pos.z - pz);
+      const hitR = tube + (ENEMY_TYPES[e.enemyType]?.size || 1) * 0.5;
+      if (dist <= hitR && t < bestT) {
+        bestT = t;
+        best = { x: e.pos.x, y: e.pos.y, z: e.pos.z, lock: true };
+      }
+    });
+    if (best) return best;
+    const groundY = 1.0;
+    if (dy < -0.02) {
+      const tG = (groundY - origin.y) / dy;
+      if (tG > 0.15 && tG <= range) {
+        return { x: origin.x + dx * tG, y: groundY, z: origin.z + dz * tG, lock: false };
+      }
+    }
+    const tFar = Math.min(range, 8);
+    return { x: origin.x + dx * tFar, y: groundY, z: origin.z + dz * tFar, lock: false };
   }
 
   getPlayerFrontAngle() {
@@ -1021,6 +1079,9 @@ export class ArenaRoom extends Room {
       });
       if (hit || pr.life <= 0) this.projectiles.splice(i, 1);
     }
+
+    const combatPhase = this.state.phase === "arena" || this.state.phase === "portal_ready";
+    if (!combatPhase) return;
 
     // v0.0.3.1: Фалл→респаун + 5% HP при падении в дыру (клиент шлёт fall)
     // (само событие приходит через onMessage("fall"))

@@ -136,7 +136,7 @@ export class GameState extends Schema {
     this.portalActive = false;  // активировало ли кто-то портал (клавиша F)
     this.portalX = 0;           // координаты портала на арене (случайные каждый забег)
     this.portalZ = 0;
-    this.phase = "arena"; // v0.0.3.0: старт сразу в terrain (без хаба)
+    this.phase = "hub";
     // Debug (синхронно всем)
     this.dbgGodMode = false;
     this.dbgSpeedMul = 1.0;

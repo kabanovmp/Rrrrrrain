@@ -1287,7 +1287,6 @@ document.getElementById("play").addEventListener("click", async () => {
     selfId = room.sessionId;
     menu.style.display = "none";
     crosshair.style.display = "block";
-    if (V3_MODE) swordHud.hidden = false;
     controller.enable();
     setupRoomHandlers();
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
@@ -1375,10 +1374,12 @@ function setupRoomHandlers() {
   // ── Мобы: 3D-модели с интерполяцией ─────────────────────────
   room.state.enemies.onAdd((e, id) => {
     let m;
+    const flying = !!(ENEMY_TYPES[e.enemyType]?.flying);
     if (V3_MODE) {
       m = createCacodemonSprite();
       m.userData.cacoV3 = true;
-      m.userData.flying = true;
+      m.userData.flying = flying;
+      if (!flying) m.scale.set(2.2, 2.2, 1);
     } else {
       m = createEnemy3D(e.enemyType);
     }
@@ -1590,8 +1591,14 @@ function flashCracks() {
 let lastCastMs = 0;
 canvas.addEventListener("mousedown", (ev) => {
   if (!room || !myPlayer) return;
-  // v3: ЛКМ = Звёздопад (AoE 25-35 HP), ПКМ = Звёздный Блок (поглощает 50 урона / КД 10с)
   if (V3_MODE) {
+    const combat = room.state.phase === "arena" || room.state.phase === "portal_ready";
+    if (!combat) return;
+    if (!myPlayer.weaponSlot) {
+      hintText.textContent = "нет оружия — возьми меч в хабе";
+      hintText.style.opacity = 1; setTimeout(() => { hintText.style.opacity = 0; }, 1400);
+      return;
+    }
     if (ev.button === 0) {
       // Звёздопад AoE
       const nowMs = performance.now();
@@ -1838,6 +1845,7 @@ function sendInput() {
 function drawRadar() {
   rctx.clearRect(0, 0, radar.width, radar.height);
   if (!myPlayer || !room) return;
+  if (room.state.phase === "hub") return;
   let nearest = null, nd = Infinity;
   room.state.enemies.forEach(e => {
     if (!e.alive) return;
@@ -2010,6 +2018,8 @@ function slotLabel(kind, handType, itemId) {
   if (kind === "HAND") return `руку (${handType || "?"})`;
   if (kind === "LEG") return "ногу";
   if (kind === "ITEM") return `предмет (${itemId || "?"})`;
+  if (kind === "WEAPON") return `оружие (${handType || itemId || "?"})`;
+  if (kind === "CARD") return `карту (${handType || itemId || "?"})`;
   return "предмет";
 }
 
@@ -2022,20 +2032,27 @@ function parseChestItem(raw) {
 function chestItemLabel(raw) {
   const { kind, sub } = parseChestItem(raw);
   if (kind === "HAND") {
-    const t = ({ FIRE: "ОГНЕННАЯ", ICE: "ЛЕДЯНАЯ", BONE: "КОСТЯНАЯ" })[sub] || sub;
+    const t = ({ FIRE: "ОГНЕННАЯ", ICE: "ЛЕДЯНАЯ", BONE: "КОСТЯНАЯ", CHAIN: "ГРОЗОВАЯ" })[sub] || sub;
     return `Рука: ${t}`;
   }
   if (kind === "LEG") return "Нога";
-  if (kind === "ITEM") return sub === "SIGIL_DASH" ? "Сигил: Рывок" : sub || "Предмет";
+  if (kind === "ITEM") {
+    const it = ITEMS.find(x => x.id === sub);
+    return it ? it.name : (sub || "Предмет");
+  }
+  if (kind === "WEAPON") return sub === "STAR_SWORD" ? "Звёздный Меч" : (sub || "Оружие");
+  if (kind === "CARD") return sub === "ANGER" ? "Ярость" : (sub || "Карта");
   return "Предмет";
 }
 function chestItemColor(raw) {
   const { kind, sub } = parseChestItem(raw);
   if (kind === "HAND") {
-    return { FIRE: "#ff5522", ICE: "#66ccff", BONE: "#d0c0a0" }[sub] || "#c0a070";
+    return { FIRE: "#ff5522", ICE: "#66ccff", BONE: "#d0c0a0", CHAIN: "#66e0ff" }[sub] || "#c0a070";
   }
   if (kind === "LEG") return "#a0c060";
   if (kind === "ITEM") return "#c080ff";
+  if (kind === "WEAPON") return "#e8c040";
+  if (kind === "CARD") return "#ff4040";
   return "#c0a070";
 }
 function drawChestIcon(ctx, raw, size) {
@@ -2095,13 +2112,40 @@ function drawChestIcon(ctx, raw, size) {
     ctx.lineTo(cx - 16, cy);
     ctx.closePath();
     ctx.fill(); ctx.stroke();
-    // Грани света
     ctx.strokeStyle = "rgba(255,255,255,0.6)";
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(cx, cy - 22); ctx.lineTo(cx, cy + 22);
     ctx.moveTo(cx - 16, cy); ctx.lineTo(cx + 16, cy);
     ctx.stroke();
+  } else if (kind === "WEAPON") {
+    ctx.fillStyle = col;
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 22);
+    ctx.lineTo(cx + 6, cy + 8);
+    ctx.lineTo(cx + 2, cy + 8);
+    ctx.lineTo(cx + 2, cy + 22);
+    ctx.lineTo(cx - 2, cy + 22);
+    ctx.lineTo(cx - 2, cy + 8);
+    ctx.lineTo(cx - 6, cy + 8);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#fff8";
+    ctx.fillRect(cx - 8, cy + 4, 16, 4);
+  } else if (kind === "CARD") {
+    ctx.fillStyle = col;
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(cx - 14, cy - 20, 28, 40, 4);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("A", cx, cy);
   } else {
     ctx.fillStyle = "#666";
     ctx.fillRect(cx - 12, cy - 12, 24, 24);
@@ -2474,6 +2518,10 @@ function animate() {
   animateHands(handsRoot, dt, { moving: moved });
 
   // v0.0.3.0: анимация HUD-меча (bob при ходьбе + swing при атаке)
+  if (V3_MODE) {
+    const locked = document.pointerLockElement === canvas;
+    swordHud.hidden = !locked || !myPlayer?.weaponSlot;
+  }
   if (V3_MODE && !swordHud.hidden) {
     swordBob += dt * (moved ? 8 : 2);
     swordSwing += swordSwingV * dt;
