@@ -11,7 +11,7 @@ const V31_MODE = true;
 import { createEnemy3D, animateEnemy } from "./enemies3d.js";
 import { createHandsGroup, animateHands, setSpellInHand, showHandDamage, fadeHandCracks } from "./hands3d.js";
 import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
-import { createPedestalMesh, animatePedestal } from "./pedestal.js";
+import { createPedestalMesh, animatePedestal, createFloatingLootCard, animateFloatingLoot } from "./pedestal.js";
 import { FpsController } from "./controller.js";
 import { initAudio, playSound, playSoundLoop, stopSoundLoop, setMasterVolume, getMasterVolume } from "./assets.js";
 
@@ -200,16 +200,18 @@ function showLoadoutPanel() {
   if (loadoutOpen) return;
   loadoutOpen = true;
   loadoutPanel.style.display = "block";
+  try { if (document.pointerLockElement) document.exitPointerLock(); } catch {}
   renderLoadoutPanel();
 }
 function hideLoadoutPanel() {
   loadoutOpen = false;
   loadoutPanel.style.display = "none";
+  hideItemTooltip();
 }
 
 const cardHud = document.createElement("div");
 cardHud.id = "cardHud";
-cardHud.style.cssText = "position:fixed;left:calc(50% + 180px);bottom:16px;display:flex;gap:8px;z-index:16;pointer-events:none;";
+cardHud.style.cssText = "position:fixed;left:calc(50% + 180px);bottom:16px;display:flex;gap:8px;z-index:16;pointer-events:auto;";
 document.body.appendChild(cardHud);
 function renderCardHud() {
   if (!myPlayer) { cardHud.innerHTML = ""; return; }
@@ -225,6 +227,7 @@ function renderCardHud() {
     img.src = info.src;
     img.style.cssText = "width:100%;height:100%;object-fit:cover;";
     wrap.appendChild(img);
+    bindItemTooltip(wrap, "CARD:" + id);
     cardHud.appendChild(wrap);
   });
 }
@@ -239,10 +242,10 @@ function svgIcon(bg, fg, emoji) {
   return "data:image/svg+xml;utf8," + encodeURIComponent(s);
 }
 const V31_ICON = {
-  "CARD:ANGER":         { src: "/assets/v031/card-anger.jpg",  label: "Ярость",       desc: "Ударь вдвое" },
-  "CARD:FRENZY":        { src: "/assets/v031/card-frenzy.jpg", label: "Безумие",      desc: "Врагов ×3, бег ×2" },
-  "CARD:RAIN":          { src: "/assets/v031/card-rain.jpg",   label: "Дождь",        desc: "Метеоры бьют всех" },
-  "WEAPON:STAR_SWORD":  { src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "Активное оружие" },
+  "CARD:ANGER":         { src: "/assets/v031/card-anger.jpg",  label: "Ярость",       desc: "Пока надета: Звёздопад бьёт дважды. Hit them twice." },
+  "CARD:FRENZY":        { src: "/assets/v031/card-frenzy.jpg", label: "Безумие",      desc: "Пока надета: врагов спавнится ×3, скорость персонажа ×2." },
+  "CARD:RAIN":          { src: "/assets/v031/card-rain.jpg",   label: "Дождь",        desc: "Пока надета: метеоритный дождь в зоне видимости. Уничтожает врагов и ранит тебя." },
+  "WEAPON:STAR_SWORD":  { src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "Единственное оружие. ЛКМ — Звёздопад (AoE по прицелу). ПКМ — Звёздный Блок (поглощает урон)." },
   "WEAPON:SWORD":       { src: svgIcon("#c8a05a", "#fff", "⚔️"), label: "Меч",           desc: "Основное оружие" },
   "HAND:FIRE":          { src: svgIcon("#c04010", "#fff", "🔥"), label: "Огненная",     desc: "Файербол" },
   "HAND:ICE":           { src: svgIcon("#3080c0", "#fff", "❄️"), label: "Ледяная",      desc: "Ледяная стрела" },
@@ -254,12 +257,44 @@ const V31_ICON = {
 };
 function v31IconFor(raw) {
   if (V31_ICON[raw]) return V31_ICON[raw];
-  // Фолбэк: по префиксу
   const [kind, sub] = String(raw).split(":");
-  if (kind === "CARD") return { src: svgIcon("#c08040", "#fff", "🃏"), label: sub || "Карта", desc: "Карта модификатор" };
+  if (kind === "CARD") return { src: svgIcon("#c08040", "#fff", "🃏"), label: sub || "Карта", desc: "Магическая карта. Действует, пока надета в слот карт." };
   if (kind === "ITEM") return { src: svgIcon("#805020", "#fff", "📦"), label: sub || "Предмет", desc: "Пассивный предмет" };
-  if (kind === "WEAPON") return { src: svgIcon("#c8a05a", "#fff", "⚔️"), label: sub || "Оружие", desc: "Оружие" };
+  if (kind === "WEAPON") return { src: svgIcon("#c8a05a", "#fff", "⚔️"), label: sub || "Оружие", desc: "Оружие. ЛКМ — удар, ПКМ — блок." };
   return { src: svgIcon("#666", "#fff", "❓"), label: raw, desc: "" };
+}
+
+const itemTooltip = document.createElement("div");
+itemTooltip.id = "itemTooltip";
+itemTooltip.style.cssText = [
+  "position:fixed", "z-index:80", "display:none", "pointer-events:none",
+  "max-width:280px", "padding:10px 12px",
+  "background:rgba(12,8,6,0.96)", "border:1px solid #c08858", "border-radius:8px",
+  "color:#f0e0c8", "font-family:'Trebuchet MS',sans-serif",
+  "box-shadow:0 8px 24px rgba(0,0,0,0.6), 0 0 12px rgba(255,140,60,0.25)",
+].join(";");
+document.body.appendChild(itemTooltip);
+function hideItemTooltip() { itemTooltip.style.display = "none"; }
+function showItemTooltip(ev, raw) {
+  const info = v31IconFor(raw);
+  if (!info || !info.label) { hideItemTooltip(); return; }
+  const desc = info.desc || "";
+  itemTooltip.innerHTML = `<div style="font-size:14px;font-weight:bold;color:#ffd08a;margin-bottom:4px;">${info.label}</div>`
+    + (desc ? `<div style="font-size:12px;line-height:1.35;color:#e6d9c2;">${desc}</div>` : "");
+  itemTooltip.style.display = "block";
+  const pad = 14;
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  const w = 280, h = 90;
+  if (x + w > window.innerWidth - 8) x = ev.clientX - w - 8;
+  if (y + h > window.innerHeight - 8) y = ev.clientY - h - 8;
+  itemTooltip.style.left = x + "px";
+  itemTooltip.style.top = y + "px";
+}
+function bindItemTooltip(el, raw) {
+  if (!el || !raw) return;
+  el.addEventListener("mouseenter", (ev) => showItemTooltip(ev, raw));
+  el.addEventListener("mousemove", (ev) => showItemTooltip(ev, raw));
+  el.addEventListener("mouseleave", hideItemTooltip);
 }
 // v0.0.3.3: все действия в инвентаре — через атомарный op:"swap" (from,to)
 function v31SendSwap(from, to) {
@@ -289,6 +324,7 @@ function v31CardCell(cardId, slotIndex) {
     lbl.style.cssText = "position:absolute;bottom:1px;left:0;right:0;font-size:9px;text-align:center;color:#fff;text-shadow:0 0 3px #000;font-weight:bold;";
     lbl.textContent = info.label;
     cell.appendChild(lbl);
+    bindItemTooltip(cell, "CARD:" + cardId);
     cell.draggable = true;
     cell.addEventListener("dragstart", (ev) => {
       ev.dataTransfer.setData("text/plain", JSON.stringify({ type: "card", index: slotIndex, raw: "CARD:" + cardId }));
@@ -336,6 +372,7 @@ function v31BackpackCell(raw, bpIndex) {
   lbl.style.cssText = "position:absolute;bottom:1px;left:0;right:0;font-size:9px;text-align:center;color:#fff;text-shadow:0 0 3px #000;font-weight:bold;";
   lbl.textContent = info.label;
   cell.appendChild(lbl);
+  bindItemTooltip(cell, raw);
   cell.draggable = true;
   cell.addEventListener("dragstart", (ev) => {
     ev.dataTransfer.setData("text/plain", JSON.stringify({ type: "backpack", index: bpIndex, raw }));
@@ -380,6 +417,7 @@ function v31WeaponSlot(weaponId) {
     lbl.textContent = info.label;
     el.style.position = "relative";
     el.appendChild(lbl);
+    bindItemTooltip(el, "WEAPON:" + weaponId);
     el.draggable = true;
     el.ondragstart = (ev) => {
       ev.dataTransfer.setData("text/plain", JSON.stringify({ type: "weapon", index: 0, raw: "WEAPON:" + weaponId }));
@@ -937,12 +975,15 @@ let colorIdxCounter = 0;
 // Пикапы = пьедесталы
 const pickupMeshes = new Map();
 function makePickupMesh(pk) {
-  if (pk.kind === "WEAPON") return createPedestalMesh("HAND", "bone");
-  if (pk.kind === "CARD") {
-    const spell = ({ ANGER: "fireball", FRENZY: "chain", RAIN: "ice" })[pk.handType] || "fireball";
-    return createPedestalMesh("ACCESSORY", spell);
-  }
-  return createPedestalMesh("ACCESSORY", "fireball");
+  const raw = pk.kind + ":" + (pk.handType || pk.itemId || "");
+  const ped = createPedestalMesh("HAND", "bone");
+  if (ped.userData.crystal) ped.userData.crystal.visible = false;
+  const loot = createFloatingLootCard(raw);
+  loot.position.y = 2.05;
+  ped.add(loot);
+  ped.userData.floatCard = loot.userData.floatCard;
+  ped.userData.floatBaseY = 0;
+  return ped;
 }
 
 
@@ -995,8 +1036,11 @@ function refreshSlotContent(i, s) {
     const content = makeSlotContent(s.kind, s.handType);
     mount.add(content);
     g.userData.emptyRing.material.opacity = 0.15;
+    g.userData.floatCard = content.userData.floatCard || null;
+    g.userData.floatBaseY = 0;
   } else {
     g.userData.emptyRing.material.opacity = 0.35;
+    g.userData.floatCard = null;
   }
 }
 
@@ -2154,8 +2198,9 @@ function renderChestPanel() {
         // Перерендер по onChange придёт автоматом через ~100мс; оптимистично:
         setTimeout(renderChestPanel, 120);
       });
-      cell.addEventListener("mouseenter", () => { cell.style.borderColor = "#d4a020"; });
-      cell.addEventListener("mouseleave", () => { cell.style.borderColor = "#3a2818"; });
+      cell.addEventListener("mouseenter", (ev) => { cell.style.borderColor = "#d4a020"; showItemTooltip(ev, raw); });
+      cell.addEventListener("mousemove", (ev) => showItemTooltip(ev, raw));
+      cell.addEventListener("mouseleave", () => { cell.style.borderColor = "#3a2818"; hideItemTooltip(); });
     }
     grid.appendChild(cell);
   }
@@ -2206,8 +2251,9 @@ function renderChestPanel() {
           playSound("pickup");
           setTimeout(renderChestPanel, 120);
         });
-        cell.addEventListener("mouseenter", () => { cell.style.borderColor = "#5a90d4"; });
-        cell.addEventListener("mouseleave", () => { cell.style.borderColor = "#3a2818"; });
+        cell.addEventListener("mouseenter", (ev) => { cell.style.borderColor = "#5a90d4"; showItemTooltip(ev, it.raw); });
+        cell.addEventListener("mousemove", (ev) => showItemTooltip(ev, it.raw));
+        cell.addEventListener("mouseleave", () => { cell.style.borderColor = "#3a2818"; hideItemTooltip(); });
       }
       myGrid.appendChild(cell);
     }
@@ -2225,6 +2271,7 @@ function closeChestPanel() {
   if (openChestIndex < 0) return;
   openChestIndex = -1;
   chestPanel.style.display = "none";
+  hideItemTooltip();
 }
 document.getElementById("chestClose").addEventListener("click", closeChestPanel);
 // ESC — закрыть панель если открыта (также освобождает pointer lock по-браузерному)
@@ -2386,6 +2433,10 @@ function animate() {
   // ── Пьедесталы (кристаллы вращаются) ─────────────────
   pickupMeshes.forEach(m => {
     if (m.userData.crystal) animatePedestal(m, dt);
+    if (m.userData.floatCard) animateFloatingLoot(m, camera, performance.now() * 0.001);
+  });
+  hubSlotMeshes.forEach(g => {
+    if (g && g.userData.floatCard) animateFloatingLoot(g, camera, performance.now() * 0.001);
   });
 
   // ── Факелы (пламя мерцает) ──────────────────────────
