@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen, getHubBedPos } from "./world.js";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen, getHubBedPos } from "./world.js";
 import { setupTerrainV3, terrainHeight } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
 
@@ -107,6 +107,13 @@ const hintText = document.createElement("div");
 hintText.style.cssText = "position:fixed;top:35%;left:50%;transform:translateX(-50%);color:#fff;text-shadow:0 0 8px #000;font-family:sans-serif;font-size:20px;padding:12px 18px;background:rgba(0,0,0,0.6);border-radius:8px;pointer-events:none;z-index:16;opacity:0;transition:opacity .3s;";
 document.body.appendChild(hintText);
 let hintTimer = 0;
+const tpFlash = document.createElement("div");
+tpFlash.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:80;background:radial-gradient(ellipse at center, rgba(196,80,255,0.9) 0%, rgba(40,0,70,0.95) 55%, #090014 100%);opacity:0;transition:opacity .18s;";
+document.body.appendChild(tpFlash);
+function flashTeleport() {
+  tpFlash.style.opacity = "1";
+  setTimeout(() => { tpFlash.style.opacity = "0"; }, 280);
+}
 
 // ── UI-панель инвентаря СУНДУКА ────────────────────────
 const chestPanel = document.createElement("div");
@@ -1610,8 +1617,9 @@ function setupRoomHandlers() {
     ambientLoop = null;
     // Звук телепорта
     playSound("teleport");
+    flashTeleport();
     if (v === "arena" && myPlayer) controller.setPosition(0, 2, 0);
-    if (v === "hub" && myPlayer) controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.3);
+    if (v === "hub" && myPlayer) controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.25);
   });
 
   // ── FX ────────────────────────────────────────────────────
@@ -1913,7 +1921,7 @@ document.addEventListener("keydown", (ev) => {
       const pos = getArenaPortalPos(arenaGroup);
       if (pos) {
         const d = Math.hypot(controller.position.x - pos.x, controller.position.z - pos.z);
-        if (d < 3.5) {
+        if (d < 5.5) {
           room.send("activate_portal");
           playSound("pickup");
           return;
@@ -2028,64 +2036,63 @@ let prevControllerPos = new THREE.Vector3();
 // ── ПОРТАЛЫ: автотриггер ────────────────────────────────
 let portalHoldTime = 0;
 let lastPortalKind = null;
-let portalPendingPhase = null; // какую phase ждём от сервера после телепорта
+let portalPendingPhase = null;
+const PORTAL_HOLD_S = WORLD.PORTAL_HOLD_S || 1.5;
 function handlePortalTriggers(dt) {
   if (!room || !myPlayer) return;
   const cur = room.state.phase;
-  // Если мы в ожидании смены phase (кликнули на 100%) — молчим
   if (portalPendingPhase) {
     if (cur === portalPendingPhase) { portalPendingPhase = null; portalHoldTime = 0; }
     hintText.style.opacity = 0;
     return;
   }
-  let inZone = false;
-  let ready = false;
-  let msg = null;
-  let target = null;
+  const p = controller.position;
+  const hubP = hubGroup.userData.hubPortal;
+  const arenaP = arenaGroup.userData.portal;
+  let inside = false, near = false, ready = false, msg = null, target = null, mesh = null;
   if (cur === "hub") {
-    const pos = getHubPortalPos(hubGroup);
-    if (pos) {
-      const d = Math.hypot(controller.position.x - pos.x, controller.position.z - pos.z);
-      if (d < 2.5) { inZone = true; ready = true; msg = { phase: "arena" }; target = "hub"; }
-    }
+    mesh = hubP;
+    inside = playerInsidePortal(hubP, p.x, p.y, p.z);
+    near = playerNearPortal(hubP, p.x, p.z, 6);
+    if (inside) { ready = true; msg = { phase: "arena" }; target = "hub"; }
   } else {
-    const pos = getArenaPortalPos(arenaGroup);
-    if (pos) {
-      const d = Math.hypot(controller.position.x - pos.x, controller.position.z - pos.z);
-      if (d < 3.5) {
-        inZone = true;
-        target = "arena";
-        if (cur === "portal_ready") { ready = true; msg = { phase: "hub" }; }
-      }
-    }
+    mesh = arenaP;
+    inside = playerInsidePortal(arenaP, p.x, p.y, p.z);
+    near = playerNearPortal(arenaP, p.x, p.z, 6);
+    if (inside || near) target = "arena";
+    if (inside && cur === "portal_ready") { ready = true; msg = { phase: "hub" }; }
   }
-  if (inZone && ready) {
+  if (inside && ready) {
     if (lastPortalKind !== target) { portalHoldTime = 0; lastPortalKind = target; }
     portalHoldTime += dt;
-    // Показ прогресса
-    const pct = Math.min(100, Math.round(portalHoldTime / 1.5 * 100));
-    hintText.textContent = `телепорт... ${pct}%`;
+    const pct = Math.min(100, Math.round(portalHoldTime / PORTAL_HOLD_S * 100));
+    hintText.textContent = `вход в портал… ${pct}%`;
     hintText.style.opacity = 1;
     hintTimer = 0.3;
-    if (portalHoldTime >= 1.5) {
+    if (mesh) updateArenaPortal({ userData: { portal: mesh } }, "hold", performance.now() * 0.001, pct / 100);
+    if (portalHoldTime >= PORTAL_HOLD_S) {
+      flashTeleport();
+      playSound("teleport");
       room.send("phase", msg);
       portalPendingPhase = msg.phase;
       portalHoldTime = 0;
       lastPortalKind = null;
-      // Показываем "перенос..."
-      hintText.textContent = "перенос...";
+      hintText.textContent = "телепортация…";
       hintText.style.opacity = 1;
       hintTimer = 2.0;
     }
-  } else if (inZone && !ready) {
+  } else if (inside || near) {
     portalHoldTime = 0;
-    // Арена: портал ещё не активирован — подсказка на F
     if (cur === "arena" && !room.state.portalActive) {
-      hintText.textContent = "[F] активировать телепортер";
-    } else if (cur === "arena" && room.state.portalActive) {
+      hintText.textContent = inside ? "[F] зажечь портал" : "подойди в проём · [F] зажечь";
+    } else if (cur === "arena" && room.state.portalActive && cur !== "portal_ready") {
       const cur2 = Math.floor(room.state.portalCharge);
       const tot = Math.floor(room.state.portalTarget);
-      hintText.textContent = `портал пьёт кровь: ${cur2}/${tot}`;
+      hintText.textContent = inside ? `портал копится: ${cur2}/${tot}` : `рамка Незера · кровь ${cur2}/${tot}`;
+    } else if (cur === "portal_ready") {
+      hintText.textContent = inside ? "стой в фиолетовой воде — телепорт" : "войди в проём портала";
+    } else if (cur === "hub") {
+      hintText.textContent = inside ? "стой в портале — переход на арену" : "войди в фиолетовую рамку";
     } else {
       hintText.textContent = "портал ещё не заряжен";
     }

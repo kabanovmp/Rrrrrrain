@@ -115,16 +115,14 @@ export function setupTerrainV3(group, levelIndex = 1) {
   // v0.0.3.4: экспортируем в window — controller читает для проверки падения
   if (typeof window !== "undefined") window._arenaHoles = holes;
 
-  // ── Nether-portal — ЕДИНСТВЕННЫЙ портал арены (v0.0.3.12: правильные материалы) ──
-  // arch: MeshStandardMaterial (нужен emissive для updateArenaPortal)
-  // water: MeshBasicMaterial (плоскость воды, меняется color+opacity)
-  // base: MeshBasicMaterial (диск-триггер на полу, меняется color+opacity)
-  const portalX = R * 0.4, portalZ = R * 0.3;
-  const portalGroup = createNetherPortal({ scale: 1.15, idle: true });
-  portalGroup.position.set(portalX, 0, portalZ);
+  // Портал Незера — внутри тумана, лицом к спавну. Сервер двигает его каждый забег.
+  const portalDist = WORLD.PORTAL_DIST || 34;
+  const portalGroup = createNetherPortal({ scale: 1.25, lit: false });
+  portalGroup.position.set(portalDist, 0, 0);
+  portalGroup.lookAt(0, 0, 0);
   group.add(portalGroup);
   group.userData.portal = portalGroup;
-  group.userData.portalPos = { x: portalX, z: portalZ };
+  group.userData.portalPos = { x: portalDist, z: 0 };
 
   return group;
 }
