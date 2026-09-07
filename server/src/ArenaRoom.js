@@ -39,6 +39,7 @@ export class ArenaRoom extends Room {
       if (typeof msg.z === "number") p.pos.z = msg.z;
       if (typeof msg.yaw === "number") p.yaw = msg.yaw;
       if (typeof msg.pitch === "number") p.pitch = msg.pitch;
+      p._lmbHeld = !!msg.lmbHeld;
     });
 
     this.onMessage("cast", (client, msg) => {
@@ -48,119 +49,101 @@ export class ArenaRoom extends Room {
       const spell = SPELLS[spellId];
       if (!spell) return;
       const combatPhase = this.state.phase === "arena" || this.state.phase === "portal_ready";
-      if (!combatPhase) return;
-      if ((spell.isStarfall || spell.isBlock) && !p.weaponSlot) return;
+      if (!spell.isCosmetic && !combatPhase) return;
+      const wid = p.weaponSlot;
+      const wdef = WEAPONS[wid];
+      if (!wdef || (wdef.lmb !== spellId && wdef.rmb !== spellId)) return;
+      const isRmb = wdef.rmb === spellId;
+      const now = Date.now() / 1000;
+      const cdField = isRmb ? "rmbCdUntil" : "lmbCdUntil";
+      if (now < (p[cdField] || 0) && !spell.isDaggerCharge) return;
+
       const dmgMult = (p.isGhost ? COMBAT.GHOST_STAT_MULT : 1) * this.playerDamageMult(p);
-      if (spell.isChain) {
-        // ЦЕПНАЯ МОЛНИЯ: мгновенный хит, прыгает от врага к врагу
-        const dir = { x: msg.dx || 0, y: msg.dy || 0, z: msg.dz || 0 };
-        const origin = {
-          x: typeof msg.ox === "number" ? msg.ox : p.pos.x,
-          y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
-          z: typeof msg.oz === "number" ? msg.oz : p.pos.z,
-        };
-        // Первая цель — ближайший враг в конусе взгляда
-        let firstEnemy = null, firstDist = Infinity;
-        this.state.enemies.forEach(e => {
-          if (!e.alive) return;
-          const dx = e.pos.x - origin.x, dy = e.pos.y - origin.y, dz = e.pos.z - origin.z;
-          const dist2 = dx*dx + dy*dy + dz*dz;
-          if (dist2 > spell.initialRange * spell.initialRange) return;
-          const dist = Math.sqrt(dist2);
-          const dot = (dx * dir.x + dy * dir.y + dz * dir.z) / (dist || 1);
-          if (dot < spell.initialConeCos) return;
-          if (dist < firstDist) { firstDist = dist; firstEnemy = e; }
+      const origin = {
+        x: typeof msg.ox === "number" ? msg.ox : p.pos.x,
+        y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
+        z: typeof msg.oz === "number" ? msg.oz : p.pos.z,
+      };
+      const dir = { x: msg.dx || 0, y: msg.dy || 0, z: msg.dz || 0 };
+
+      if (spell.isCosmetic) {
+        p[cdField] = now + (spell.cooldown || 0.8);
+        this.broadcast("fx", { type: spell.fx || "cig_puff", target: client.sessionId, x: origin.x, y: origin.y, z: origin.z, color: spell.color });
+        return;
+      }
+      if (spell.isDaggerCharge) {
+        return; // зарядка идёт в tick по lmbHeld
+      }
+      if (spell.isShield) {
+        p.blockAbsorbLeft = spell.absorb;
+        // 0 duration = бессрочно, пока не снимут HP. Legacy-клиенты смотрят blockActiveUntil —
+        // ставим далеко в будущее, чтобы бар не гас через 3с.
+        p.blockActiveUntil = 1e15;
+        p[cdField] = now + (spell.cooldown || 2);
+        this.broadcast("fx", {
+          type: "star_shield", target: client.sessionId, absorb: spell.absorb,
+          x: origin.x, y: origin.y, z: origin.z, color: spell.color,
         });
-        if (!firstEnemy) return;
-        // Цепочка: прыгаем от текущей цели к ближайшему ещё не битому
-        const hitIds = new Set();
-        const chain = []; // для fx: координаты точек
-        chain.push({ x: origin.x, y: origin.y, z: origin.z });
-        let cur = firstEnemy;
-        let dmg = spell.damage * dmgMult;
-        for (let jump = 0; jump < spell.maxJumps; jump++) {
-          this.damageEnemy(cur, dmg);
-          hitIds.add(cur);
-          chain.push({ x: cur.pos.x, y: cur.pos.y, z: cur.pos.z });
-          // Следующая цель
-          let next = null, nd = Infinity;
-          this.state.enemies.forEach(e => {
-            if (!e.alive || hitIds.has(e)) return;
-            const dx = e.pos.x - cur.pos.x, dy = e.pos.y - cur.pos.y, dz = e.pos.z - cur.pos.z;
-            const d2 = dx*dx + dy*dy + dz*dz;
-            if (d2 > spell.jumpRange * spell.jumpRange) return;
-            if (d2 < nd) { nd = d2; next = e; }
-          });
-          if (!next) break;
-          cur = next;
-          dmg *= spell.falloff;
+        return;
+      }
+      if (spell.isHitscan) {
+        p[cdField] = now + (spell.cooldown || 0.45);
+        const hit = this.hitscanEnemy(origin, dir, spell.range || 100, spell.tube || 0.55);
+        if (hit) this.damageEnemy(hit, spell.damage * dmgMult);
+        const len = spell.range || 80;
+        this.broadcast("fx", {
+          type: "hitscan", color: spell.color,
+          x: origin.x, y: origin.y, z: origin.z,
+          tx: origin.x + dir.x * len, ty: origin.y + dir.y * len, tz: origin.z + dir.z * len,
+          hx: hit ? hit.pos.x : null, hy: hit ? hit.pos.y : null, hz: hit ? hit.pos.z : null,
+        });
+        return;
+      }
+      if (spell.isChainStorm || spell.isChain) {
+        p[cdField] = now + (spell.cooldown || 30);
+        this.castChainStorm(p, origin, dir, spell, dmgMult);
+        return;
+      }
+      if (spell.isHoming) {
+        p[cdField] = now + (spell.cooldown || 1);
+        const shots = this.playerHasCard(p, "ANGER") ? 2 : 1;
+        const vis = spell.visRange || WORLD.FOG_FAR;
+        for (let s = 0; s < shots; s++) {
+          const tgt = this.nearestEnemy(origin, vis);
+          this.spawnHoming(client.sessionId, origin, dir, spell, spell.damage * dmgMult, tgt);
         }
-        this.broadcast("fx", { type: "chain", color: spell.color, points: chain });
-      } else if (spell.isStarfall) {
-        const dir = { x: msg.dx || 0, y: msg.dy || 0, z: msg.dz || 0 };
-        const origin = {
-          x: typeof msg.ox === "number" ? msg.ox : p.pos.x,
-          y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
-          z: typeof msg.oz === "number" ? msg.oz : p.pos.z,
-        };
+        return;
+      }
+      if (spell.isDaggerThrow) {
+        p[cdField] = now + (spell.cooldown || 0.7);
+        this.throwDaggers(p, client.sessionId, origin, dir, spell, dmgMult);
+        return;
+      }
+      if (spell.isStarfall) {
+        p[cdField] = now + (spell.cooldown || 0.5);
         const hasAnger = this.playerHasCard(p, "ANGER");
         const shots = hasAnger ? 2 : 1;
         const dmgMulSf = dmgMult * (this.state.dbgWeaponDmgMul || 1);
         const aimed = this.pickStarfallImpact(origin, dir, spell);
         for (let sh = 0; sh < shots; sh++) {
-          const spread = aimed.lock ? 0 : (spell.aimSpread || 0);
-          const jx = (Math.random() - 0.5) * spread * 2;
-          const jz = (Math.random() - 0.5) * spread * 2;
-          const tx = aimed.x + jx;
-          const ty = aimed.y;
-          const tz = aimed.z + jz;
           const dmgVal = spell.damageMin + Math.random() * (spell.damageMax - spell.damageMin);
-          let hitCount = 0;
           this.state.enemies.forEach(e => {
             if (!e.alive) return;
-            const dx = e.pos.x - tx, dy = e.pos.y - ty, dz = e.pos.z - tz;
-            if (dx*dx+dy*dy+dz*dz <= spell.radius*spell.radius) {
-              this.damageEnemy(e, dmgVal * dmgMulSf);
-              hitCount++;
-            }
+            const dx = e.pos.x - aimed.x, dy = e.pos.y - aimed.y, dz = e.pos.z - aimed.z;
+            if (dx*dx+dy*dy+dz*dz <= spell.radius*spell.radius) this.damageEnemy(e, dmgVal * dmgMulSf);
           });
-          this.broadcast("fx", { type: "starfall", x: tx, y: ty, z: tz, r: spell.radius, color: spell.color, count: hitCount });
+          this.broadcast("fx", { type: "starfall", x: aimed.x, y: aimed.y, z: aimed.z, r: spell.radius, color: spell.color });
         }
-      } else if (spell.isBlock) {
-        // v0.0.3.1: Звёздный Блок мечом
-        const now = Date.now() / 1000;
-        if (now < (p.blockCdUntil || 0)) {
-          // на кулдауне — тихо игнор
-          return;
-        }
-        p.blockActiveUntil = now + spell.duration;
-        p.blockAbsorbLeft = spell.absorb;
-        p.blockCdUntil = now + spell.cooldown;
-        this.broadcast("fx", { type: "star_block", target: client.sessionId, color: spell.color, dur: spell.duration });
-      } else if (spell.isAoe) {
-        this.state.enemies.forEach(e => {
-          if (!e.alive) return;
-          const dx = e.pos.x - p.pos.x, dy = e.pos.y - p.pos.y, dz = e.pos.z - p.pos.z;
-          if (dx*dx+dy*dy+dz*dz <= spell.radius*spell.radius) {
-            this.damageEnemy(e, spell.damage * dmgMult);
-          }
-        });
-        this.broadcast("fx", { type: "wave", x: p.pos.x, y: p.pos.y, z: p.pos.z, r: spell.radius });
-      } else {
-        this.projectiles.push({
-          ownerId: client.sessionId,
-          x: msg.ox ?? p.pos.x, y: msg.oy ?? p.pos.y, z: msg.oz ?? p.pos.z,
-          vx: (msg.dx || 0) * spell.projectileSpeed,
-          vy: (msg.dy || 0) * spell.projectileSpeed,
-          vz: (msg.dz || 0) * spell.projectileSpeed,
-          life: spell.life, damage: spell.damage * dmgMult, radius: spell.radius, color: spell.color,
-        });
-        // Берём origin из msg (актуальная позиция игрока на его клиенте), а не p.pos (может отставать)
-        const ox = typeof msg.ox === "number" ? msg.ox : p.pos.x;
-        const oy = typeof msg.oy === "number" ? msg.oy - 0.6 : p.pos.y;
-        const oz = typeof msg.oz === "number" ? msg.oz : p.pos.z;
-        this.broadcast("fx", { type: "shot", x: ox, y: oy, z: oz, color: spell.color, dx: msg.dx || 0, dy: msg.dy || 0, dz: msg.dz || 0 });
+        return;
       }
+      p[cdField] = now + (spell.cooldown || 0.35);
+      this.projectiles.push({
+        ownerId: client.sessionId,
+        x: origin.x, y: origin.y, z: origin.z,
+        vx: dir.x * spell.projectileSpeed, vy: dir.y * spell.projectileSpeed, vz: dir.z * spell.projectileSpeed,
+        life: spell.life, damage: spell.damage * dmgMult, radius: spell.radius, color: spell.color,
+      });
+      this.broadcast("fx", { type: "shot", x: origin.x, y: origin.y, z: origin.z, color: spell.color, dx: dir.x, dy: dir.y, dz: dir.z });
     });
 
     this.onMessage("pickup", (client, msg) => {
@@ -573,9 +556,13 @@ export class ArenaRoom extends Room {
     p.pos.z = (Math.random() - 0.5) * 4;
     // v0.0.3.1: стартовый инвентарь — Звёздный Меч в руке, ANGER в первом слоте карт
     p.weaponSlot = "STAR_SWORD";
+    p.daggerCount = 1;
     for (let i = 0; i < 10; i++) p.cards.push(i === 0 ? "ANGER" : "");
     p.backpack.push("CARD:FRENZY");
     p.backpack.push("CARD:RAIN");
+    p.backpack.push("WEAPON:LIGHTNING_STAFF");
+    p.backpack.push("WEAPON:DAGGERS");
+    p.backpack.push("WEAPON:CIGARETTE");
     this.state.players.set(client.sessionId, p);
     console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
   }
@@ -607,6 +594,137 @@ export class ArenaRoom extends Room {
   playerDamageMult(p) {
     if (p.passiveItemId === "EMBER_SIGIL") return 1.5;
     return 1;
+  }
+
+  nearestEnemy(origin, maxR) {
+    let best = null, bd = maxR * maxR, bid = "";
+    this.state.enemies.forEach((e, id) => {
+      if (!e.alive) return;
+      const dx = e.pos.x - origin.x, dy = e.pos.y - origin.y, dz = e.pos.z - origin.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < bd) { bd = d2; best = e; bid = id; }
+    });
+    return best ? { e: best, id: bid } : null;
+  }
+
+  hitscanEnemy(origin, dir, range, tube) {
+    let best = null, bestT = range;
+    const dl = Math.hypot(dir.x, dir.y, dir.z) || 1;
+    const ux = dir.x / dl, uy = dir.y / dl, uz = dir.z / dl;
+    this.state.enemies.forEach(e => {
+      if (!e.alive) return;
+      const vx = e.pos.x - origin.x, vy = e.pos.y - origin.y, vz = e.pos.z - origin.z;
+      const t = vx * ux + vy * uy + vz * uz;
+      if (t < 0.2 || t > range) return;
+      const px = origin.x + ux * t, py = origin.y + uy * t, pz = origin.z + uz * t;
+      const rad = tube + (ENEMY_TYPES[e.enemyType]?.size || 1);
+      const dx = e.pos.x - px, dy = e.pos.y - py, dz = e.pos.z - pz;
+      if (dx * dx + dy * dy + dz * dz <= rad * rad && t < bestT) { bestT = t; best = e; }
+    });
+    return best;
+  }
+
+  spawnHoming(ownerId, origin, dir, spell, damage, tgt) {
+    let vx = dir.x, vy = dir.y, vz = dir.z;
+    const sp = spell.projectileSpeed || 32;
+    if (tgt && tgt.e) {
+      const dx = tgt.e.pos.x - origin.x, dy = tgt.e.pos.y - origin.y, dz = tgt.e.pos.z - origin.z;
+      const L = Math.max(0.001, Math.hypot(dx, dy, dz));
+      vx = dx / L; vy = dy / L; vz = dz / L;
+    }
+    this.projectiles.push({
+      ownerId, homing: true, targetId: tgt ? tgt.id : "",
+      visRange: spell.visRange || 100,
+      x: origin.x, y: origin.y, z: origin.z,
+      vx: vx * sp, vy: vy * sp, vz: vz * sp,
+      life: spell.life || 4, damage, radius: spell.radius || 0.5, color: spell.color,
+    });
+    this.broadcast("fx", {
+      type: "homing", x: origin.x, y: origin.y, z: origin.z,
+      color: spell.color, dx: vx, dy: vy, dz: vz, star: true,
+      targetId: tgt ? tgt.id : "",
+    });
+  }
+
+  throwDaggers(p, sid, origin, dir, spell, dmgMult) {
+    const n = Math.max(1, p.daggerCount | 0);
+    const vis = spell.visRange || 100;
+    const vis2 = vis * vis;
+    const dmg = spell.damage * dmgMult;
+    const list = [];
+    this.state.enemies.forEach((e, id) => {
+      if (!e.alive) return;
+      const dx = e.pos.x - origin.x, dz = e.pos.z - origin.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > vis2) return;
+      list.push({ e, id, d2, hp: e.hp });
+    });
+    list.sort((a, b) => a.d2 - b.d2);
+    let left = n;
+    const assign = [];
+    for (const t of list) {
+      if (left <= 0) break;
+      const need = Math.max(1, Math.ceil(t.hp / Math.max(1, dmg)));
+      const take = Math.min(need, left);
+      assign.push({ t, take });
+      left -= take;
+    }
+    while (left > 0 && assign.length > 1) {
+      for (let i = 1; i < assign.length && left > 0; i++) {
+        assign[i].take++;
+        left--;
+      }
+      if (assign.length <= 1) break;
+    }
+    for (const a of assign) {
+      for (let i = 0; i < a.take; i++) {
+        this.spawnHoming(sid, origin, dir || { x: 0, y: 0, z: 1 }, spell, dmg, { e: a.t.e, id: a.t.id });
+      }
+    }
+    while (left > 0) {
+      this.spawnHoming(sid, origin, dir || { x: 0, y: 0, z: 1 }, spell, dmg, null);
+      left--;
+    }
+    p.daggerCount = 1;
+  }
+
+  castChainStorm(p, origin, dir, spell, dmgMult) {
+    let firstEnemy = null, firstDist = Infinity;
+    const dl = Math.hypot(dir.x, dir.y, dir.z) || 1;
+    const ux = dir.x / dl, uy = dir.y / dl, uz = dir.z / dl;
+    this.state.enemies.forEach(e => {
+      if (!e.alive) return;
+      const dx = e.pos.x - origin.x, dy = e.pos.y - origin.y, dz = e.pos.z - origin.z;
+      const dist2 = dx * dx + dy * dy + dz * dz;
+      if (dist2 > spell.initialRange * spell.initialRange) return;
+      const dist = Math.sqrt(dist2);
+      const dot = (dx * ux + dy * uy + dz * uz) / (dist || 1);
+      if (dot < (spell.initialConeCos || 0.7)) return;
+      if (dist < firstDist) { firstDist = dist; firstEnemy = e; }
+    });
+    if (!firstEnemy) return;
+    const hitIds = new Set();
+    const chain = [{ x: origin.x, y: origin.y, z: origin.z }];
+    let cur = firstEnemy;
+    let dmg = spell.damage * dmgMult;
+    const step = spell.damageStep || 10;
+    for (let jump = 0; jump < (spell.maxJumps || 10); jump++) {
+      this.damageEnemy(cur, dmg);
+      hitIds.add(cur);
+      chain.push({ x: cur.pos.x, y: cur.pos.y, z: cur.pos.z });
+      let next = null, nd = Infinity;
+      this.state.enemies.forEach(e => {
+        if (!e.alive || hitIds.has(e)) return;
+        const dx = e.pos.x - cur.pos.x, dy = e.pos.y - cur.pos.y, dz = e.pos.z - cur.pos.z;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 > spell.jumpRange * spell.jumpRange) return;
+        if (d2 < nd) { nd = d2; next = e; }
+      });
+      if (!next) break;
+      cur = next;
+      dmg = Math.max(10, dmg - step * dmgMult);
+    }
+    this.broadcast("fx", { type: "chain", color: spell.color, points: chain });
   }
   // Надеть пассивку: первый надевается, последующие идут в itemsInBody (запас)
   equipItem(p, itemId) {
@@ -707,6 +825,7 @@ export class ArenaRoom extends Room {
 
   grantToPlayer(p, kind, handType, itemId) {
     if (kind === "WEAPON") {
+      p.daggerCount = String(handType || itemId || "") === "DAGGERS" ? 1 : (p.daggerCount || 1);
       // v0.0.3.8: оружие из сундука. Если слот занят — старое в рюкзак.
       const wid = String(handType || itemId || "").trim();
       if (!wid) return;
@@ -735,6 +854,9 @@ export class ArenaRoom extends Room {
       { kind: "CARD", handType: "ANGER" },
       { kind: "CARD", handType: "FRENZY" },
       { kind: "CARD", handType: "RAIN" },
+      { kind: "WEAPON", handType: "LIGHTNING_STAFF" },
+      { kind: "WEAPON", handType: "DAGGERS" },
+      { kind: "WEAPON", handType: "CIGARETTE" },
     ];
     for (let i = 0; i < kinds.length; i++) {
       const a = (i / kinds.length) * Math.PI * 2;
@@ -895,14 +1017,17 @@ export class ArenaRoom extends Room {
     // v0.0.3.0: спавним врагов 40-80м от центра — в радиусе тумана, но видны
     const r = 40 + Math.random() * 40;
     e.pos.x = Math.sin(angle) * r;
+    e.pos.z = Math.cos(angle) * r;
+    e._homeX = e.pos.x;
+    e._homeZ = e.pos.z;
     if (t.flying) {
-      e.pos.y = t.hoverY || FLY_MIN_Y + Math.random() * 1.5;
-      e.state = "aggro";
+      e._hoverY = 10 + Math.random() * 16;
+      e.pos.y = e._hoverY;
+      e.state = "patrol";
     } else {
       e.pos.y = 1;
-      e.state = "aggro";
+      e.state = "patrol";
     }
-    e.pos.z = Math.cos(angle) * r;
     const id = `e${++this.enemySeq}`;
     this.state.enemies.set(id, e);
     e._grace = ENEMY_GRACE_SEC;
@@ -961,12 +1086,12 @@ export class ArenaRoom extends Room {
     if (this.state.phase !== "arena" && this.state.phase !== "portal_ready") return;
     // v0.0.3.1: Звёздный Блок — поглощает урон пока активен
     const nowSec = Date.now() / 1000;
-    if (nowSec < (p.blockActiveUntil || 0) && (p.blockAbsorbLeft || 0) > 0) {
+    if ((p.blockAbsorbLeft || 0) > 0) {
       const absorb = Math.min(p.blockAbsorbLeft, dmg);
       p.blockAbsorbLeft -= absorb;
       dmg -= absorb;
-      this.broadcast("fx", { type: "block_absorb", target: sessionId, absorb });
-      if (p.blockAbsorbLeft <= 0) { p.blockActiveUntil = 0; }
+      this.broadcast("fx", { type: "block_absorb", target: sessionId, absorb, left: p.blockAbsorbLeft });
+      if (p.blockAbsorbLeft <= 0) { p.blockActiveUntil = 0; p.blockAbsorbLeft = 0; }
       if (dmg <= 0) return;
     }
     p.hp -= dmg;
@@ -1032,6 +1157,25 @@ export class ArenaRoom extends Room {
     // Снаряды игрока бьют врагов. Огненные шары мобов — только игроков (иначе стрелок убивает себя в момент выстрела).
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
+      if (pr.homing && !pr.enemyProjectile) {
+        let te = pr.targetId ? this.state.enemies.get(pr.targetId) : null;
+        if (!te || !te.alive) {
+          const n = this.nearestEnemy(pr, pr.visRange || 100);
+          te = n ? n.e : null;
+          pr.targetId = n ? n.id : "";
+        }
+        if (te) {
+          const dx = te.pos.x - pr.x, dy = te.pos.y - pr.y, dz = te.pos.z - pr.z;
+          const L = Math.max(0.001, Math.hypot(dx, dy, dz));
+          const sp = Math.hypot(pr.vx, pr.vy, pr.vz) || 32;
+          const ux = dx / L, uy = dy / L, uz = dz / L;
+          pr.vx = pr.vx * 0.72 + ux * sp * 0.28;
+          pr.vy = pr.vy * 0.72 + uy * sp * 0.28;
+          pr.vz = pr.vz * 0.72 + uz * sp * 0.28;
+          const ns = Math.hypot(pr.vx, pr.vy, pr.vz) || 1;
+          pr.vx = pr.vx / ns * sp; pr.vy = pr.vy / ns * sp; pr.vz = pr.vz / ns * sp;
+        }
+      }
       pr.life -= dt;
       pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.z += pr.vz * dt;
       if (pr.enemyProjectile) {
@@ -1050,6 +1194,19 @@ export class ArenaRoom extends Room {
 
     const combatPhase = this.state.phase === "arena" || this.state.phase === "portal_ready";
     if (!combatPhase) return;
+
+    const nowSec = Date.now() / 1000;
+    this.state.players.forEach(p => {
+      if (p.weaponSlot !== "DAGGERS" || p.isGhost || p.hp <= 0) return;
+      if (!p._lmbHeld) { p._daggerNext = 0; return; }
+      if ((p.daggerCount || 1) >= 10) return;
+      if (!p._daggerNext) p._daggerNext = nowSec + 1;
+      if (nowSec >= p._daggerNext) {
+        p.daggerCount = Math.min(10, (p.daggerCount || 1) + 1);
+        p._daggerNext = nowSec + 1;
+        p.lmbCdUntil = p._daggerNext;
+      }
+    });
 
     // v0.0.3.1: Фалл→респаун + 5% HP при падении в дыру (клиент шлёт fall)
     // (само событие приходит через onMessage("fall"))
@@ -1084,17 +1241,26 @@ export class ArenaRoom extends Room {
       });
       if (!nearest) return;
       // v0.0.3.1: патруль вне аггро-радиуса
-      const aggro = AI_DIRECTOR.AGGRO_RANGE;
-      if (Math.sqrt(nd) > aggro) {
-        // Патруль: медленно блуждаем вокруг spawn-точки
+      const vis = AI_DIRECTOR.VISION_RANGE || 34;
+      const leash = AI_DIRECTOR.LEASH_RANGE || 48;
+      const dist = Math.sqrt(nd);
+      const inVision = dist <= vis;
+      if (!inVision) {
         e.state = "patrol";
+        e.targetId = "";
         if (e._patrolAng == null) e._patrolAng = Math.random() * Math.PI * 2;
-        e._patrolAng += dt * 0.3;
-        const speedP = (t.speed || 3) * 0.3;
-        e.pos.x += Math.sin(e._patrolAng) * speedP * dt;
-        e.pos.z += Math.cos(e._patrolAng) * speedP * dt;
+        e._patrolAng += dt * 0.45;
+        const hx = e._homeX ?? e.pos.x, hz = e._homeZ ?? e.pos.z;
+        const homePull = dist > leash ? 0.7 : 0.35;
+        const prx = hx + Math.sin(e._patrolAng) * 8;
+        const prz = hz + Math.cos(e._patrolAng) * 8;
+        const pdx = prx - e.pos.x, pdz = prz - e.pos.z;
+        const pd = Math.max(0.001, Math.hypot(pdx, pdz));
+        const speedP = (t.speed || 3) * homePull;
+        e.pos.x += (pdx / pd) * speedP * dt;
+        e.pos.z += (pdz / pd) * speedP * dt;
         if (t.flying) {
-          const targetY = (t.hoverY || FLY_MIN_Y) + Math.sin(Date.now() * 0.001) * 0.5;
+          const targetY = (e._hoverY || t.hoverY || 10) + Math.sin(Date.now() * 0.001 + e._patrolAng) * 0.8;
           e.pos.y += (targetY - e.pos.y) * dt * 2;
         }
         return;
@@ -1144,7 +1310,7 @@ export class ArenaRoom extends Room {
       let newY;
       if (t.flying) {
         // Летающие держат высоту, слегка колышутся
-        const targetY = (t.hoverY || FLY_MIN_Y + 1.5) + Math.sin(Date.now() * 0.001 + e._grace) * 0.55;
+        const targetY = (e._hoverY || t.hoverY || 10) + Math.sin(Date.now() * 0.001 + e._grace) * 0.7;
         newY = e.pos.y + (targetY - e.pos.y) * dt * 2;
       } else {
         newY = 1;
@@ -1168,15 +1334,27 @@ export class ArenaRoom extends Room {
           const dxF = px - e.pos.x, dyF = py - e.pos.y, dzF = pz - e.pos.z;
           const dL = Math.max(0.001, Math.sqrt(dxF*dxF+dyF*dyF+dzF*dzF));
           const ux = dxF / dL, uy = dyF / dL, uz = dzF / dL;
+          const spread = t.fireSpread || 0.14;
+          const rx = (Math.random() - 0.5) * spread;
+          const ry = (Math.random() - 0.5) * spread * 0.6;
+          const rz = (Math.random() - 0.5) * spread;
+          let sx = ux + rx, sy = uy + ry, sz = uz + rz;
+          const sL = Math.max(0.001, Math.hypot(sx, sy, sz));
+          sx /= sL; sy /= sL; sz /= sL;
           const spawnOff = (t.size || 1.5) + 1.1;
           this.projectiles.push({
             ownerId: eid,
             enemyProjectile: true,
-            x: e.pos.x + ux * spawnOff, y: e.pos.y + uy * spawnOff, z: e.pos.z + uz * spawnOff,
-            vx: ux * t.fireSpeed, vy: uy * t.fireSpeed, vz: uz * t.fireSpeed,
-            life: 3.8, damage: t.fireDamage, radius: 0.75, color: 0xff2a12,
+            x: e.pos.x + sx * spawnOff, y: e.pos.y + sy * spawnOff, z: e.pos.z + sz * spawnOff,
+            vx: sx * t.fireSpeed, vy: sy * t.fireSpeed, vz: sz * t.fireSpeed,
+            life: t.fireLife || 11.4, damage: t.fireDamage, radius: 0.75, color: 0xff2a12,
           });
-          this.broadcast("fx", { type: "caco_shoot", x: e.pos.x + ux * spawnOff, y: e.pos.y + uy * spawnOff, z: e.pos.z + uz * spawnOff, tx: px, ty: py, tz: pz, color: 0xff5a1f });
+          this.broadcast("fx", {
+            type: "caco_shoot",
+            x: e.pos.x + sx * spawnOff, y: e.pos.y + sy * spawnOff, z: e.pos.z + sz * spawnOff,
+            tx: e.pos.x + sx * 80, ty: e.pos.y + sy * 80, tz: e.pos.z + sz * 80,
+            color: 0xff5a1f,
+          });
           e._burstIdx++;
           e._fireCd = e._burstIdx < e._burstCount ? t.fireCooldown : (2.0 + Math.random() * 1.5);
         }

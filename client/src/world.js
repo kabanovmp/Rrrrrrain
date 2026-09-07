@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { WORLD } from "@mhfps/shared";
 import { getTexture } from "./assets.js";
 import { createFloatingLootCard } from "./pedestal.js";
+import { createNetherPortal, tickNetherPortal } from "./netherPortal.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // ХАБ: комната в космосе
@@ -81,54 +82,9 @@ export function setupHub(group) {
 
 
   // ── ПОРТАЛ НА АРЕНУ (край хаба) ───────────────────────────
-  const hubPortal = new THREE.Group();
+  const hubPortal = createNetherPortal({ scale: 0.85, idle: false });
   hubPortal.userData.isHubPortal = true;
-  // Арка
-  const hpArch = new THREE.Mesh(
-    new THREE.TorusGeometry(2.2, 0.32, 12, 24),
-    new THREE.MeshStandardMaterial({
-      color: 0x223344, roughness: 0.6, metalness: 0.4,
-      emissive: 0x2266ff, emissiveIntensity: 0.5,
-    })
-  );
-  hpArch.position.y = 2.5;
-  hpArch.rotation.y = Math.PI / 2;
-  hubPortal.add(hpArch);
-  hubPortal.userData.arch = hpArch;
-  // Колонны по бокам
-  for (const dx of [-2.5, 2.5]) {
-    const col = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.28, 0.35, 2.6, 8),
-      new THREE.MeshStandardMaterial({ color: 0x334455, roughness: 0.5, metalness: 0.5 })
-    );
-    col.position.set(0, 1.3, dx);
-    hubPortal.add(col);
-  }
-  // Вода в арке (голубая)
-  const hpWater = new THREE.Mesh(
-    new THREE.CircleGeometry(2.1, 24),
-    new THREE.MeshBasicMaterial({
-      color: 0x66aaff, transparent: true, opacity: 0.65, side: THREE.DoubleSide,
-    })
-  );
-  hpWater.position.y = 2.5;
-  hpWater.rotation.y = Math.PI / 2;
-  hubPortal.add(hpWater);
-  hubPortal.userData.water = hpWater;
-  // Круг на полу (триггер-зона)
-  const hpBase = new THREE.Mesh(
-    new THREE.CircleGeometry(1.8, 24),
-    new THREE.MeshBasicMaterial({
-      color: 0x2266ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false,
-    })
-  );
-  hpBase.rotation.x = -Math.PI / 2;
-  hpBase.position.y = 0.02;
-  hubPortal.add(hpBase);
-  hubPortal.userData.base = hpBase;
-  // Позиция у стены, не в центре
   hubPortal.position.set(0, 0, -R * 0.9);
-  hubPortal.rotation.y = 0;
   group.add(hubPortal);
   group.userData.hubPortal = hubPortal;
 
@@ -639,8 +595,9 @@ export function updateArenaPortal(arenaGroup, state, tSec, chargeRatio = 0) {
     base.material.opacity = 0.85 * pulse;
     beam.material.opacity = 0.55 * pulse;
   }
-  water.rotation.z = tSec * 0.5;
+  water.rotation.z = tSec * 0.15;
   beam.rotation.y = tSec * 0.3;
+  tickNetherPortal(p, tSec);
 }
 
 // Переместить меш портала в заданную точку на арене
@@ -667,13 +624,10 @@ export function getHubPortalPos(hubGroup) {
 export function updateHubPortal(hubGroup, tSec) {
   const p = hubGroup.userData.hubPortal;
   if (!p) return;
+  tickNetherPortal(p, tSec);
   const water = p.userData.water;
-  const arch = p.userData.arch;
-  const base = p.userData.base;
   const pulse = 0.75 + Math.sin(tSec * 2.2) * 0.15;
-  if (water) { water.material.opacity = 0.7 * pulse; water.rotation.z = tSec * 0.4; }
-  if (arch) { arch.material.emissiveIntensity = 0.6 * pulse; }
-  if (base) { base.material.opacity = 0.4 * pulse; }
+  if (water) water.material.opacity = 0.65 + pulse * 0.2;
 }
 
 // Пульсация опасных зон

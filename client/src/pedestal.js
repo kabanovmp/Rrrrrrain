@@ -5,6 +5,7 @@
 
 import * as THREE from "three";
 import { getTexture } from "./assets.js";
+import { lootIconDataUrl } from "./weaponHud.js";
 
 const SPELL_COLORS = {
   fireball: 0xff4400,
@@ -201,6 +202,9 @@ const LOOT_TEX_SRC = {
   "CARD:RAIN": "/assets/v031/card-rain.jpg",
   "WEAPON:STAR_SWORD": "/assets/v031/card-sword.jpg",
   "WEAPON:SWORD": "/assets/v031/card-sword.jpg",
+  "WEAPON:LIGHTNING_STAFF": lootIconDataUrl("LIGHTNING_STAFF"),
+  "WEAPON:DAGGERS": lootIconDataUrl("DAGGERS"),
+  "WEAPON:CIGARETTE": lootIconDataUrl("CIGARETTE"),
 };
 const _lootTexCache = new Map();
 

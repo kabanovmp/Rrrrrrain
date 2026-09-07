@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
-import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT } from "@mhfps/shared";
+import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS } from "@mhfps/shared";
 import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen, getHubBedPos } from "./world.js";
 import { setupTerrainV3, terrainHeight } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
@@ -14,6 +14,7 @@ import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
 import { createPedestalMesh, animatePedestal, createFloatingLootCard, animateFloatingLoot } from "./pedestal.js";
 import { FpsController } from "./controller.js";
 import { initAudio, playSound, playSoundLoop, stopSoundLoop, setMasterVolume, getMasterVolume } from "./assets.js";
+import { hudSprite, lootIconDataUrl } from "./weaponHud.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // DOM
@@ -36,34 +37,57 @@ dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:1
 document.body.appendChild(dmgOverlay);
 let dmgAngle = 0, dmgTimer = 0;
 
-// v0.0.3.2 HUD: плоская рука с мечом (sword-hand.png — PNG с alpha), снизу-справа
-// Масштаб под высоту экрана: меч занимает весомую часть нижне-правого угла
-const swordHud = document.createElement("img");
-swordHud.src = "/assets/sword-hand.png";
-swordHud.style.cssText = [
-  "position:fixed",
-  "left:50%",
-  "bottom:-2vh",
-  "transform:translateX(-58%)",   // v0.0.3.4: центр с лёгким сдвигом — рука левее, клинок правее
-  "height:35vh",                  // v0.0.3.4: уменьшен чтобы не перекрывать обзор
-  "width:auto",
-  "pointer-events:none",
-  "z-index:12",
-  "filter:brightness(1.0) contrast(1.05) drop-shadow(0 -8px 20px rgba(255,50,50,0.4))",
+// Рука — отдельный спрайт, всегда на экране. Оружие — оверлей сверху.
+// Размер через vmin + px-кэп: на маленьком ноутбуке при 100% zoom рука не
+// перекрывает кадр (старый sword-hand.png был огромным padded-холстом +
+// bob-transform сбрасывал translateX(-50%)).
+const fpsHud = document.createElement("div");
+fpsHud.id = "fpsHud";
+fpsHud.style.cssText = [
+  "position:fixed", "left:50%", "bottom:0",
+  "transform:translateX(-50%)",
+  "width:min(42vmin, 360px)",
+  "height:min(24vmin, 200px)",
+  "pointer-events:none", "z-index:12",
   "transform-origin:50% 100%",
-  "transition:transform 0.06s",
-  "image-rendering:pixelated",
-  "user-select:none",
 ].join(";");
-swordHud.hidden = true; // показать после pointerlock
-document.body.appendChild(swordHud);
-let swordBob = 0, swordSwing = 0, swordSwingV = 0;
-function triggerSwordSwing() { swordSwingV = 6.0; }
+const handHud = document.createElement("img");
+const weaponHud = document.createElement("img");
+for (const im of [handHud, weaponHud]) {
+  im.draggable = false;
+  im.style.cssText = "position:absolute;left:50%;bottom:0;transform:translateX(-50%);height:100%;width:auto;max-width:100%;object-fit:contain;image-rendering:auto;user-select:none;filter:drop-shadow(0 -6px 14px rgba(0,0,0,0.45));";
+}
+handHud.src = hudSprite("hand");
+weaponHud.src = hudSprite("sword");
+fpsHud.appendChild(handHud);
+fpsHud.appendChild(weaponHud);
+document.body.appendChild(fpsHud);
+let swordBob = 0, swordSwing = 0, swordSwingV = 0, weaponKick = 0;
+let localBlockHp = 0, shieldGraceUntil = 0;
+function triggerSwordSwing() { swordSwingV = 14; weaponKick = 1; }
+
+const wpnCdHud = document.createElement("div");
+wpnCdHud.style.cssText = "position:fixed;left:50%;bottom:min(26vmin, 214px);transform:translateX(-50%);display:flex;gap:10px;pointer-events:none;z-index:14;font-family:sans-serif;";
+function makeCdChip(label) {
+  const d = document.createElement("div");
+  d.style.cssText = "position:relative;min-width:110px;padding:7px 12px 9px;border-radius:8px;background:rgba(0,0,0,0.72);border:1px solid #886;color:#eee;font-size:13px;text-align:center;letter-spacing:0.4px;overflow:hidden;";
+  d.innerHTML = `<div style="opacity:.75;font-size:11px;font-weight:700;">${label}</div><div class="cdv">готово</div><div class="cdbar" style="position:absolute;left:0;bottom:0;height:3px;width:0;background:#ffcc66;"></div>`;
+  return d;
+}
+const lmbChip = makeCdChip("ЛКМ");
+const rmbChip = makeCdChip("ПКМ");
+const extraChip = makeCdChip("—");
+extraChip.style.display = "none";
+wpnCdHud.append(lmbChip, rmbChip, extraChip);
+document.body.appendChild(wpnCdHud);
+fpsHud.style.display = "none";
+wpnCdHud.style.display = "none";
+let lmbHeld = false;
 
 // v0.0.3.1: HUD звёздного блока (абсорб — в центре экрана)
 const blockHud = document.createElement("div");
 blockHud.id = "blockHud";
-blockHud.style.cssText = "position:fixed;left:50%;top:60%;transform:translateX(-50%);width:220px;height:14px;border:2px solid #ff40a0;background:rgba(0,0,0,0.55);border-radius:7px;overflow:hidden;pointer-events:none;z-index:14;opacity:0;transition:opacity .2s;box-shadow:0 0 12px rgba(255,64,160,0.7);";
+blockHud.style.cssText = "position:fixed;left:50%;top:58%;transform:translateX(-50%);width:260px;height:16px;border:2px solid #ff40a0;background:rgba(0,0,0,0.55);border-radius:7px;overflow:hidden;pointer-events:none;z-index:14;opacity:0;box-shadow:0 0 12px rgba(255,64,160,0.7);";
 const blockHudFill = document.createElement("div");
 blockHudFill.style.cssText = "width:100%;height:100%;background:linear-gradient(90deg,#ff8ac8,#ff40a0);transition:width .1s;";
 blockHud.appendChild(blockHudFill);
@@ -245,7 +269,10 @@ const V31_ICON = {
   "CARD:ANGER":         { src: "/assets/v031/card-anger.jpg",  label: "Ярость",       desc: "Пока надета: Звёздопад бьёт дважды. Hit them twice." },
   "CARD:FRENZY":        { src: "/assets/v031/card-frenzy.jpg", label: "Безумие",      desc: "Пока надета: врагов спавнится ×3, скорость персонажа ×2." },
   "CARD:RAIN":          { src: "/assets/v031/card-rain.jpg",   label: "Дождь",        desc: "Пока надета: метеоритный дождь в зоне видимости. Уничтожает врагов и ранит тебя." },
-  "WEAPON:STAR_SWORD":  { src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "Единственное оружие. ЛКМ — Звёздопад (AoE по прицелу). ПКМ — Звёздный Блок (поглощает урон)." },
+  "WEAPON:STAR_SWORD":  { src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "ЛКМ — 1 самонаводящаяся звезда/с. ПКМ — орбитальный щит на 100 HP, пока не сломают." },
+  "WEAPON:LIGHTNING_STAFF": { src: lootIconDataUrl("LIGHTNING_STAFF"), label: "Посох Молний", desc: "ЛКМ — молния по лучу взгляда. ПКМ — цепь на 10 врагов (150…60 урона), КД 30с." },
+  "WEAPON:DAGGERS": { src: lootIconDataUrl("DAGGERS"), label: "Кинжалы", desc: "Удерживай ЛКМ: +1 нож/с, макс 10. ПКМ — ножи разлетаются по целям (не все в одного)." },
+  "WEAPON:CIGARETTE": { src: lootIconDataUrl("CIGARETTE"), label: "Сигарета", desc: "Декор. ЛКМ — затянуться, ПКМ — выпустить дым. Урона нет." },
   "WEAPON:SWORD":       { src: svgIcon("#c8a05a", "#fff", "⚔️"), label: "Меч",           desc: "Основное оружие" },
   "HAND:FIRE":          { src: svgIcon("#c04010", "#fff", "🔥"), label: "Огненная",     desc: "Файербол" },
   "HAND:ICE":           { src: svgIcon("#3080c0", "#fff", "❄️"), label: "Ледяная",      desc: "Ледяная стрела" },
@@ -798,7 +825,7 @@ function escapeHtml(s) {
 // ═══════════════════════════════════════════════════════════════════
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
 // НЕ обрезаем dpr — иначе на Retina Mac (dpr=2) буфер в 2× меньше канваса → aspect врёт → прицел уезжает
-renderer.setPixelRatio(window.devicePixelRatio || 1);
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 renderer.setClearColor(0x1a2030);
 
 const scene = new THREE.Scene();
@@ -808,8 +835,8 @@ scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 const globalHemi = new THREE.HemisphereLight(0xffffff, 0x776655, 1.2);
 scene.add(globalHemi);
 
-// FOV 70 — стандарт для FPS. 85 было слишком широко, искажало края.
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 500);
+// На коротком экране ноутбука чуть шире FOV — иначе при 100% zoom кадр кажется «в упор».
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.01, 500);
 
 // ПИКСЕЛИЗАЦИЯ (Devil Daggers-style): рендер в low-res рендер-таргет + upscale NEAREST
 let pixelScale = 1; // 1 = отключено
@@ -892,18 +919,38 @@ window.__setRenderFar = (v) => {
   }
 };
 
+function layoutHudScale() {
+  const vv = window.visualViewport;
+  const w = (vv && vv.width) || window.innerWidth;
+  const h = (vv && vv.height) || window.innerHeight;
+  const short = Math.min(w, h);
+  // На 13" Mac ~1280×800 при 100% zoom рука должна быть видна, но не перекрывать кадр.
+  // 50% zoom у друга увеличивает CSS-пиксели — vmin сам уменьшает физический размер.
+  const hudH = Math.round(Math.min(200, short * 0.24, h * 0.26));
+  const hudW = Math.round(hudH * 1.6);
+  fpsHud.style.width = hudW + "px";
+  fpsHud.style.height = hudH + "px";
+  const insetBottom = vv ? Math.max(0, window.innerHeight - vv.offsetTop - vv.height) : 0;
+  fpsHud.style.bottom = insetBottom + "px";
+  wpnCdHud.style.bottom = (hudH + 10 + insetBottom) + "px";
+}
+
 function fitToViewport() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  const vv = window.visualViewport;
+  const w = Math.max(1, Math.floor((vv && vv.width) || window.innerWidth));
+  const h = Math.max(1, Math.floor((vv && vv.height) || window.innerHeight));
   if (!w || !h) return;
   camera.aspect = w / h;
+  camera.fov = h < 700 ? 84 : (h < 850 ? 80 : (h < 980 ? 76 : 72));
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(window.devicePixelRatio || 1);
-  renderer.setSize(w, h, false); // false = НЕ трогать CSS (CSS у нас inset:0), только буфер
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setSize(w, h, false);
+  layoutHudScale();
 }
 window.addEventListener("resize", fitToViewport);
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", fitToViewport);
+  window.visualViewport.addEventListener("scroll", fitToViewport);
 }
 fitToViewport();
 
@@ -1117,7 +1164,7 @@ function spawnShotFx(x, y, z, color, dx = 0, dy = 0, dz = 0) {
 }
 
 // ── FIRE: шар с ореолом (было раньше)
-function spawnFireballFx(x, y, z, color, vx, vy, vz) {
+function spawnFireballFx(x, y, z, color, vx, vy, vz, ttl = 1.2) {
   const matBody = FX_MAT_TPL.basic.clone(); matBody.color.setHex(color);
   const m = new THREE.Mesh(FX_GEOM.sphereSmall, matBody);
   m.position.set(x, y, z);
@@ -1125,7 +1172,92 @@ function spawnFireballFx(x, y, z, color, vx, vy, vz) {
   const halo = new THREE.Mesh(FX_GEOM.sphereHalo, matHalo);
   m.add(halo);
   scene.add(m);
-  pushShot({ mesh: m, ttl: 1.2, maxTtl: 1.2, vx, vy, vz });
+  pushShot({ mesh: m, ttl, maxTtl: ttl, vx, vy, vz });
+}
+
+function spawnHitscanFx(x, y, z, tx, ty, tz, color) {
+  const pts = [];
+  const segs = 10;
+  const dx = tx - x, dy = ty - y, dz = tz - z;
+  const len = Math.hypot(dx, dy, dz) || 1;
+  const px = -dz / len, pz = dx / len;
+  for (let i = 0; i <= segs; i++) {
+    const t = i / segs;
+    const wob = (i === 0 || i === segs) ? 0 : (Math.random() - 0.5) * 0.45;
+    pts.push(x + dx * t + px * wob, y + dy * t + wob * 0.3, z + dz * t + pz * wob);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pts), 3));
+  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 1, depthWrite: false });
+  const line = new THREE.Line(geo, mat);
+  line.renderOrder = 20;
+  scene.add(line);
+  line.userData.disposeExtras = () => { geo.dispose(); mat.dispose(); };
+  pushShot({ mesh: line, ttl: 0.28, maxTtl: 0.28, vx: 0, vy: 0, vz: 0 });
+}
+
+function spawnSmokeFx(x, y, z, blow) {
+  const n = blow ? 10 : 4;
+  for (let i = 0; i < n; i++) {
+    const mat = FX_MAT_TPL.halo.clone();
+    mat.color.setHex(0xaaaaaa);
+    mat.opacity = 0.35;
+    const m = new THREE.Mesh(FX_GEOM.sphereHalo, mat);
+    m.position.set(x + (Math.random() - 0.5) * 0.2, y, z + (Math.random() - 0.5) * 0.2);
+    scene.add(m);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const sp = blow ? 3.5 : 0.9;
+    pushShot({
+      mesh: m, ttl: blow ? 1.6 : 0.9, maxTtl: blow ? 1.6 : 0.9,
+      vx: dir.x * sp + (Math.random() - 0.5),
+      vy: 0.6 + Math.random() * 0.8,
+      vz: dir.z * sp + (Math.random() - 0.5),
+    });
+  }
+}
+
+function spawnStarBoltFx(x, y, z, dx, dy, dz, speed = 34, homeId = "") {
+  const mat = FX_MAT_TPL.basic.clone(); mat.color.setHex(0xff66cc);
+  const m = new THREE.Mesh(FX_GEOM.iceShard, mat);
+  m.position.set(x, y, z);
+  m.scale.setScalar(0.7);
+  const haloMat = FX_MAT_TPL.halo.clone(); haloMat.color.setHex(0xff40a0); haloMat.opacity = 0.55;
+  const halo = new THREE.Mesh(FX_GEOM.sphereHalo, haloMat);
+  m.add(halo);
+  scene.add(m);
+  const L = Math.hypot(dx, dy, dz) || 1;
+  pushShot({
+    mesh: m, ttl: 2.6, maxTtl: 2.6,
+    vx: dx / L * speed, vy: dy / L * speed, vz: dz / L * speed,
+    spin: 14, homeId: homeId || "",
+  });
+}
+
+const starShieldGroup = new THREE.Group();
+{
+  for (let i = 0; i < 12; i++) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff79d2, transparent: true, opacity: 0.95, depthWrite: false });
+    const s = new THREE.Mesh(FX_GEOM.iceShard, mat);
+    s.userData.ang = (i / 12) * Math.PI * 2;
+    s.scale.setScalar(0.28);
+    starShieldGroup.add(s);
+  }
+  starShieldGroup.visible = false;
+  starShieldGroup.renderOrder = 8;
+  scene.add(starShieldGroup);
+}
+const otherShields = new Map();
+function syncOrbitShield(group, x, y, z, dt) {
+  group.visible = true;
+  group.position.set(x, y, z);
+  const t = performance.now() * 0.001;
+  group.children.forEach((ch, i) => {
+    if (ch.userData.ang == null) ch.userData.ang = (i / Math.max(1, group.children.length)) * Math.PI * 2;
+    const a = ch.userData.ang + t * 2.6;
+    ch.position.set(Math.cos(a) * 1.45, Math.sin(a * 2) * 0.32, Math.sin(a) * 1.45);
+    ch.rotation.y += dt * 4;
+  });
 }
 
 // ── ICE: вращающийся кристаллический шип с бледным свечением
@@ -1503,22 +1635,30 @@ function setupRoomHandlers() {
       spawnWaveFx(msg.x, msg.y, msg.z, msg.r);
       playSound("fireball_impact", { volume: 0.35 });
     }
-    else if (msg.type === "star_block") {
-      // v0.0.3.1: вспышка в точке блока
-      const sx = msg.x ?? (myPlayer ? myPlayer.pos.x : 0);
-      const sy = (msg.y ?? (myPlayer ? myPlayer.pos.y : 1.5)) + 0.5;
-      const sz = msg.z ?? (myPlayer ? myPlayer.pos.z : 0);
-      spawnWaveFx(sx, sy, sz, 3);
-      // Круговой венец звёзд вокруг игрока
-      for (let i = 0; i < 12; i++) {
-        const ang = (i / 12) * Math.PI * 2;
-        spawnShotFx(sx + Math.cos(ang) * 1.6, sy, sz + Math.sin(ang) * 1.6, 0xff40a0, 0, 0, 0);
+    else if (msg.type === "homing") {
+      spawnStarBoltFx(msg.x, msg.y, msg.z, msg.dx || 0, msg.dy || 0, msg.dz || 0, 34, msg.targetId || "");
+      playSound("fireball_cast", { volume: 0.35 });
+    }
+    else if (msg.type === "hitscan") {
+      const tx = msg.hx ?? msg.tx, ty = msg.hy ?? msg.ty, tz = msg.hz ?? msg.tz;
+      spawnHitscanFx(msg.x, msg.y, msg.z, tx, ty, tz, msg.color || 0x88eeff);
+      playSound("chain_cast");
+    }
+    else if (msg.type === "star_shield") {
+      if (msg.target === selfId) {
+        localBlockHp = msg.absorb || 100;
+        shieldGraceUntil = performance.now() + 1500;
       }
-      playSound("fireball_impact", { volume: 0.35 });
+      playSound("fireball_impact", { volume: 0.3 });
+    }
+    else if (msg.type === "cig_puff" || msg.type === "cig_blow") {
+      spawnSmokeFx(msg.x, msg.y + 0.4, msg.z, msg.type === "cig_blow");
     }
     else if (msg.type === "block_absorb") {
-      // мигание HUD блока
-      blockHud.style.opacity = 1; setTimeout(() => { blockHud.style.opacity = 0.7; }, 100);
+      if (msg.target === selfId) {
+        if (typeof msg.left === "number") localBlockHp = Math.max(0, msg.left);
+        blockHud.style.opacity = 1;
+      }
     }
     else if (msg.type === "fall_respawn" && msg.target === selfId) {
       fellFlashUntil = performance.now() + 400;
@@ -1533,7 +1673,7 @@ function setupRoomHandlers() {
       const dx = (msg.tx - msg.x), dy = (msg.ty - msg.y), dz = (msg.tz - msg.z);
       const len = Math.hypot(dx, dy, dz) || 1;
       const speed = 22;
-      spawnFireballFx(msg.x, msg.y, msg.z, msg.color || 0xff5a1f, dx / len * speed, dy / len * speed, dz / len * speed);
+      spawnFireballFx(msg.x, msg.y, msg.z, msg.color || 0xff5a1f, dx / len * speed, dy / len * speed, dz / len * speed, 4.5);
       playSound("fireball_cast", { volume: 0.4 });
       // v0.0.3.2: пометить ближайшего какодемона как "attacking" на 400мс — чтобы стрелял лицом
       let bestEntry = null, bestD = 10;
@@ -1627,47 +1767,34 @@ let lastCastMs = 0;
 canvas.addEventListener("mousedown", (ev) => {
   if (!room || !myPlayer) return;
   if (V3_MODE) {
+    const wdef = WEAPONS[myPlayer.weaponSlot];
     const combat = room.state.phase === "arena" || room.state.phase === "portal_ready";
-    if (!combat) return;
-    if (!myPlayer.weaponSlot) {
-      hintText.textContent = "нет оружия — возьми меч в хабе";
-      hintText.style.opacity = 1; setTimeout(() => { hintText.style.opacity = 0; }, 1400);
-      return;
-    }
-    if (ev.button === 0) {
-      // Звёздопад AoE
-      const nowMs = performance.now();
-      if (nowMs - lastCastMs < 500) return;
-      lastCastMs = nowMs;
-      triggerSwordSwing();
-      const dir = new THREE.Vector3();
-      camera.rotation.order = "YXZ";
-      camera.rotation.y = controller.yaw;
-      camera.rotation.x = controller.pitch;
-      camera.rotation.z = 0;
-      camera.updateMatrixWorld(true);
-      camera.getWorldDirection(dir);
-      const origin = controller.position.clone().add(new THREE.Vector3(0, 0.4, 0));
-      sendInput();
-      room.send("cast", {
-        spell: "STARFALL", dx: dir.x, dy: dir.y, dz: dir.z,
-        ox: origin.x, oy: origin.y, oz: origin.z, hand: "right",
-      });
-    } else if (ev.button === 2) {
-      // v0.0.3.1: Звёздный Блок — поглощает 50 HP / КД 10с
-      const nowSecClient = Date.now() / 1000;
-      const cdLeft = (myPlayer.blockCdUntil || 0) - nowSecClient;
-      if (cdLeft > 0) {
-        hintText.textContent = `Звёздный Блок: КД ${cdLeft.toFixed(1)}с`;
-        hintText.style.opacity = 1; setTimeout(() => { hintText.style.opacity = 0; }, 1200);
-        return;
-      }
-      triggerSwordSwing();
-      sendInput();
-      room.send("cast", { spell: "STAR_BLOCK", hand: "right" });
-      // локально — отклик HUD сразу
-      startCooldown("right", 10000);
-    }
+    if (ev.button === 0) lmbHeld = true;
+    if (!wdef) return;
+    const spellId = ev.button === 0 ? wdef.lmb : ev.button === 2 ? wdef.rmb : null;
+    if (!spellId) return;
+    const spell = SPELLS[spellId];
+    if (!spell) return;
+    if (!spell.isCosmetic && !combat) return;
+    const nowMs = performance.now();
+    if (!spell.isDaggerCharge && nowMs - lastCastMs < 120) return;
+    lastCastMs = nowMs;
+    triggerSwordSwing();
+    camera.rotation.order = "YXZ";
+    camera.rotation.y = controller.yaw;
+    camera.rotation.x = controller.pitch;
+    camera.rotation.z = 0;
+    camera.updateMatrixWorld(true);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const origin = controller.position.clone().add(new THREE.Vector3(0, 0.4, 0));
+    sendInput();
+    if (spell.isDaggerCharge) return;
+    if (spell.isShield) { localBlockHp = 100; shieldGraceUntil = performance.now() + 1500; }
+    room.send("cast", {
+      spell: spellId, dx: dir.x, dy: dir.y, dz: dir.z,
+      ox: origin.x, oy: origin.y, oz: origin.z, hand: ev.button === 2 ? "right" : "left",
+    });
     return;
   }
   const hand = ev.button === 0 ? "left" : ev.button === 2 ? "right" : null;
@@ -1722,6 +1849,9 @@ canvas.addEventListener("mousedown", (ev) => {
   handsRoot.userData[hand === "left" ? "leftHand" : "rightHand"].userData.recoil = 1.0;
 });
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+window.addEventListener("mouseup", (ev) => {
+  if (ev.button === 0) { lmbHeld = false; sendInput(); }
+});
 
 document.addEventListener("keydown", (ev) => {
   if (!room) return;
@@ -1848,7 +1978,7 @@ document.addEventListener("keyup", (ev) => {
 function sendInput() {
   if (!room) return;
   const p = controller.position;
-  room.send("input", { x: p.x, y: p.y, z: p.z, yaw: controller.yaw, pitch: controller.pitch });
+  room.send("input", { x: p.x, y: p.y, z: p.z, yaw: controller.yaw, pitch: controller.pitch, lmbHeld });
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2038,7 +2168,7 @@ function chestItemLabel(raw) {
     const it = ITEMS.find(x => x.id === sub);
     return it ? it.name : (sub || "Предмет");
   }
-  if (kind === "WEAPON") return sub === "STAR_SWORD" ? "Звёздный Меч" : (sub || "Оружие");
+  if (kind === "WEAPON") return (WEAPONS[sub]?.name) || sub || "Оружие";
   if (kind === "CARD") {
     return ({ ANGER: "Ярость", FRENZY: "Безумие", RAIN: "Дождь" })[sub] || (sub || "Карта");
   }
@@ -2300,29 +2430,47 @@ function animate() {
   }
   // v0.0.3.1: HUD Звёздного Блока
   if (myPlayer && V31_MODE) {
-    const nowSec = Date.now() / 1000;
-    const active = nowSec < (myPlayer.blockActiveUntil || 0) && (myPlayer.blockAbsorbLeft || 0) > 0;
+    const nowS = Date.now() / 1000;
+    const active = (myPlayer.blockAbsorbLeft || 0) > 0;
     if (active) {
-      const pct = Math.max(0, Math.min(1, (myPlayer.blockAbsorbLeft || 0) / 50));
+      const pct = Math.max(0, Math.min(1, (myPlayer.blockAbsorbLeft || 0) / 100));
       blockHudFill.style.width = (pct * 100).toFixed(1) + "%";
-      blockHudLabel.textContent = `ЗВЁЗДНЫЙ БЛОК: ${Math.round(myPlayer.blockAbsorbLeft)} HP`;
+      blockHudLabel.textContent = `ЩИТ: ${Math.round(myPlayer.blockAbsorbLeft)} HP`;
       blockHud.style.opacity = 0.9;
     } else {
       blockHud.style.opacity = 0;
     }
-    // Кулдаун-индикатор
-    const cd = Math.max(0, (myPlayer.blockCdUntil || 0) - nowSec);
-    if (cd > 0) {
-      blockCdHud.textContent = cd.toFixed(1) + "с";
-      blockCdHud.style.background = "rgba(50,10,20,0.7)";
-      blockCdHud.style.color = "#aa5577";
-      blockCdHud.style.borderColor = "#772244";
-    } else {
-      blockCdHud.textContent = "☆";
-      blockCdHud.style.background = "rgba(0,0,0,0.6)";
-      blockCdHud.style.color = "#ffcce6";
-      blockCdHud.style.borderColor = "#ff40a0";
-    }
+    // ЛКМ / ПКМ кулдауны с сервера
+    const wdef = WEAPONS[myPlayer.weaponSlot];
+    const fillChip = (chip, until, hint, cdMax) => {
+      const left = Math.max(0, (until || 0) - nowS);
+      const v = chip.querySelector(".cdv");
+      const bar = chip.querySelector(".cdbar");
+      chip.style.opacity = wdef ? "1" : "0.35";
+      if (left > 0.05) {
+        v.textContent = "КД " + (left >= 10 ? left.toFixed(0) : left.toFixed(1)) + "с";
+        chip.style.borderColor = "#a64";
+        if (bar) {
+          const max = Math.max(0.2, cdMax || 1);
+          bar.style.width = Math.min(100, (left / max) * 100).toFixed(1) + "%";
+          bar.style.background = "#ff8844";
+        }
+      } else {
+        v.textContent = hint || "готово";
+        chip.style.borderColor = "#6c6";
+        if (bar) { bar.style.width = "100%"; bar.style.background = "#66cc88"; }
+      }
+    };
+    const lmbSpell = wdef ? SPELLS[wdef.lmb] : null;
+    const rmbSpell = wdef ? SPELLS[wdef.rmb] : null;
+    fillChip(lmbChip, myPlayer.lmbCdUntil, wdef?.lmbHint || "готово", lmbSpell?.cooldown);
+    fillChip(rmbChip, myPlayer.rmbCdUntil, wdef?.rmbHint || "готово", rmbSpell?.cooldown);
+    if (myPlayer.weaponSlot === "DAGGERS") {
+      extraChip.style.display = "block";
+      extraChip.querySelector(".cdv").textContent = `${myPlayer.daggerCount || 1}/10`;
+      extraChip.firstChild.textContent = "НОЖИ";
+    } else extraChip.style.display = "none";
+    blockCdHud.style.display = "none";
   }
   // ── ПАДЕНИЕ С КРАЯ: смерть + респаун в центре хаба ────────
   if (room && myPlayer && room.state.phase === "hub") {
@@ -2389,15 +2537,18 @@ function animate() {
         m.rotation.y += diff * Math.min(1, dt * 6);
       }
     }
-    if (m.userData.cacoV3) {
+      if (m.userData.cacoV3) {
       const attacking = !!(entry._attackingUntil && performance.now() < entry._attackingUntil);
       const inPain = !!(entry._painUntil && performance.now() < entry._painUntil);
+      const lookYaw = myPlayer
+        ? Math.atan2(controller.position.x - m.position.x, controller.position.z - m.position.z)
+        : m.rotation.y;
       if (!entry.alive) {
         const tDeath = Math.min(1, (performance.now() - (entry.deathAt || 0)) / 780);
-        updateCacodemonSprite(m, camera, m.rotation.y, tDeath, false, false, false);
+        updateCacodemonSprite(m, camera, lookYaw, tDeath, false, false, false);
       } else {
         entry.animPhase = ((entry.animPhase || 0) + dt * (attacking ? 8 : 3.2)) % 1;
-        updateCacodemonSprite(m, camera, m.rotation.y, entry.animPhase, true, attacking, inPain);
+        updateCacodemonSprite(m, camera, lookYaw, entry.animPhase, true, attacking, inPain);
       }
     } else {
       animateEnemy(m, dt, moved);
@@ -2493,6 +2644,20 @@ function animate() {
   for (let i = shots.length - 1; i >= 0; i--) {
     const s = shots[i];
     s.ttl -= dt;
+    if (s.homeId && enemyMeshes) {
+      const tgt = enemyMeshes.get(s.homeId);
+      if (tgt && tgt.mesh && tgt.alive !== false) {
+        const p = tgt.mesh.position;
+        const dx = p.x - s.mesh.position.x, dy = p.y - s.mesh.position.y, dz = p.z - s.mesh.position.z;
+        const L = Math.max(0.001, Math.hypot(dx, dy, dz));
+        const sp = Math.hypot(s.vx, s.vy, s.vz) || 34;
+        s.vx = s.vx * 0.7 + (dx / L) * sp * 0.3;
+        s.vy = s.vy * 0.7 + (dy / L) * sp * 0.3;
+        s.vz = s.vz * 0.7 + (dz / L) * sp * 0.3;
+        const ns = Math.hypot(s.vx, s.vy, s.vz) || 1;
+        s.vx = s.vx / ns * sp; s.vy = s.vy / ns * sp; s.vz = s.vz / ns * sp;
+      }
+    }
     if (s.vx || s.vy || s.vz) {
       s.mesh.position.x += s.vx * dt;
       s.mesh.position.y += s.vy * dt;
@@ -2528,20 +2693,71 @@ function animate() {
   // ── Анимация рук ─────────────────────────────────────
   animateHands(handsRoot, dt, { moving: moved });
 
-  // v0.0.3.0: анимация HUD-меча (bob при ходьбе + swing при атаке)
+  // v0.0.3.16: рука всегда; оружие — оверлей; bob сохраняет центрирование
   if (V3_MODE) {
-    const locked = document.pointerLockElement === canvas;
-    swordHud.hidden = !locked || !myPlayer?.weaponSlot;
+    const inGame = menu.style.display === "none";
+    fpsHud.style.display = inGame ? "block" : "none";
+    wpnCdHud.style.display = inGame ? "flex" : "none";
+    const wdef = WEAPONS[myPlayer?.weaponSlot];
+    const palmUp = !!(wdef && wdef.palmUp);
+    const wantHand = hudSprite(palmUp ? "handUp" : "hand");
+    if (handHud.src !== wantHand) handHud.src = wantHand;
+    if (!wdef) weaponHud.style.opacity = "0";
+    else {
+      weaponHud.style.opacity = "1";
+      const kind = wdef.hud || "sword";
+      const extra = kind === "daggers" ? (myPlayer.daggerCount || 1) : 1;
+      const src = hudSprite(kind, extra);
+      if (weaponHud.dataset.src !== src) { weaponHud.src = src; weaponHud.dataset.src = src; }
+    }
   }
-  if (V3_MODE && !swordHud.hidden) {
+  if (V3_MODE && fpsHud.style.display !== "none") {
     swordBob += dt * (moved ? 8 : 2);
     swordSwing += swordSwingV * dt;
-    swordSwingV -= 30 * dt;
+    swordSwingV -= 32 * dt;
     if (swordSwing < 0) { swordSwing = 0; swordSwingV = 0; }
-    const bobY = Math.sin(swordBob) * (moved ? 8 : 3);
-    const bobX = Math.cos(swordBob * 0.5) * (moved ? 4 : 1.5);
-    const rot = -swordSwing * 18; // градусы
-    swordHud.style.transform = `translate(${bobX}px, ${bobY - swordSwing * 40}px) rotate(${rot}deg)`;
+    weaponKick = Math.max(0, weaponKick - dt * 4);
+    const bobY = Math.sin(swordBob) * (moved ? 6 : 2);
+    const bobX = Math.cos(swordBob * 0.5) * (moved ? 3 : 1);
+    const rot = -swordSwing * 32;
+    const recoil = weaponKick * 28;
+    fpsHud.style.transform = `translateX(-50%) translate(${bobX}px, ${bobY - swordSwing * 36}px) rotate(${rot}deg)`;
+    weaponHud.style.transform = `translateX(-50%) translateY(${-recoil}px) rotate(${-weaponKick * 18}deg)`;
+  }
+  if (starShieldGroup) {
+    const on = !!(myPlayer && (myPlayer.blockAbsorbLeft || 0) > 0);
+    if (on) {
+      const p = controller.position;
+      syncOrbitShield(starShieldGroup, p.x, p.y + 0.95, p.z, dt);
+    } else starShieldGroup.visible = false;
+  }
+  if (room && room.state && room.state.players) {
+    const live = new Set();
+    room.state.players.forEach((p, id) => {
+      if (id === selfId) return;
+      if ((p.blockAbsorbLeft || 0) <= 0) return;
+      live.add(id);
+      let g = otherShields.get(id);
+      if (!g) {
+        g = starShieldGroup.clone(true);
+        g.traverse((o) => {
+          if (o.isMesh && o.material) o.material = o.material.clone();
+        });
+        g.children.forEach((ch, i) => {
+          ch.userData.ang = (i / Math.max(1, g.children.length)) * Math.PI * 2;
+        });
+        scene.add(g);
+        otherShields.set(id, g);
+      }
+      const e = otherPlayers.get(id);
+      const x = e ? e.mesh.position.x : p.pos.x;
+      const y = e ? e.mesh.position.y + 0.9 : p.pos.y + 0.9;
+      const z = e ? e.mesh.position.z : p.pos.z;
+      syncOrbitShield(g, x, y, z, dt);
+    });
+    otherShields.forEach((g, id) => {
+      if (!live.has(id)) g.visible = false;
+    });
   }
   fadeHandCracks(handsRoot, dt);
 
