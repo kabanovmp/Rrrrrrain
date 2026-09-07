@@ -1029,11 +1029,15 @@ export class ArenaRoom extends Room {
         p.hp = Math.min(p.maxHp, p.hp + 1);
       }
     });
-    // Снаряды
+    // Снаряды игрока бьют врагов. Огненные шары мобов — только игроков (иначе стрелок убивает себя в момент выстрела).
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
       pr.life -= dt;
       pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.z += pr.vz * dt;
+      if (pr.enemyProjectile) {
+        if (pr.life <= 0) this.projectiles.splice(i, 1);
+        continue;
+      }
       let hit = false;
       this.state.enemies.forEach(e => {
         if (hit || !e.alive) return;
@@ -1163,14 +1167,16 @@ export class ArenaRoom extends Room {
           const px = nearest.pos.x, py = nearest.pos.y + 1.15, pz = nearest.pos.z;
           const dxF = px - e.pos.x, dyF = py - e.pos.y, dzF = pz - e.pos.z;
           const dL = Math.max(0.001, Math.sqrt(dxF*dxF+dyF*dyF+dzF*dzF));
+          const ux = dxF / dL, uy = dyF / dL, uz = dzF / dL;
+          const spawnOff = (t.size || 1.5) + 1.1;
           this.projectiles.push({
-            ownerId: null,
+            ownerId: eid,
             enemyProjectile: true,
-            x: e.pos.x, y: e.pos.y, z: e.pos.z,
-            vx: (dxF / dL) * t.fireSpeed, vy: (dyF / dL) * t.fireSpeed, vz: (dzF / dL) * t.fireSpeed,
+            x: e.pos.x + ux * spawnOff, y: e.pos.y + uy * spawnOff, z: e.pos.z + uz * spawnOff,
+            vx: ux * t.fireSpeed, vy: uy * t.fireSpeed, vz: uz * t.fireSpeed,
             life: 3.8, damage: t.fireDamage, radius: 0.75, color: 0xff2a12,
           });
-          this.broadcast("fx", { type: "caco_shoot", x: e.pos.x, y: e.pos.y, z: e.pos.z, tx: px, ty: py, tz: pz, color: 0xff5a1f });
+          this.broadcast("fx", { type: "caco_shoot", x: e.pos.x + ux * spawnOff, y: e.pos.y + uy * spawnOff, z: e.pos.z + uz * spawnOff, tx: px, ty: py, tz: pz, color: 0xff5a1f });
           e._burstIdx++;
           e._fireCd = e._burstIdx < e._burstCount ? t.fireCooldown : (2.0 + Math.random() * 1.5);
         }
