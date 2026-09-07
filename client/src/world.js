@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { WORLD } from "@mhfps/shared";
 import { getTexture } from "./assets.js";
+import { createFloatingLootCard } from "./pedestal.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // ХАБ: комната в космосе
@@ -846,7 +847,7 @@ export function createHubSlotMesh() {
   g.add(emptyRing);
   // Слот для контента (создаётся/удаляется по мере надобности)
   g.userData.contentMount = new THREE.Group();
-  g.userData.contentMount.position.y = 1.15;
+  g.userData.contentMount.position.y = 1.35;
   g.add(g.userData.contentMount);
   g.userData.emptyRing = emptyRing;
   return g;
@@ -899,6 +900,14 @@ export function makeSlotContent(kind, handType) {
     ring.rotation.x = Math.PI / 2;
     g.add(ring);
     g.userData.rotate = ring;
+  } else if (kind === "CARD" || kind === "WEAPON") {
+    const raw = kind + ":" + (handType || "");
+    const card = createFloatingLootCard(raw);
+    card.position.y = 0.95;
+    g.add(card);
+    g.userData.floatCard = card.userData.floatCard;
+    g.userData.floatBaseY = 0;
+    g.userData.billboard = true;
   }
   return g;
 }

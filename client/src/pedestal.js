@@ -193,6 +193,66 @@ function createAccessoryPedestal() {
 }
 
 // Анимация — работает для всех типов
+const _lootLook = new THREE.Vector3();
+const _lootWorld = new THREE.Vector3();
+const LOOT_TEX_SRC = {
+  "CARD:ANGER": "/assets/v031/card-anger.jpg",
+  "CARD:FRENZY": "/assets/v031/card-frenzy.jpg",
+  "CARD:RAIN": "/assets/v031/card-rain.jpg",
+  "WEAPON:STAR_SWORD": "/assets/v031/card-sword.jpg",
+  "WEAPON:SWORD": "/assets/v031/card-sword.jpg",
+};
+const _lootTexCache = new Map();
+
+function lootTexture(src) {
+  if (_lootTexCache.has(src)) return _lootTexCache.get(src);
+  const tex = new THREE.TextureLoader().load(src);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  _lootTexCache.set(src, tex);
+  return tex;
+}
+
+/** Большая карточка, парящая над постаментом — карта или оружие. */
+export function createFloatingLootCard(raw) {
+  const key = String(raw || "");
+  const src = LOOT_TEX_SRC[key]
+    || (key.startsWith("WEAPON:") ? "/assets/v031/card-sword.jpg" : "/assets/v031/card-anger.jpg");
+  const group = new THREE.Group();
+  const w = 1.55, h = 2.15;
+  const tex = lootTexture(src);
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex, side: THREE.DoubleSide, transparent: true, toneMapped: false,
+  });
+  const card = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  const glow = new THREE.Mesh(
+    new THREE.PlaneGeometry(w + 0.22, h + 0.22),
+    new THREE.MeshBasicMaterial({
+      color: key.startsWith("WEAPON") ? 0xffe08a : 0xff6644,
+      transparent: true, opacity: 0.38, side: THREE.DoubleSide, depthWrite: false,
+    })
+  );
+  glow.position.z = -0.04;
+  card.add(glow);
+  group.add(card);
+  group.userData.floatCard = card;
+  group.userData.floatBaseY = 0;
+  group.userData.billboard = true;
+  return group;
+}
+
+export function animateFloatingLoot(root, camera, tSec) {
+  if (!root) return;
+  const card = root.userData.floatCard;
+  if (!card) return;
+  const base = root.userData.floatBaseY ?? 0;
+  card.position.y = base + Math.sin(tSec * 2.15) * 0.16;
+  card.getWorldPosition(_lootWorld);
+  _lootLook.set(camera.position.x, _lootWorld.y, camera.position.z);
+  card.lookAt(_lootLook);
+}
+
 export function animatePedestal(mesh, dt) {
   const c = mesh.userData.crystal;
   if (c) {
