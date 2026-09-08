@@ -890,7 +890,9 @@ export class ArenaRoom extends Room {
     this.state.wave = 1;
     this.state.portalCharge = 0;
     this.state.portalActive = false;
-    const dist = WORLD.PORTAL_DIST || 34;
+    const minD = WORLD.PORTAL_DIST_MIN || 74;
+    const maxD = WORLD.PORTAL_DIST_MAX || 90;
+    const dist = minD + Math.random() * (maxD - minD);
     const ang = Math.random() * Math.PI * 2;
     this.state.portalX = Math.sin(ang) * dist;
     this.state.portalZ = Math.cos(ang) * dist;

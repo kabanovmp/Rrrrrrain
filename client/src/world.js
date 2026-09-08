@@ -81,10 +81,13 @@ export function setupHub(group) {
   // (rim/skyDome убраны — мы в космосе, края нет, только звёзды вокруг)
 
 
-  // ── ПОРТАЛ НА АРЕНУ (край хаба) ───────────────────────────
+  // ── ПОРТАЛ НА АРЕНУ: обод хаба, не на кольце постаментов ──
   const hubPortal = createNetherPortal({ scale: 1.05, lit: true });
   hubPortal.userData.isHubPortal = true;
-  hubPortal.position.set(0, 0, -R * 0.55);
+  const hpR = WORLD.HUB_PORTAL_R || R * 0.90;
+  const hpA = WORLD.HUB_PORTAL_ANG != null ? WORLD.HUB_PORTAL_ANG : Math.PI / 20;
+  hubPortal.position.set(Math.cos(hpA) * hpR, 0, Math.sin(hpA) * hpR);
+  if (hpR > 1) hubPortal.lookAt(0, 0, 0);
   group.add(hubPortal);
   group.userData.hubPortal = hubPortal;
 
@@ -232,7 +235,7 @@ export function setupArena(group) {
   // ── Освещение арены ──────────────────────────────────
   // Портал возврата — рамка Незера (позицию задаёт сервер)
   const portal = createNetherPortal({ scale: 1.45, lit: true });
-  portal.position.set(WORLD.PORTAL_DIST || 34, 0, 0);
+  portal.position.set(WORLD.PORTAL_DIST || 82, 0, 0);
   group.add(portal);
   group.userData.portal = portal;
 
@@ -528,11 +531,12 @@ export function setArenaPortalPosition(arenaGroup, x, z) {
   if (!p) return;
   const px = Number(x) || 0;
   const pz = Number(z) || 0;
+  // (0,0) — спавн; не ставить портал в центр, пока сервер не прислал точку забега
+  if (px * px + pz * pz < 40 * 40) return;
   p.position.x = px;
   p.position.z = pz;
-  // Арена V3 — плоский пол. Не поднимать портал на старую heightmap (±14м в небо).
   p.position.y = 0;
-  if (px * px + pz * pz > 1) p.lookAt(0, 0, 0);
+  p.lookAt(0, 0, 0);
 }
 
 export function getArenaPortalPos(arenaGroup) {

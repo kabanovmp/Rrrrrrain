@@ -2680,7 +2680,7 @@ function animate() {
   if (room) {
     const tSec = performance.now() * 0.001;
     // Перемещаем портал в точку от сервера (случайная каждый забег)
-    setArenaPortalPosition(arenaGroup, room.state.portalX || 0, room.state.portalZ || 0);
+    setArenaPortalPosition(arenaGroup, room.state.portalX, room.state.portalZ);
     let pstate = "idle";
     if (room.state.phase === "portal_ready") pstate = "ready";
     else if (room.state.portalActive) pstate = "charging";

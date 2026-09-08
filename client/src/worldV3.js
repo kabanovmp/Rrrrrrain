@@ -116,7 +116,7 @@ export function setupTerrainV3(group, levelIndex = 1) {
   if (typeof window !== "undefined") window._arenaHoles = holes;
 
   // Портал Незера — внутри тумана, лицом к спавну. Сервер двигает его каждый забег.
-  const portalDist = WORLD.PORTAL_DIST || 34;
+  const portalDist = WORLD.PORTAL_DIST || 82;
   const portalGroup = createNetherPortal({ scale: 1.45, lit: true });
   portalGroup.position.set(portalDist, 0, 0);
   if (portalDist > 1) portalGroup.lookAt(0, 0, 0);
