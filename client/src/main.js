@@ -42,23 +42,38 @@ let dmgAngle = 0, dmgTimer = 0;
 // Размер через vmin + px-кэп: на маленьком ноутбуке при 100% zoom рука не
 // перекрывает кадр (старый sword-hand.png был огромным padded-холстом +
 // bob-transform сбрасывал translateX(-50%)).
+// Devil Daggers viewmodel: крупная рука из низа по центру, запястье
+// упирается в край экрана (без «пропасти»). Боб — внутри спрайта.
 const fpsHud = document.createElement("div");
 fpsHud.id = "fpsHud";
 fpsHud.style.cssText = [
-  "position:fixed", "left:auto", "right:0", "bottom:0",
-  "transform:none",
-  "width:min(30vmin, 280px)",
-  "height:min(34vmin, 310px)",
+  "position:fixed", "left:50%", "right:auto", "bottom:0",
+  "transform:translateX(-50%)",
+  "width:min(90vw, 860px)",
+  "height:min(56vh, 620px)",
   "overflow:visible",
   "pointer-events:none", "z-index:12",
-  "transform-origin:100% 100%",
+  "transform-origin:50% 100%",
 ].join(";");
 const handHud = document.createElement("img");
 const weaponHud = document.createElement("img");
 handHud.draggable = false;
 weaponHud.draggable = false;
-handHud.style.cssText = "position:absolute;left:50%;bottom:-4%;transform:translateX(-50%);height:108%;width:auto;max-width:none;object-fit:contain;user-select:none;image-rendering:pixelated;filter:drop-shadow(0 -8px 14px rgba(0,0,0,0.65));";
-weaponHud.style.cssText = "position:absolute;left:58%;bottom:6%;transform:translateX(-50%);height:58%;width:auto;max-width:none;object-fit:contain;user-select:none;filter:drop-shadow(0 -6px 10px rgba(0,0,0,0.4));";
+handHud.style.cssText = [
+  "position:absolute", "left:50%", "bottom:-12%",
+  "transform:translateX(-50%)",
+  "height:108%", "width:auto", "max-width:none",
+  "object-fit:contain", "object-position:center bottom",
+  "user-select:none", "image-rendering:pixelated",
+  "filter:drop-shadow(0 -12px 20px rgba(0,0,0,0.75))",
+].join(";");
+weaponHud.style.cssText = [
+  "position:absolute", "left:51%", "bottom:18%",
+  "transform:translateX(-50%)",
+  "height:46%", "width:auto", "max-width:none",
+  "object-fit:contain", "user-select:none",
+  "filter:drop-shadow(0 -6px 10px rgba(0,0,0,0.4))",
+].join(";");
 handHud.src = HAND_SPRITE;
 weaponHud.src = hudSprite("sword");
 fpsHud.appendChild(handHud);
@@ -935,12 +950,13 @@ window.__setRenderFar = (v) => {
 function layoutHudScale() {
   const vv = window.visualViewport;
   const insetBottom = vv ? Math.max(0, window.innerHeight - vv.offsetTop - vv.height) : 0;
-  fpsHud.style.left = "auto";
-  fpsHud.style.right = "0";
+  fpsHud.style.left = "50%";
+  fpsHud.style.right = "auto";
   fpsHud.style.bottom = insetBottom + "px";
-  fpsHud.style.width = "min(30vmin, 280px)";
-  fpsHud.style.height = "min(34vmin, 310px)";
-  fpsHud.style.transformOrigin = "100% 100%";
+  fpsHud.style.width = "min(90vw, 860px)";
+  fpsHud.style.height = "min(56vh, 620px)";
+  fpsHud.style.transformOrigin = "50% 100%";
+  fpsHud.style.transform = "translateX(-50%)";
   wpnCdHud.style.left = "16px";
   wpnCdHud.style.bottom = (42 + insetBottom) + "px";
   cardHud.style.left = "16px";
@@ -2781,13 +2797,19 @@ function animate() {
     }
   }
   if (V3_MODE && fpsHud.style.display !== "none") {
-    swordBob += dt * (moved ? 8 : 2);
+    const running = !!(controller.keys.ShiftLeft || controller.keys.ShiftRight);
+    const spd = Math.hypot(controller.vel.x, controller.vel.z);
+    const walkAmp = moved ? (running ? 1.25 : 1) : 0.16;
+    swordBob += dt * (moved ? (7.4 + Math.min(7, spd * 0.4)) : 1.6);
     viewKick = Math.max(0, viewKick - dt * 7);
-    const bobY = Math.sin(swordBob) * (moved ? 5 : 1.5);
-    const bobX = Math.cos(swordBob * 0.5) * (moved ? 3 : 1);
-    const kick = viewKick * viewKick; // быстрый возврат, без накрутки угла
-    fpsHud.style.transform = `translate(${bobX}px, ${bobY + kick * 16}px) rotate(${kick * 5}deg)`;
-    weaponHud.style.transform = `translateX(-50%) translate(${kick * 6}px, ${kick * 10}px)`;
+    const kick = viewKick * viewKick;
+    const bobX = Math.sin(swordBob) * 48 * walkAmp;
+    const bobY = (1 - Math.cos(swordBob * 2)) * 22 * walkAmp;
+    const plant = 6;
+    const strafe = ((controller.keys.KeyA ? 1 : 0) - (controller.keys.KeyD ? 1 : 0)) * (moved ? 18 : 0);
+    fpsHud.style.transform = "translateX(-50%)";
+    handHud.style.transform = `translateX(calc(-50% + ${bobX + strafe}px)) translateY(${plant - bobY}px)`;
+    weaponHud.style.transform = `translateX(calc(-50% + ${bobX * 0.9 + strafe + kick * 8}px)) translateY(${-bobY * 0.85 + kick * 12}px)`;
   }
   if (starShieldGroup) {
     const on = !!(myPlayer && (myPlayer.blockAbsorbLeft || 0) > 0);
