@@ -81,15 +81,10 @@ export class FpsController {
 
     const baseSpeed = WORLD.BASE_MOVE_SPEED;
 
-    // v0.0.3.0: Q/E — дэш влево/вправо. Shift — бег x1.5 без стамины.
-    if (this.dashCd <= 0) {
-      if (this.keys.KeyQ) {
-        this.vel.add(right.clone().multiplyScalar(-DASH_IMPULSE));
-        this.dashCd = DASH_CD;
-      } else if (this.keys.KeyE) {
-        this.vel.add(right.clone().multiplyScalar(DASH_IMPULSE));
-        this.dashCd = DASH_CD;
-      }
+    // Utility (R): рывок вперёд. Q — снаряжение, E — взаимодействие (не дэш).
+    if (this.dashCd <= 0 && this.keys.KeyR) {
+      this.vel.add(forward.clone().multiplyScalar(DASH_IMPULSE));
+      this.dashCd = DASH_CD;
     }
     let speed = baseSpeed;
     if (this.keys.ShiftLeft || this.keys.ShiftRight) speed *= RUN_MULT;

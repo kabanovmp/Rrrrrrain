@@ -47,7 +47,7 @@ export class ArenaRoom extends Room {
 
     this.onMessage("cast", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
-      if (!p || p.hp <= 0) return;
+      if (!p || p.hp <= 0 || p.isGhost) return;
       const spellId = msg.spell;
       const spell = SPELLS[spellId];
       if (!spell) return;
@@ -939,12 +939,19 @@ export class ArenaRoom extends Room {
     if (cur && cur.boss) {
       const shards = RUN.LUNAR_SHARDS_BOSS || 1;
       this.state.players.forEach((p) => { p.lunarShards = (p.lunarShards || 0) + shards; });
-      this.broadcast("chat", { name: "система", text: "Хозяин Ливня пал — лунный осколок в карман, возврат в лобби", id: "" });
+      this.broadcast("chat", { name: "система", text: "финальный босс пал — лунные монеты в карман, возврат в лобби", id: "" });
       this.returnToHub();
       return;
     }
     this.state.levelIndex = Math.min(LEVELS.length - 1, idx + 1);
-    this.state.players.forEach((p) => { p.gold = 0; });
+    this.state.players.forEach((p) => {
+      p.gold = 0;
+      if (p.isGhost || p.hp <= 0) {
+        p.isGhost = false;
+        p.maxHp = this.playerMaxHp(p);
+        p.hp = p.maxHp;
+      }
+    });
     this.state.phase = "arena";
     this.startArena();
     const s = this.arenaSpawn();

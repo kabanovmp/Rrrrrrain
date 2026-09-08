@@ -24,7 +24,9 @@ npm run build
 `shared/index.js` → `WEAPONS`, `CARDS`, `ITEMS`, `LEVELS`, `RUN`.
 Клиентские иконки: `client/src/weaponHud.js`, `client/src/pedestal.js`.
 
-## Камера
+## Управление (concept2)
+
+`E` — взаимодействие. `Q` — снаряжение. `R` — рывок (utility). `Tab` — инвентарь. Камера — третье лицо.
 
 Вид **от третьего лица** (`client/src/controller.js`, `WORLD.CAM_DIST`). Модель мага — `client/src/otherplayer.js`.
 

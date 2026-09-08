@@ -5,7 +5,7 @@ export const NET = {
   TICK_RATE: 20,                 // server broadcast Hz
   PLAYER_SEND_HZ: 30,            // client input send rate (повышено для меньшего рассинхрона yaw)
   ROOM_NAME: "arena",
-  MAX_PLAYERS: 8,
+  MAX_PLAYERS: 4,
 };
 
 export const WORLD = {
@@ -47,10 +47,10 @@ export const RUN = {
   LUNAR_SHARDS_BOSS: 1,
   PORTAL_DEFEND_S: 90,
   DIFFICULTY_STEPS: [
-    { t: 0, ru: "Морось" },
-    { t: 60, ru: "Ливень" },
-    { t: 180, ru: "Буря" },
-    { t: 360, ru: "Я ГОТОВ УМЕРЕТЬ" },
+    { t: 0, ru: "Easy" },
+    { t: 60, ru: "Medium" },
+    { t: 180, ru: "Hard" },
+    { t: 360, ru: "I'M READY TO DIE" },
   ],
 };
 

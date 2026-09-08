@@ -86,18 +86,20 @@ function triggerSwordSwing() { viewKick = 1; }
 
 const wpnCdHud = document.createElement("div");
 wpnCdHud.id = "wpnCdHud";
-wpnCdHud.style.cssText = "position:fixed;left:16px;bottom:42px;transform:none;display:flex;flex-direction:row;gap:8px;pointer-events:none;z-index:21;font-family:'Trebuchet MS',sans-serif;";
+wpnCdHud.style.cssText = "position:fixed;right:16px;bottom:16px;left:auto;transform:none;display:flex;flex-direction:row;gap:8px;pointer-events:none;z-index:21;font-family:'Trebuchet MS',sans-serif;";
 function makeCdChip(label) {
   const d = document.createElement("div");
   d.style.cssText = "position:relative;min-width:72px;padding:6px 10px 9px;border-radius:7px;background:rgba(8,6,4,0.78);border:1px solid rgba(200,140,80,0.35);color:#f2e6d4;font-size:12px;text-align:center;letter-spacing:0.3px;overflow:hidden;";
   d.innerHTML = `<div style="opacity:.75;font-size:11px;font-weight:700;">${label}</div><div class="cdv">готово</div><div class="cdbar" style="position:absolute;left:0;bottom:0;height:3px;width:0;background:#ffcc66;"></div>`;
   return d;
 }
-const lmbChip = makeCdChip("ЛКМ");
-const rmbChip = makeCdChip("ПКМ");
-const extraChip = makeCdChip("—");
-extraChip.style.display = "none";
-wpnCdHud.append(lmbChip, rmbChip, extraChip);
+const lmbChip = makeCdChip("Primary");
+const rmbChip = makeCdChip("Secondary");
+const extraChip = makeCdChip("Utility R");
+extraChip.style.display = "flex";
+const specChip = makeCdChip("Special");
+const eqChip = makeCdChip("Q");
+wpnCdHud.append(lmbChip, rmbChip, extraChip, specChip, eqChip);
 document.body.appendChild(wpnCdHud);
 fpsHud.style.display = "none";
 wpnCdHud.style.display = "none";
@@ -577,7 +579,7 @@ function passiveSlotHtml(id, isSpare = false) {
 function renderLoadoutPanel() {
   if (!myPlayer) return;
   const hpEl = document.getElementById("loadoutHp");
-  hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • ПРИЗРАК" : "");
+      hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • НАБЛЮДАТЕЛЬ" : "");
   if (V31_MODE) {
     // Оружие
     v31WeaponSlot(myPlayer.weaponSlot || "");
@@ -773,7 +775,7 @@ function sendDebug(payload) {
   const pix = document.getElementById("dbg-pix");
   const pixV = document.getElementById("dbg-pix-v");
   if (pix && pixV) {
-    const savedPix = parseInt(localStorage.getItem("rain_pix") || "1", 10);
+    const savedPix = parseInt(localStorage.getItem("rain_pix") || "2", 10);
     pix.value = String(savedPix); pixV.textContent = String(savedPix);
     if (window.__setPixelScale) window.__setPixelScale(savedPix);
     pix.addEventListener("input", () => {
@@ -792,7 +794,8 @@ function updateHpBar(hp, maxHp) {
   if (!fill || !text) return;
   const pct = Math.max(0, Math.min(1, hp / (maxHp || 1)));
   fill.style.width = (pct * 100).toFixed(1) + "%";
-  text.textContent = `${hp} / ${maxHp}`;
+  const lv = (typeof myPlayer !== "undefined" && myPlayer && myPlayer.survivorLevel) ? myPlayer.survivorLevel : 1;
+  text.textContent = `${Math.round(hp)} / ${Math.round(maxHp)}  ·  ур.${lv}`;
   // Зелёный → жёлтый → красный
   if (pct > 0.6) fill.style.background = "linear-gradient(90deg, #4bd85a, #7fd83a)";
   else if (pct > 0.3) fill.style.background = "linear-gradient(90deg, #d8b03a, #d87f3a)";
@@ -1532,7 +1535,7 @@ document.getElementById("play").addEventListener("click", async () => {
     menu.style.display = "none";
     document.body.classList.add("in-game");
     crosshair.style.display = "block";
-    radar.style.display = "block";
+    radar.style.display = "none";
     controller.enable();
     setupRoomHandlers();
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
@@ -1903,7 +1906,7 @@ function flashCracks() {
 // ═══════════════════════════════════════════════════════════════════
 let lastCastMs = 0;
 canvas.addEventListener("mousedown", (ev) => {
-  if (!room || !myPlayer) return;
+  if (!room || !myPlayer || myPlayer.isGhost) return;
   if (V3_MODE) {
     const wdef = WEAPONS[myPlayer.weaponSlot];
     const combat = room.state.phase === "arena" || room.state.phase === "portal_ready";
@@ -2020,12 +2023,12 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.code === "Escape") controller.releasePointer();
-  // R — респавн, если вы призрак
-  if (ev.code === "KeyR") {
-    if (myPlayer && myPlayer.isGhost) room.send("respawn");
+  if (ev.code === "KeyQ") {
+    hintText.textContent = "снаряжение (Q) пусто";
+    hintText.style.opacity = 1;
+    hintTimer = 1.2;
     return;
   }
-  // Tab — панель снаряжения (переключение)
   if (ev.code === "Tab") {
     ev.preventDefault();
     if (loadoutOpen) hideLoadoutPanel();
@@ -2042,7 +2045,7 @@ document.addEventListener("keydown", (ev) => {
     }
     return;
   }
-  if (ev.code === "KeyF") {
+  if (ev.code === "KeyE") {
     // 1) На арене или в хабе — пикапы приоритетнее
     let bestId = null, bestD = Infinity;
     pickupMeshes.forEach((m, id) => {
@@ -2259,7 +2262,7 @@ function handlePortalTriggers(dt) {
   } else if (inside || near) {
     portalHoldTime = 0;
     if (cur === "arena" && !room.state.portalActive) {
-      hintText.textContent = inside ? "[F] зажечь портал" : "подойди в проём · [F] зажечь";
+      hintText.textContent = inside ? "[E] зажечь портал" : "подойди в проём · [E] зажечь";
     } else if (cur === "arena" && room.state.portalActive && cur !== "portal_ready") {
       const cur2 = Math.floor(room.state.portalCharge);
       const tot = Math.floor(room.state.portalTarget);
@@ -2294,7 +2297,7 @@ function updateArenaLootHint() {
   const it = ITEMS.find(x => x.id === (best.itemId || best.handType));
   const name = it?.name || best.handType || best.itemId || "лут";
   const cost = best.goldCost || 0;
-  hintText.textContent = cost > 0 ? `[F] ${name} · ${cost} золота` : `[F] взять ${name}`;
+  hintText.textContent = cost > 0 ? `[E] ${name} · ${cost} золота` : `[E] взять ${name}`;
   hintText.style.opacity = 1;
   hintTimer = 0.25;
 }
@@ -2308,14 +2311,14 @@ function updateHubInteractionHint() {
     const d = g.position.distanceTo(controller.position);
     if (d < 2 && !action) {
       const slot = room.state.hubSlots[i];
-      if (slot && !slot.empty) action = `[F] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}`;
+      if (slot && !slot.empty) action = `[E] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}`;
       else if (slot && slot.empty && myPlayer) {
         const bp = myPlayer.backpack && (myPlayer.backpack.toArray ? myPlayer.backpack.toArray() : [...myPlayer.backpack]);
-        if (bp && bp.length) action = `[F] положить ${bp[0]}`;
+        if (bp && bp.length) action = `[E] положить ${bp[0]}`;
         else if (myPlayer.cards) {
           const arr = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
           const c = arr.find(Boolean);
-          if (c) action = `[F] положить карту (${c})`;
+          if (c) action = `[E] положить карту (${c})`;
         }
       }
     }
@@ -2325,7 +2328,7 @@ function updateHubInteractionHint() {
     if (d < 2.5 && !action) {
       const chest = room.state.hubChests[i];
       const n = chest ? chest.contents.length : 0;
-      if (n > 0) action = `[F] открыть сундук (${n})`;
+      if (n > 0) action = `[E] открыть сундук (${n})`;
       else action = "сундук пуст";
     }
   });
@@ -2668,11 +2671,12 @@ function animate() {
     const rmbSpell = wdef ? SPELLS[wdef.rmb] : null;
     fillChip(lmbChip, myPlayer.lmbCdUntil, wdef?.lmbHint || "готово", lmbSpell?.cooldown);
     fillChip(rmbChip, myPlayer.rmbCdUntil, wdef?.rmbHint || "готово", rmbSpell?.cooldown);
-    if (myPlayer.weaponSlot === "DAGGERS") {
-      extraChip.style.display = "block";
-      extraChip.querySelector(".cdv").textContent = `${myPlayer.daggerCount || 1}/10`;
-      extraChip.firstChild.textContent = "НОЖИ";
-    } else extraChip.style.display = "none";
+    extraChip.style.display = "flex";
+    extraChip.querySelector(".cdv").textContent = controller.dashCd > 0.05
+      ? ("КД " + controller.dashCd.toFixed(1) + "с")
+      : (myPlayer.weaponSlot === "DAGGERS" ? `${myPlayer.daggerCount || 1}/10` : "рывок");
+    specChip.querySelector(".cdv").textContent = "—";
+    eqChip.querySelector(".cdv").textContent = "пусто";
     blockCdHud.style.display = "none";
   }
   // ── ПАДЕНИЕ С КРАЯ: смерть + респаун в центре хаба ────────
@@ -2830,7 +2834,7 @@ function animate() {
   // TAB — обновлять сетку только при смене инвентаря (иначе DnD ломается каждый кадр)
   if (loadoutOpen) {
     const hpEl = document.getElementById("loadoutHp");
-    if (hpEl && myPlayer) hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • ПРИЗРАК" : "");
+    if (hpEl && myPlayer) hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • НАБЛЮДАТЕЛЬ" : "");
     const cards = myPlayer && myPlayer.cards ? ((myPlayer.cards.toArray && myPlayer.cards.toArray()) || [...myPlayer.cards]) : [];
     const bp = myPlayer && myPlayer.backpack ? ((myPlayer.backpack.toArray && myPlayer.backpack.toArray()) || [...myPlayer.backpack]) : [];
     const sig = (myPlayer?.weaponSlot || "") + "|" + cards.join(",") + "|" + bp.join(",");
@@ -2985,7 +2989,7 @@ setInterval(() => {
   if (ph !== "hub" && L) bits.push(L.label);
   const n = room.state.players.size;
   if (n > 1) bits.push(n + " игрока");
-  if (myPlayer && (myPlayer.lunarShards || 0) > 0) bits.push("осколки " + myPlayer.lunarShards);
+  if (myPlayer && (myPlayer.lunarShards || 0) > 0) bits.push("лунные " + myPlayer.lunarShards);
   status.textContent = bits.join(" · ");
   renderPassivesHud();
   const runHud = document.getElementById("runHud");
@@ -3000,7 +3004,8 @@ setInterval(() => {
       const lv = myPlayer && myPlayer.survivorLevel ? myPlayer.survivorLevel : 1;
       const xp = myPlayer && myPlayer.xp != null ? Math.floor(myPlayer.xp) : 0;
       const need = xpToNextLevel(lv);
-      runHud.innerHTML = `${difficultyLabel(t)} · ${mm}:${ss}<br>золото ${gold}<br>ур. ${lv} · ${xp}/${need} XP`;
+      const lunar = myPlayer && myPlayer.lunarShards != null ? Math.floor(myPlayer.lunarShards) : 0;
+      runHud.innerHTML = `${difficultyLabel(t)} · ${mm}:${ss}<br>золото ${gold} · лунные ${lunar}<br>ур. ${lv} · ${xp}/${need} XP`;
     }
   }
 }, 250);
