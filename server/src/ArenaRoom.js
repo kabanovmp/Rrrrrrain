@@ -522,6 +522,25 @@ export class ArenaRoom extends Room {
     this.onMessage("return_hub", () => this.returnToHub());
     this.onMessage("enter_arena", () => this.enterArena());
     this.onMessage("next_stage", () => this.nextStage());
+    this.onMessage("equipment", (client) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p || p.isGhost || p.hp <= 0) return;
+      if (this.state.phase === "hub") return;
+      const now = Date.now() / 1000;
+      if (now < (p.equipCdUntil || 0)) return;
+      const heal = RUN.EQUIP_HEAL || 30;
+      p.hp = Math.min(p.maxHp, p.hp + heal);
+      p.equipCdUntil = now + (RUN.EQUIP_CD_S || 15);
+      this.broadcast("fx", { type: "equip_heal", target: client.sessionId, x: p.pos.x, y: p.pos.y, z: p.pos.z, heal });
+    });
+    this.onMessage("ping", (client, msg) => {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      const x = typeof msg?.x === "number" ? msg.x : p.pos.x;
+      const y = typeof msg?.y === "number" ? msg.y : p.pos.y;
+      const z = typeof msg?.z === "number" ? msg.z : p.pos.z;
+      this.broadcast("fx", { type: "ping", name: p.name || "?", x, y, z });
+    });
   }
 
   onJoin(client, opts) {

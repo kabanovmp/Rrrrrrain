@@ -36,6 +36,7 @@ export class Player extends Schema {
     this.xp = 0;
     this.survivorLevel = 1;
     this.lunarShards = 0;
+    this.equipCdUntil = 0;
   }
 }
 type(Vec3)(Player.prototype, "pos");
@@ -66,6 +67,7 @@ type("number")(Player.prototype, "gold");
 type("number")(Player.prototype, "xp");
 type("number")(Player.prototype, "survivorLevel");
 type("number")(Player.prototype, "lunarShards");
+type("number")(Player.prototype, "equipCdUntil");
 
 export class Enemy extends Schema {
   constructor() {

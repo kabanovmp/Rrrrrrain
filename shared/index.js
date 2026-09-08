@@ -45,6 +45,8 @@ export const RUN = {
   CHEST_BASE_GOLD: 25,
   COOP_PLAYER_SCALE: 0.2,
   LUNAR_SHARDS_BOSS: 1,
+  EQUIP_HEAL: 30,
+  EQUIP_CD_S: 15,
   PORTAL_DEFEND_S: 90,
   DIFFICULTY_STEPS: [
     { t: 0, ru: "Easy" },

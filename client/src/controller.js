@@ -168,7 +168,10 @@ export class FpsController {
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch;
     this.camera.rotation.z = 0;
-    const dist = WORLD.CAM_DIST || 6.6;
+    this._camDist = this._camDist ?? (WORLD.CAM_DIST || 6.6);
+    const wantDist = (this.grounded ? (WORLD.CAM_DIST || 6.6) : (WORLD.CAM_DIST || 6.6) + 2.4);
+    this._camDist += (wantDist - this._camDist) * Math.min(1, dt * 5);
+    const dist = this._camDist;
     const shoulder = WORLD.CAM_SHOULDER || 1.05;
     const lift = WORLD.CAM_LIFT || 0.55;
     const cp = Math.cos(this.pitch);

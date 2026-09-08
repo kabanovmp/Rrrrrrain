@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
-import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS, difficultyLabel, LEVELS, stackedPassives, sumItemStat, xpToNextLevel } from "@mhfps/shared";
+import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS, difficultyLabel, LEVELS, stackedPassives, sumItemStat, xpToNextLevel, RUN } from "@mhfps/shared";
 import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, setChestOpen } from "./world.js";
 import { setupTerrainV3, terrainHeight, applyArenaTheme } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
@@ -268,7 +268,37 @@ function hideLoadoutPanel() {
   }
 }
 
-const passivesHud = document.createElement("div");
+const aimEnemyHud = document.createElement("div");
+aimEnemyHud.id = "aimEnemyHud";
+aimEnemyHud.style.cssText = "position:fixed;left:50%;top:52px;transform:translateX(-50%);z-index:16;pointer-events:none;min-width:220px;max-width:42vw;display:none;font-family:'Trebuchet MS',sans-serif;";
+aimEnemyHud.innerHTML = `<div id="aimEnemyName" style="text-align:center;font-size:12px;color:#f0e6d4;text-shadow:0 1px 3px #000;margin-bottom:4px;"></div><div style="height:10px;background:rgba(8,6,4,0.75);border:1px solid rgba(200,80,80,0.55);border-radius:5px;overflow:hidden;"><div id="aimEnemyFill" style="height:100%;width:100%;background:linear-gradient(90deg,#d83a3a,#d87f3a);"></div></div>`;
+document.body.appendChild(aimEnemyHud);
+
+function updateAimEnemyHud() {
+  if (!room || room.state.phase === "hub") {
+    aimEnemyHud.style.display = "none";
+    return;
+  }
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  let best = null, bestDot = 0.88, bestId = "";
+  room.state.enemies.forEach((e, id) => {
+    if (!e || !e.alive) return;
+    const vx = e.pos.x - camera.position.x;
+    const vy = e.pos.y - camera.position.y;
+    const vz = e.pos.z - camera.position.z;
+    const len = Math.hypot(vx, vy, vz) || 1;
+    if (len > 90) return;
+    const dot = (vx * dir.x + vy * dir.y + vz * dir.z) / len;
+    if (dot > bestDot) { bestDot = dot; best = e; bestId = id; }
+  });
+  if (!best) { aimEnemyHud.style.display = "none"; return; }
+  const pct = Math.max(0, Math.min(1, best.hp / (best.maxHp || 1)));
+  document.getElementById("aimEnemyName").textContent = (ENEMY_TYPES[best.enemyType]?.id || best.enemyType || "враг") + "  " + Math.round(best.hp) + "/" + Math.round(best.maxHp || 0);
+  document.getElementById("aimEnemyFill").style.width = (pct * 100).toFixed(1) + "%";
+  aimEnemyHud.style.display = "block";
+  void bestId;
+}
 passivesHud.id = "passivesHud";
 passivesHud.style.cssText = "position:fixed;left:50%;top:58px;transform:translateX(-50%);z-index:16;pointer-events:none;font-size:12px;color:#e6d9c2;text-shadow:0 1px 3px #000;letter-spacing:0.4px;text-align:center;max-width:70vw;";
 document.body.appendChild(passivesHud);
@@ -1870,6 +1900,20 @@ function setupRoomHandlers() {
       spawnDeathBurst(msg.x, msg.y, msg.z, msg.kind);
       playSound("enemy_death");
     }
+    else if (msg.type === "equip_heal") {
+      playSound("pickup");
+      if (msg.target === selfId) {
+        hintText.textContent = "аптечка +" + (msg.heal || 30);
+        hintText.style.opacity = 1;
+        hintTimer = 1.1;
+      }
+    }
+    else if (msg.type === "ping") {
+      spawnWaveFx(msg.x, msg.y, msg.z, 4);
+      hintText.textContent = (msg.name || "?") + " · ping";
+      hintText.style.opacity = 1;
+      hintTimer = 1.4;
+    }
     else if (msg.type === "wipe_hub") {
       applyPhase("hub", true);
     }
@@ -1911,6 +1955,17 @@ canvas.addEventListener("mousedown", (ev) => {
     const wdef = WEAPONS[myPlayer.weaponSlot];
     const combat = room.state.phase === "arena" || room.state.phase === "portal_ready";
     if (ev.button === 0) lmbHeld = true;
+    if (ev.button === 1) {
+      ev.preventDefault();
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      room.send("ping", {
+        x: controller.position.x + dir.x * 18,
+        y: controller.position.y + dir.y * 18,
+        z: controller.position.z + dir.z * 18,
+      });
+      return;
+    }
     if (!wdef) return;
     const spellId = ev.button === 0 ? wdef.lmb : ev.button === 2 ? wdef.rmb : null;
     if (!spellId) return;
@@ -2024,9 +2079,7 @@ document.addEventListener("keydown", (ev) => {
   }
   if (ev.code === "Escape") controller.releasePointer();
   if (ev.code === "KeyQ") {
-    hintText.textContent = "снаряжение (Q) пусто";
-    hintText.style.opacity = 1;
-    hintTimer = 1.2;
+    if (myPlayer && !myPlayer.isGhost) room.send("equipment");
     return;
   }
   if (ev.code === "Tab") {
@@ -2676,7 +2729,9 @@ function animate() {
       ? ("КД " + controller.dashCd.toFixed(1) + "с")
       : (myPlayer.weaponSlot === "DAGGERS" ? `${myPlayer.daggerCount || 1}/10` : "рывок");
     specChip.querySelector(".cdv").textContent = "—";
-    eqChip.querySelector(".cdv").textContent = "пусто";
+    const eqLeft = Math.max(0, (myPlayer.equipCdUntil || 0) - nowS);
+    eqChip.querySelector(".cdv").textContent = eqLeft > 0.05 ? ("КД " + eqLeft.toFixed(1) + "с") : "аптечка";
+    eqChip.style.borderColor = eqLeft > 0.05 ? "#a64" : "#6c6";
     blockCdHud.style.display = "none";
   }
   // ── ПАДЕНИЕ С КРАЯ: смерть + респаун в центре хаба ────────
@@ -2952,6 +3007,7 @@ function animate() {
   fadeHandCracks(handsRoot, dt);
 
   drawRadar();
+  updateAimEnemyHud();
   updateCooldownHud();
   // v0.0.3.4: всегда через post (глобальный дизеринг). Pixelscale дополнительно пикселизует.
   if (!postScene) { ensurePostFx(); resizeLowResRT(); }
