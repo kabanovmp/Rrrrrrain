@@ -49,8 +49,8 @@ fpsHud.id = "fpsHud";
 fpsHud.style.cssText = [
   "position:fixed", "left:50%", "right:auto", "bottom:0",
   "transform:translateX(-50%)",
-  "width:min(100vw, 1080px)",
-  "height:min(70vh, 820px)",
+  "width:min(90vw, 860px)",
+  "height:min(56vh, 620px)",
   "overflow:visible",
   "pointer-events:none", "z-index:12",
   "transform-origin:50% 100%",
@@ -60,17 +60,17 @@ const weaponHud = document.createElement("img");
 handHud.draggable = false;
 weaponHud.draggable = false;
 handHud.style.cssText = [
-  "position:absolute", "left:50%", "bottom:-8%",
+  "position:absolute", "left:50%", "bottom:0",
   "transform:translateX(-50%)",
-  "height:118%", "width:auto", "max-width:none",
+  "height:108%", "width:auto", "max-width:none",
   "object-fit:contain", "object-position:center bottom",
   "user-select:none", "image-rendering:pixelated",
-  "filter:drop-shadow(0 -10px 18px rgba(0,0,0,0.7))",
+  "filter:drop-shadow(0 -12px 20px rgba(0,0,0,0.75))",
 ].join(";");
 weaponHud.style.cssText = [
-  "position:absolute", "left:52%", "bottom:14%",
+  "position:absolute", "left:51%", "bottom:18%",
   "transform:translateX(-50%)",
-  "height:52%", "width:auto", "max-width:none",
+  "height:46%", "width:auto", "max-width:none",
   "object-fit:contain", "user-select:none",
   "filter:drop-shadow(0 -6px 10px rgba(0,0,0,0.4))",
 ].join(";");
@@ -953,8 +953,8 @@ function layoutHudScale() {
   fpsHud.style.left = "50%";
   fpsHud.style.right = "auto";
   fpsHud.style.bottom = insetBottom + "px";
-  fpsHud.style.width = "min(100vw, 1080px)";
-  fpsHud.style.height = "min(70vh, 820px)";
+  fpsHud.style.width = "min(90vw, 860px)";
+  fpsHud.style.height = "min(56vh, 620px)";
   fpsHud.style.transformOrigin = "50% 100%";
   fpsHud.style.transform = "translateX(-50%)";
   wpnCdHud.style.left = "16px";
@@ -2799,19 +2799,17 @@ function animate() {
   if (V3_MODE && fpsHud.style.display !== "none") {
     const running = !!(controller.keys.ShiftLeft || controller.keys.ShiftRight);
     const spd = Math.hypot(controller.vel.x, controller.vel.z);
-    const walkAmp = moved ? (running ? 1.15 : 1) : 0.14;
-    swordBob += dt * (moved ? (6.2 + Math.min(6, spd * 0.35)) : 1.5);
+    const walkAmp = moved ? (running ? 1.25 : 1) : 0.16;
+    swordBob += dt * (moved ? (7.4 + Math.min(7, spd * 0.4)) : 1.6);
     viewKick = Math.max(0, viewKick - dt * 7);
     const kick = viewKick * viewKick;
-    // Шаговый эллипс как в DD/Quake: влево-вправо + вверх на шаге.
-    // Контейнер прибит к низу экрана — боб только у спрайта, запястье всегда перекрывает край.
-    const bobX = Math.sin(swordBob) * 36 * walkAmp;
-    const bobY = (1 - Math.cos(swordBob * 2)) * 16 * walkAmp;
-    const plant = 28;
-    const strafe = ((controller.keys.KeyA ? 1 : 0) - (controller.keys.KeyD ? 1 : 0)) * (moved ? 14 : 0);
+    const bobX = Math.sin(swordBob) * 48 * walkAmp;
+    const bobY = (1 - Math.cos(swordBob * 2)) * 22 * walkAmp;
+    const plant = 6;
+    const strafe = ((controller.keys.KeyA ? 1 : 0) - (controller.keys.KeyD ? 1 : 0)) * (moved ? 18 : 0);
     fpsHud.style.transform = "translateX(-50%)";
     handHud.style.transform = `translateX(calc(-50% + ${bobX + strafe}px)) translateY(${plant - bobY}px)`;
-    weaponHud.style.transform = `translateX(calc(-50% + ${bobX * 0.85 + strafe + kick * 8}px)) translateY(${plant * 0.35 - bobY * 0.85 + kick * 12}px)`;
+    weaponHud.style.transform = `translateX(calc(-50% + ${bobX * 0.9 + strafe + kick * 8}px)) translateY(${-bobY * 0.85 + kick * 12}px)`;
   }
   if (starShieldGroup) {
     const on = !!(myPlayer && (myPlayer.blockAbsorbLeft || 0) > 0);
