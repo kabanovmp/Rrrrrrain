@@ -73,7 +73,7 @@ wpnCdHud.id = "wpnCdHud";
 wpnCdHud.style.cssText = "position:fixed;left:16px;bottom:42px;transform:none;display:flex;flex-direction:row;gap:8px;pointer-events:none;z-index:21;font-family:'Trebuchet MS',sans-serif;";
 function makeCdChip(label) {
   const d = document.createElement("div");
-  d.style.cssText = "position:relative;min-width:92px;padding:5px 9px 8px;border-radius:7px;background:rgba(8,6,4,0.72);border:1px solid rgba(200,140,80,0.35);color:#f2e6d4;font-size:12px;text-align:center;letter-spacing:0.3px;overflow:hidden;";
+  d.style.cssText = "position:relative;min-width:72px;padding:6px 10px 9px;border-radius:7px;background:rgba(8,6,4,0.78);border:1px solid rgba(200,140,80,0.35);color:#f2e6d4;font-size:12px;text-align:center;letter-spacing:0.3px;overflow:hidden;";
   d.innerHTML = `<div style="opacity:.75;font-size:11px;font-weight:700;">${label}</div><div class="cdv">готово</div><div class="cdbar" style="position:absolute;left:0;bottom:0;height:3px;width:0;background:#ffcc66;"></div>`;
   return d;
 }
@@ -189,7 +189,7 @@ loadoutPanel.innerHTML = V31_MODE ? `
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #6a4a2866;">
     <div style="font-size:22px;font-weight:bold;letter-spacing:3px;color:#ffd08a;">СНАРЯЖЕНИЕ</div>
     <div id="loadoutHp" style="font-size:14px;color:#e6b070;font-weight:bold;">HP: –</div>
-    <div style="font-size:12px;color:#8a7050;">держи TAB • drag-and-drop в обе стороны</div>
+    <div style="font-size:12px;color:#8a7050;">TAB — закрыть • drag-and-drop</div>
   </div>
   <div style="display:grid;grid-template-columns:340px 1fr;gap:20px;height:560px;">
     <!-- ЛЕВАЯ КОЛОНКА: НАДЕТО -->
@@ -241,6 +241,9 @@ function hideLoadoutPanel() {
   loadoutOpen = false;
   loadoutPanel.style.display = "none";
   hideItemTooltip();
+  if (document.body.classList.contains("in-game")) {
+    try { canvas.requestPointerLock(); } catch {}
+  }
 }
 
 const cardHud = document.createElement("div");
@@ -1951,10 +1954,11 @@ document.addEventListener("keydown", (ev) => {
     if (myPlayer && myPlayer.isGhost) room.send("respawn");
     return;
   }
-  // Tab — панель снаряжения (hold to show)
+  // Tab — панель снаряжения (переключение)
   if (ev.code === "Tab") {
     ev.preventDefault();
-    showLoadoutPanel();
+    if (loadoutOpen) hideLoadoutPanel();
+    else showLoadoutPanel();
     return;
   }
   // R-респ убран — теперь в дебаг-панели
@@ -2036,7 +2040,7 @@ document.addEventListener("keydown", (ev) => {
 });
 
 document.addEventListener("keyup", (ev) => {
-  if (ev.code === "Tab") { ev.preventDefault(); hideLoadoutPanel(); }
+  if (ev.code === "Tab") ev.preventDefault();
 });
 
 function sendInput() {
@@ -2510,6 +2514,7 @@ function animate() {
       const v = chip.querySelector(".cdv");
       const bar = chip.querySelector(".cdbar");
       chip.style.opacity = wdef ? "1" : "0.35";
+      chip.title = hint || "";
       if (left > 0.05) {
         v.textContent = "КД " + (left >= 10 ? left.toFixed(0) : left.toFixed(1)) + "с";
         chip.style.borderColor = "#a64";
@@ -2519,7 +2524,7 @@ function animate() {
           bar.style.background = "#ff8844";
         }
       } else {
-        v.textContent = hint || "готово";
+        v.textContent = "готово";
         chip.style.borderColor = "#6c6";
         if (bar) { bar.style.width = "100%"; bar.style.background = "#66cc88"; }
       }
