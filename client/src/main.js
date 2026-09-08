@@ -60,7 +60,7 @@ const weaponHud = document.createElement("img");
 handHud.draggable = false;
 weaponHud.draggable = false;
 handHud.style.cssText = [
-  "position:absolute", "left:50%", "bottom:0",
+  "position:absolute", "left:50%", "bottom:-12%",
   "transform:translateX(-50%)",
   "height:108%", "width:auto", "max-width:none",
   "object-fit:contain", "object-position:center bottom",
