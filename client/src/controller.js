@@ -86,8 +86,12 @@ export class FpsController {
       this.vel.add(forward.clone().multiplyScalar(DASH_IMPULSE));
       this.dashCd = DASH_CD;
     }
+    const dbgFly = !!(window.room?.state?.dbgFly);
     let speed = baseSpeed;
+    const crouch = !dbgFly && (this.keys.ControlLeft || this.keys.ControlRight);
+    this.crouching = crouch;
     if (this.keys.ShiftLeft || this.keys.ShiftRight) speed *= RUN_MULT;
+    if (crouch) speed *= 0.55;
     const mul = window.room?.state?.dbgSpeedMul;
     if (mul && mul !== 1) speed *= mul;
     // Карта FRENZY (надета) — ×2 к перемещению
@@ -104,7 +108,6 @@ export class FpsController {
     this.vel.z = move.z * speed;
 
     // Дебаг FLY: Space вверх, Ctrl/C вниз, без гравитации. v0.0.3.4: скорость ✕ 6 от baseline — админ-режим
-    const dbgFly = !!(window.room?.state?.dbgFly);
     if (dbgFly) {
       const flySpeed = speed * 6; // в режиме полёта все оси в 6× быстрее (примерно +500%)
       this.vel.x = move.x * flySpeed;
@@ -173,7 +176,7 @@ export class FpsController {
     this._camDist += (wantDist - this._camDist) * Math.min(1, dt * 5);
     const dist = this._camDist;
     const shoulder = WORLD.CAM_SHOULDER || 1.05;
-    const lift = WORLD.CAM_LIFT || 0.55;
+    const lift = (WORLD.CAM_LIFT || 0.55) + (this.crouching ? -0.72 : 0);
     const cp = Math.cos(this.pitch);
     const sp = Math.sin(this.pitch);
     this.camera.position.set(
