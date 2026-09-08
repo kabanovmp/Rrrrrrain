@@ -1,5 +1,6 @@
 // Shared constants and item catalog for client + server.
 // Keep this file plain JS so both browser and Node import cleanly.
+// v0.0.8.2: named exports used by the client HUD/controller (sumItemStat).
 
 export const NET = {
   TICK_RATE: 20,                 // server broadcast Hz

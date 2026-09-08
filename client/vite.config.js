@@ -10,6 +10,9 @@ export default defineConfig({
       "@mhfps/shared": path.resolve(__dirname, "../shared/index.js")
     }
   },
+  optimizeDeps: {
+    exclude: ["@mhfps/shared"],
+  },
   preview: {
     host: "0.0.0.0",
     port: Number(process.env.PORT) || 8080,
@@ -17,6 +20,7 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
-    port: Number(process.env.PORT) || 5173
+    port: Number(process.env.PORT) || 5173,
+    fs: { allow: [path.resolve(__dirname, "..")] },
   }
 });
