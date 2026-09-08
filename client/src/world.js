@@ -784,10 +784,10 @@ export function makeSlotContent(kind, handType) {
   } else if (kind === "CARD" || kind === "WEAPON") {
     const raw = kind + ":" + (handType || "");
     const card = createFloatingLootCard(raw);
-    card.position.y = 0.95;
+    card.position.y = 0.55;
     g.add(card);
     g.userData.floatCard = card.userData.floatCard;
-    g.userData.floatBaseY = 0;
+    g.userData.floatBaseY = card.userData.floatBaseY;
     g.userData.billboard = true;
   }
   return g;

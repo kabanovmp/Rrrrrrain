@@ -1034,10 +1034,10 @@ function makePickupMesh(pk) {
   const ped = createPedestalMesh("HAND", "bone");
   if (ped.userData.crystal) ped.userData.crystal.visible = false;
   const loot = createFloatingLootCard(raw);
-  loot.position.y = 2.05;
+  loot.position.y = 2.22;
   ped.add(loot);
   ped.userData.floatCard = loot.userData.floatCard;
-  ped.userData.floatBaseY = 0;
+  ped.userData.floatBaseY = loot.userData.floatBaseY;
   return ped;
 }
 
@@ -1092,7 +1092,7 @@ function refreshSlotContent(i, s) {
     mount.add(content);
     g.userData.emptyRing.material.opacity = 0.15;
     g.userData.floatCard = content.userData.floatCard || null;
-    g.userData.floatBaseY = 0;
+    g.userData.floatBaseY = content.userData.floatBaseY ?? 1.075;
   } else {
     g.userData.emptyRing.material.opacity = 0.35;
     g.userData.floatCard = null;
