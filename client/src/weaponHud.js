@@ -21,9 +21,10 @@ function roundRect(ctx, x, y, w, h, r) {
 
 function paintHand(ctx, w, h, palmUp) {
   ctx.clearRect(0, 0, w, h);
-  const cx = w * 0.5, cy = h * 0.62;
+  const cx = w * 0.5, cy = h * 0.70;
   ctx.save();
   ctx.translate(cx, cy);
+  ctx.scale(1.55, 1.55);
   if (palmUp) ctx.scale(1, -1);
   // предплечье
   ctx.fillStyle = "#c45a48";
@@ -48,8 +49,9 @@ function paintHand(ctx, w, h, palmUp) {
 function paintSword(ctx, w, h) {
   ctx.clearRect(0, 0, w, h);
   ctx.save();
-  ctx.translate(w * 0.58, h * 0.48);
+  ctx.translate(w * 0.62, h * 0.58);
   ctx.rotate(-0.62);
+  ctx.scale(1.85, 1.85);
   ctx.fillStyle = "#2a1810";
   ctx.fillRect(-14, 48, 28, 28);
   ctx.fillStyle = "#e8c44a";
@@ -75,8 +77,9 @@ function paintSword(ctx, w, h) {
 function paintStaff(ctx, w, h) {
   ctx.clearRect(0, 0, w, h);
   ctx.save();
-  ctx.translate(w * 0.58, h * 0.38);
+  ctx.translate(w * 0.60, h * 0.52);
   ctx.rotate(-0.4);
+  ctx.scale(1.9, 1.9);
   ctx.strokeStyle = "#6a4428";
   ctx.lineWidth = 10;
   ctx.lineCap = "round";
@@ -96,8 +99,9 @@ function paintDaggers(ctx, w, h, n) {
   for (let i = 0; i < count; i++) {
     const t = count === 1 ? 0.5 : i / (count - 1);
     ctx.save();
-    ctx.translate(w * (0.32 + t * 0.36), h * (0.34 - Math.abs(t - 0.5) * 0.08));
+    ctx.translate(w * (0.28 + t * 0.42), h * (0.42 - Math.abs(t - 0.5) * 0.1));
     ctx.rotate(-0.9 + t * 0.5);
+    ctx.scale(1.7, 1.7);
     ctx.fillStyle = "#8899aa";
     ctx.beginPath();
     ctx.moveTo(0, -42); ctx.lineTo(7, 8); ctx.lineTo(-7, 8);
@@ -113,8 +117,9 @@ function paintDaggers(ctx, w, h, n) {
 function paintCig(ctx, w, h) {
   ctx.clearRect(0, 0, w, h);
   ctx.save();
-  ctx.translate(w * 0.58, h * 0.48);
+  ctx.translate(w * 0.58, h * 0.58);
   ctx.rotate(-0.9);
+  ctx.scale(1.9, 1.9);
   ctx.fillStyle = "#f2e6c8";
   roundRect(ctx, -6, -40, 12, 70, 3); ctx.fill();
   ctx.fillStyle = "#cc4444";
@@ -126,17 +131,18 @@ function paintCig(ctx, w, h) {
   ctx.restore();
 }
 
+export const HAND_SPRITE = "/assets/hand-dd.png";
+
 const CACHE = {};
 export function hudSprite(kind, extra = 1) {
+  if (kind === "hand" || kind === "handUp") return HAND_SPRITE;
   const key = kind + ":" + extra;
   if (CACHE[key]) return CACHE[key];
   let url;
-  if (kind === "hand") url = canvasUrl(256, 256, (c, w, h) => paintHand(c, w, h, false));
-  else if (kind === "handUp") url = canvasUrl(256, 256, (c, w, h) => paintHand(c, w, h, true));
-  else if (kind === "sword") url = canvasUrl(256, 256, paintSword);
-  else if (kind === "staff") url = canvasUrl(256, 256, paintStaff);
-  else if (kind === "daggers") url = canvasUrl(256, 256, (c, w, h) => paintDaggers(c, w, h, extra));
-  else if (kind === "cig") url = canvasUrl(256, 256, paintCig);
+  if (kind === "sword") url = canvasUrl(512, 512, paintSword);
+  else if (kind === "staff") url = canvasUrl(512, 512, paintStaff);
+  else if (kind === "daggers") url = canvasUrl(512, 512, (c, w, h) => paintDaggers(c, w, h, extra));
+  else if (kind === "cig") url = canvasUrl(512, 512, paintCig);
   else url = canvasUrl(8, 8, () => {});
   CACHE[key] = url;
   return url;
