@@ -94,12 +94,7 @@ export class FpsController {
     if (crouch) speed *= 0.55;
     const mul = window.room?.state?.dbgSpeedMul;
     if (mul && mul !== 1) speed *= mul;
-    // Карта FRENZY (надета) — ×2 к перемещению
     const mp = (typeof window !== "undefined") ? window.myPlayer : null;
-    if (mp?.cards) {
-      const cards = mp.cards.toArray ? mp.cards.toArray() : [...mp.cards];
-      if (cards.includes("FRENZY")) speed *= 2;
-    }
     const moveBonus = sumItemStat(mp, "move");
     if (moveBonus) speed *= 1 + moveBonus;
     this.dashCd = Math.max(0, this.dashCd - dt);

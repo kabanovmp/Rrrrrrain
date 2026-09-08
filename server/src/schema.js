@@ -23,20 +23,22 @@ export class Player extends Schema {
     this.passiveItemId = "";
     this.name = "";
     // v0.0.3.1: активное оружие в руке + карты + рюкзак + Звёздный Блок
-    this.weaponSlot = "STAR_SWORD"; // id активного оружия
-    this.cards = new ArraySchema();      // 10 слотов, строки вида "ANGER" или ""
-    this.backpack = new ArraySchema();   // бесконечный скролл, строки вида "CARD:ANGER" | "WEAPON:STAR_SWORD"
+    this.weaponSlot = "";
+    this.cards = new ArraySchema();
+    this.backpack = new ArraySchema();
     this.blockActiveUntil = 0;
     this.blockAbsorbLeft = 0;
     this.blockCdUntil = 0;
     this.lmbCdUntil = 0;
     this.rmbCdUntil = 0;
-    this.daggerCount = 1;
+    this.specCdUntil = 0;
     this.gold = 0;
     this.xp = 0;
     this.survivorLevel = 1;
     this.lunarShards = 0;
     this.equipCdUntil = 0;
+    this.equipmentId = "HEAL";
+    this.droneCount = 0;
   }
 }
 type(Vec3)(Player.prototype, "pos");
@@ -62,12 +64,14 @@ type("number")(Player.prototype, "blockAbsorbLeft");
 type("number")(Player.prototype, "blockCdUntil");
 type("number")(Player.prototype, "lmbCdUntil");
 type("number")(Player.prototype, "rmbCdUntil");
-type("number")(Player.prototype, "daggerCount");
+type("number")(Player.prototype, "specCdUntil");
 type("number")(Player.prototype, "gold");
 type("number")(Player.prototype, "xp");
 type("number")(Player.prototype, "survivorLevel");
 type("number")(Player.prototype, "lunarShards");
 type("number")(Player.prototype, "equipCdUntil");
+type("string")(Player.prototype, "equipmentId");
+type("number")(Player.prototype, "droneCount");
 
 export class Enemy extends Schema {
   constructor() {
@@ -84,6 +88,7 @@ export class Enemy extends Schema {
     this.corpseUntil = 0;     // секунд когда труп убрать
     this.emergeUntil = 0;     // время всплытия из земли
     this.spawnedAt = 0;
+    this.elite = "";
   }
 }
 type(Vec3)(Enemy.prototype, "pos");
@@ -97,6 +102,7 @@ type("string")(Enemy.prototype, "state");
 type("number")(Enemy.prototype, "corpseUntil");
 type("number")(Enemy.prototype, "emergeUntil");
 type("number")(Enemy.prototype, "spawnedAt");
+type("string")(Enemy.prototype, "elite");
 
 export class Pickup extends Schema {
   constructor() {
@@ -173,6 +179,10 @@ export class GameState extends Schema {
     this.dbgWeaponDmgMul = 1.0;
     this.runTimeSec = 0;
     this.portalTarget = 90;
+    this.loopCount = 0;
+    this.bluePortal = false;
+    this.bluePortalX = 0;
+    this.bluePortalZ = 0;
   }
 }
 type({ map: Player })(GameState.prototype, "players");
@@ -200,3 +210,7 @@ type("number")(GameState.prototype, "levelIndex");
 type("number")(GameState.prototype, "dbgDither");
 type("number")(GameState.prototype, "dbgWeaponDmgMul");
 type("number")(GameState.prototype, "runTimeSec");
+type("number")(GameState.prototype, "loopCount");
+type("boolean")(GameState.prototype, "bluePortal");
+type("number")(GameState.prototype, "bluePortalX");
+type("number")(GameState.prototype, "bluePortalZ");

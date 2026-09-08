@@ -1,7 +1,7 @@
 import colyseus from "colyseus";
 import { GameState, Player, Enemy, Pickup, Vec3, HubSlot, HubChest } from "./schema.js";
 const { Room } = colyseus.default || colyseus;
-import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, ITEMS_BY_ID, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions, RUN, difficultyMul, chestGoldCost, xpToNextLevel, sumItemStat, scrapIdForRarity } from "../../shared/index.js";
+import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, ITEMS_BY_ID, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, SURVIVOR, LEVELS, lobbyDisplayPositions, lobbyChestPositions, RUN, difficultyMul, chestGoldCost, xpToNextLevel, sumItemStat, scrapIdForRarity, EQUIPMENT, stageKind, lootPool } from "../../shared/index.js";
 
 const TICK_MS = 1000 / NET.TICK_RATE;
 const ENEMY_GRACE_SEC = 2.0;   // 2 сек нельзя атаковать после спавна
@@ -53,15 +53,16 @@ export class ArenaRoom extends Room {
       if (!spell) return;
       const combatPhase = this.state.phase === "arena" || this.state.phase === "portal_ready";
       if (!spell.isCosmetic && !combatPhase) return;
-      const wid = p.weaponSlot;
-      const wdef = WEAPONS[wid];
-      if (!wdef || (wdef.lmb !== spellId && wdef.rmb !== spellId)) return;
-      const isRmb = wdef.rmb === spellId;
+      const kit = SURVIVOR;
+      if (spellId !== kit.lmb && spellId !== kit.rmb && spellId !== kit.special) return;
+      const isRmb = kit.rmb === spellId;
+      const isSpec = kit.special === spellId;
       const now = Date.now() / 1000;
-      const cdField = isRmb ? "rmbCdUntil" : "lmbCdUntil";
-      if (now < (p[cdField] || 0) && !spell.isDaggerCharge) return;
+      const cdField = isSpec ? "specCdUntil" : (isRmb ? "rmbCdUntil" : "lmbCdUntil");
+      if (now < (p[cdField] || 0)) return;
 
-      const dmgMult = (p.isGhost ? COMBAT.GHOST_STAT_MULT : 1) * this.playerDamageMult(p);
+      let dmgMult = (p.isGhost ? COMBAT.GHOST_STAT_MULT : 1) * this.playerDamageMult(p);
+      if (Math.random() < Math.min(0.75, sumItemStat(p, "crit"))) dmgMult *= 2;
       const origin = {
         x: typeof msg.ox === "number" ? msg.ox : p.pos.x,
         y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
@@ -109,7 +110,7 @@ export class ArenaRoom extends Room {
       }
       if (spell.isHoming) {
         p[cdField] = now + (spell.cooldown || 1);
-        const shots = this.playerHasCard(p, "ANGER") ? 2 : 1;
+        const shots = 1;
         const vis = spell.visRange || WORLD.FOG_FAR;
         for (let s = 0; s < shots; s++) {
           const tgt = this.nearestEnemy(origin, vis, dir, spell.visConeCos ?? 0.12);
@@ -124,8 +125,7 @@ export class ArenaRoom extends Room {
       }
       if (spell.isStarfall) {
         p[cdField] = now + (spell.cooldown || 0.5);
-        const hasAnger = this.playerHasCard(p, "ANGER");
-        const shots = hasAnger ? 2 : 1;
+        const shots = 1;
         const dmgMulSf = dmgMult * (this.state.dbgWeaponDmgMul || 1);
         const aimed = this.pickStarfallImpact(origin, dir, spell);
         for (let sh = 0; sh < shots; sh++) {
@@ -195,6 +195,97 @@ export class ArenaRoom extends Room {
         this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} активировал алтарь боя`, id: "" });
         return;
       }
+      if (item.kind === "SHRINE_NEWT") {
+        item.taken = true;
+        this.state.bluePortal = true;
+        this.state.bluePortalX = item.pos.x;
+        this.state.bluePortalZ = item.pos.z;
+        this.addPickup({
+          kind: "BLUE_PORTAL", itemId: "", handType: "", goldCost: 0,
+          x: item.pos.x, y: 1.2, z: item.pos.z + 3,
+        });
+        this.broadcast("fx", { type: "newt", x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} открыл синий портал на Базар`, id: "" });
+        return;
+      }
+      if (item.kind === "BLUE_PORTAL") {
+        this.enterBazaar();
+        return;
+      }
+      if (item.kind === "RETURN_PORTAL") {
+        this.leaveBazaar();
+        return;
+      }
+      if (item.kind === "BAZAAR_ITEM") {
+        const price = item.goldCost || 1;
+        if ((p.lunarShards || 0) < price) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: нужно ${price} лунных монет`, id: "" });
+          return;
+        }
+        p.lunarShards -= price;
+        item.taken = true;
+        this.grantToPlayer(p, "ITEM", "", item.itemId || "LUNAR_GLASS");
+        this.broadcast("fx", { type: "bazaar_buy", target: client.sessionId, item: item.itemId, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
+      if (item.kind === "BAZAAR_SKIP") {
+        const price = item.goldCost || 1;
+        if ((p.lunarShards || 0) < price) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: нужно ${price} лунных монет`, id: "" });
+          return;
+        }
+        p.lunarShards -= price;
+        item.taken = true;
+        const idx = this.state.levelIndex || 0;
+        if (stageKind(idx) !== "boss") {
+          this._bazaarSkipStage = true;
+        }
+        this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} сменил следующий этап`, id: "" });
+        return;
+      }
+      if (item.kind === "DRONE") {
+        const cost = item.goldCost || chestGoldCost(this.state.runTimeSec);
+        if ((p.gold || 0) < cost) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: не хватает золота на дрона (${cost})`, id: "" });
+          return;
+        }
+        p.gold -= cost;
+        item.taken = true;
+        p.droneCount = (p.droneCount || 0) + 1;
+        this.broadcast("fx", { type: "drone", target: client.sessionId, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
+      if (item.kind === "EQUIP") {
+        const cost = item.goldCost || chestGoldCost(this.state.runTimeSec);
+        if ((p.gold || 0) < cost) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: не хватает золота на снаряжение (${cost})`, id: "" });
+          return;
+        }
+        p.gold -= cost;
+        item.taken = true;
+        p.equipmentId = item.itemId || "HEAL";
+        p.equipCdUntil = 0;
+        this.broadcast("fx", { type: "equip_swap", target: client.sessionId, equipmentId: p.equipmentId, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
+      if (item.kind === "CHEST_TRIPLE") {
+        const cost = item.goldCost || 0;
+        if (cost > 0 && (p.gold || 0) < cost) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: не хватает золота (${cost})`, id: "" });
+          return;
+        }
+        const opts = String(item.itemId || "").split("|").filter(Boolean);
+        const choice = Math.max(0, Math.min(opts.length - 1, msg.choice | 0));
+        if (!opts[choice]) {
+          this.broadcast("chat", { name: "система", text: "трипл-сундук: выбери 1 / 2 / 3", id: "" });
+          return;
+        }
+        if (cost > 0) p.gold -= cost;
+        item.taken = true;
+        this.grantToPlayer(p, "ITEM", "", opts[choice]);
+        this.broadcast("fx", { type: "chest_triple", target: client.sessionId, item: opts[choice], x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
       if (item.kind === "PRINTER") {
         const printed = item.itemId || "BLOODSTONE";
         const rarity = (ITEMS_BY_ID[printed] && ITEMS_BY_ID[printed].rarity) || "white";
@@ -225,11 +316,7 @@ export class ArenaRoom extends Room {
       }
       if (cost > 0) p.gold -= cost;
       item.taken = true;
-      if (item.kind === "CARD") {
-        this.grantToPlayer(p, "CARD", item.handType || item.itemId, "");
-      } else if (item.kind === "WEAPON") {
-        this.grantToPlayer(p, "WEAPON", item.handType || item.itemId, "");
-      } else if (item.kind === "ITEM" || item.kind === "CHEST") {
+      if (item.kind === "ITEM" || item.kind === "CHEST" || item.kind === "CHEST_LARGE") {
         this.grantToPlayer(p, "ITEM", "", item.itemId || item.handType);
       }
     });
@@ -252,121 +339,7 @@ export class ArenaRoom extends Room {
     // v0.0.3.3: атомарный обработчик инвентаря — одно сообщение = одно действие,
     // но главное — новый op:"swap" делает перемещение между любыми слотами атомарно
     // (без race-condition через несколько сообщений). Поддерживается также legacy raw/item.
-    this.onMessage("inv", (client, msg) => {
-      const p = this.state.players.get(client.sessionId);
-      if (!p || !msg) return;
-      const _ensureCards = () => { while (p.cards.length < 10) p.cards.push(""); };
-      const _validCardRaw = (raw) => {
-        if (!raw) return false;
-        const [k, id] = String(raw).split(":");
-        return k === "CARD" && !!CARDS[id];
-      };
-      const _validWeaponRaw = (raw) => {
-        if (!raw) return false;
-        const [k, id] = String(raw).split(":");
-        return k === "WEAPON" && !!WEAPONS[id];
-      };
-      // ── НОВЫЙ АТОМАРНЫЙ SWAP ──
-      // msg: { op:"swap", from:{type:"card"|"weapon"|"backpack", index:number}, to:{type:..., index:number} }
-      // Любая комбинация. Правила:
-      //   • в slot type="card" можно только карту (или пусто)
-      //   • в slot type="weapon" можно только оружие (или пусто)
-      //   • в backpack можно всё
-      if (msg.op === "swap" && msg.from && msg.to) {
-        _ensureCards();
-        const readSlot = (loc) => {
-          if (loc.type === "card") return p.cards[loc.index] ? ("CARD:" + p.cards[loc.index]) : "";
-          if (loc.type === "weapon") return p.weaponSlot ? ("WEAPON:" + p.weaponSlot) : "";
-          if (loc.type === "backpack") return p.backpack[loc.index] || "";
-          return "";
-        };
-        const writeSlot = (loc, raw) => {
-          if (loc.type === "card") {
-            if (raw && !_validCardRaw(raw)) return false;
-            p.cards[loc.index] = raw ? String(raw).split(":")[1] : "";
-            return true;
-          }
-          if (loc.type === "weapon") {
-            if (raw && !_validWeaponRaw(raw)) return false;
-            p.weaponSlot = raw ? String(raw).split(":")[1] : "";
-            return true;
-          }
-          if (loc.type === "backpack") {
-            // в рюкзак кладём только непустое; иначе — удалить слот (компактация)
-            if (raw) {
-              if (loc.index >= p.backpack.length) p.backpack.push(raw);
-              else p.backpack[loc.index] = raw;
-            } else {
-              if (loc.index < p.backpack.length) p.backpack.splice(loc.index, 1);
-            }
-            return true;
-          }
-          return false;
-        };
-        const from = msg.from, to = msg.to;
-        const rawFrom = readSlot(from);
-        const rawTo   = readSlot(to);
-        // Проверка совместимости: в card-слот нельзя оружие и наоборот
-        const targetsAllow = (loc, raw) => {
-          if (!raw) return true;
-          if (loc.type === "backpack") return true;
-          if (loc.type === "card") return _validCardRaw(raw);
-          if (loc.type === "weapon") return _validWeaponRaw(raw);
-          return false;
-        };
-        if (!targetsAllow(to, rawFrom)) return;
-        if (!targetsAllow(from, rawTo)) return;
-        // Атомарный swap: сначала чистим в верхнем бакпаке по индексу (от большего к меньшему)
-        // но в нашем случае достаточно поменять значения (если оба слота — не backpack) или тщательно работать с backpack.splice
-        if (from.type === "backpack" && to.type === "backpack") {
-          // оба — backpack: простой swap по индексам
-          if (from.index < p.backpack.length && to.index < p.backpack.length) {
-            const tmp = p.backpack[from.index];
-            p.backpack[from.index] = p.backpack[to.index];
-            p.backpack[to.index] = tmp;
-          }
-          return;
-        }
-        if (from.type === "backpack") {
-          // вынимаем из backpack, возвращаем rawTo (если есть)
-          if (from.index >= p.backpack.length) return;
-          p.backpack.splice(from.index, 1);
-          writeSlot(to, rawFrom);
-          if (rawTo) p.backpack.push(rawTo);
-          return;
-        }
-        if (to.type === "backpack") {
-          // кладём в backpack всегда push (индекс = конец)
-          if (rawFrom) p.backpack.push(rawFrom);
-          writeSlot(from, rawTo); // rawTo чаще пустой — очистит слот
-          return;
-        }
-        // оба — слоты (card/weapon): простой swap
-        writeSlot(from, rawTo);
-        writeSlot(to, rawFrom);
-        return;
-      }
-      // ── LEGACY OPS (для совместимости) ──
-      if (msg.op === "card_set") {
-        // клиент в v0.0.3.1 шлёт index, в v0.0.3.3 — slot; поддерживаем оба
-        const slot = Math.max(0, Math.min(9, (msg.slot != null ? msg.slot : msg.index) | 0));
-        const cardId = String(msg.cardId || "");
-        if (cardId && !CARDS[cardId]) return;
-        _ensureCards();
-        p.cards[slot] = cardId;
-      } else if (msg.op === "weapon_set") {
-        const wid = String(msg.weaponId || "");
-        if (wid && !WEAPONS[wid]) return;
-        p.weaponSlot = wid;
-      } else if (msg.op === "backpack_add") {
-        // клиент в v0.0.3.1 шлёт raw, старый сервер ждал item — теперь принимаем оба
-        const item = String(msg.raw || msg.item || "");
-        if (item) p.backpack.push(item);
-      } else if (msg.op === "backpack_remove") {
-        const idx = msg.index | 0;
-        if (idx >= 0 && idx < p.backpack.length) p.backpack.splice(idx, 1);
-      }
-    });
+    this.onMessage("inv", () => {});
 
     this.onMessage("respawn", (client) => {
       const p = this.state.players.get(client.sessionId);
@@ -413,21 +386,6 @@ export class ArenaRoom extends Room {
         const p = this.state.players.get(client.sessionId);
         if (p) { p.hasLeftHand = true; p.hasRightHand = true; p.leftHandType = "FIRE"; p.rightHandType = "ICE"; p.hasLegs = 2; }
       }
-      // v0.0.3.4: выдать оружие в слот (меч)
-      if (msg.action === "giveWeaponSlot") {
-        const p = this.state.players.get(client.sessionId);
-        if (p && msg.type) p.weaponSlot = String(msg.type);
-      }
-      if (msg.action === "giveWeapon") {
-        // msg.hand = "left"|"right", msg.type = "FIRE"|"ICE"|"BONE"
-        const p = this.state.players.get(client.sessionId);
-        const validTypes = ["FIRE", "ICE", "BONE", "CHAIN"];
-        if (p && validTypes.includes(msg.type)) {
-          if (msg.hand === "right") { p.hasRightHand = true; p.rightHandType = msg.type; }
-          else { p.hasLeftHand = true; p.leftHandType = msg.type; }
-          if (p.hasLegs < 2) p.hasLegs = 2;
-        }
-      }
       if (typeof msg.fly === "boolean") s.dbgFly = msg.fly;
       if (msg.action === "givePassive") {
         const p = this.state.players.get(client.sessionId);
@@ -470,9 +428,11 @@ export class ArenaRoom extends Room {
       if (dx * dx + dz * dz > PORTAL_INTERACT_RANGE * PORTAL_INTERACT_RANGE) return;
       this.state.portalActive = true;
       this.state.portalCharge = 0;
-      // v0.0.3.1: при активации портала подливаем crawler'ов
-      this.spawnWaveOfType("GROUND_CRAWLER", 4);
+      this.spawnWaveOfType("GROUND_CRAWLER", 6);
+      this.spawnWaveOfType("CACO", 3);
+      this.spawnColossus();
       this.broadcast("fx", { type: "portal_activated", x: this.state.portalX, y: 0, z: this.state.portalZ });
+      this.broadcast("chat", { name: "система", text: "телепорт зажжён — держите зону 90 секунд, босс телепорта уже здесь", id: "" });
     });
 
     this.onMessage("hub_take", (client, msg) => {
@@ -482,7 +442,7 @@ export class ArenaRoom extends Room {
       if (msg.source === "slot") {
         const slot = this.state.hubSlots[msg.index];
         if (!slot || slot.empty) return;
-        if (slot.kind !== "WEAPON" && slot.kind !== "CARD" && slot.kind !== "ITEM") {
+        if (slot.kind !== "ITEM") {
           slot.kind = ""; slot.handType = ""; slot.itemId = ""; slot.empty = true;
           return;
         }
@@ -494,10 +454,11 @@ export class ArenaRoom extends Room {
         const idx = Math.max(0, Math.min(chest.contents.length - 1, msg.item | 0));
         const raw = chest.contents[idx];
         const [kind, val] = String(raw).split(":");
-        // v0.0.3.8: проверяем что grantToPlayer поддерживает kind — иначе не сплайсим (предмет не исчезнет).
-        const supported = kind === "WEAPON" || kind === "CARD" || kind === "ITEM";
-        if (!supported) return;
-        this.grantToPlayer(p, kind, kind === "ITEM" ? "" : (val || ""), kind === "ITEM" ? (val || "") : "");
+        if (kind !== "ITEM") {
+          chest.contents.splice(idx, 1);
+          return;
+        }
+        this.grantToPlayer(p, "ITEM", "", val || "");
         chest.contents.splice(idx, 1);
       }
     });
@@ -511,21 +472,11 @@ export class ArenaRoom extends Room {
       const slot = this.state.hubSlots[msg.index];
       if (!slot || !slot.empty) return;
       const what = String(msg.what || "");
-      if (what === "backpack" && p.backpack.length > 0) {
-        const raw = p.backpack[0];
-        const [kind, val] = String(raw).split(":");
-        if (kind !== "WEAPON" && kind !== "CARD") return;
-        p.backpack.splice(0, 1);
-        slot.kind = kind; slot.handType = val || ""; slot.itemId = ""; slot.empty = false;
-      } else if (what === "weapon" && p.weaponSlot) {
-        slot.kind = "WEAPON"; slot.handType = p.weaponSlot; slot.itemId = ""; slot.empty = false;
-        p.weaponSlot = "";
-      } else if (what.startsWith("card:")) {
-        const idx = parseInt(what.slice(5), 10);
-        if (idx >= 0 && idx < 10 && p.cards[idx]) {
-          slot.kind = "CARD"; slot.handType = p.cards[idx]; slot.itemId = ""; slot.empty = false;
-          p.cards[idx] = "";
-        }
+      if ((what === "item" || what === "passive") && p.itemsInBody.length > 0) {
+        const it = p.itemsInBody.pop();
+        p.passiveItemId = p.itemsInBody[0] || "";
+        this.refreshItemHp(p);
+        slot.kind = "ITEM"; slot.handType = ""; slot.itemId = it; slot.empty = false;
       }
     });
 
@@ -545,24 +496,11 @@ export class ArenaRoom extends Room {
       if (!chest) return;
       if (chest.contents.length >= 24) return; // лимит сундука
       const what = String(msg.what || "");
-      if (what === "weapon" && p.weaponSlot) {
-        chest.contents.push("WEAPON:" + p.weaponSlot);
-        p.weaponSlot = "";
-      } else if (what.startsWith("card:")) {
-        const idx = parseInt(what.slice(5), 10);
-        if (idx >= 0 && idx < 10 && p.cards[idx]) {
-          chest.contents.push("CARD:" + p.cards[idx]);
-          p.cards[idx] = "";
-        }
-      } else if (what.startsWith("backpack:")) {
-        const idx = parseInt(what.slice(9), 10);
-        if (idx >= 0 && idx < p.backpack.length) {
-          const raw = p.backpack[idx];
-          if (String(raw).startsWith("WEAPON:") || String(raw).startsWith("CARD:")) {
-            chest.contents.push(raw);
-            p.backpack.splice(idx, 1);
-          }
-        }
+      if ((what === "item" || what === "passive") && p.itemsInBody.length > 0) {
+        const it = p.itemsInBody.pop();
+        p.passiveItemId = p.itemsInBody[0] || "";
+        this.refreshItemHp(p);
+        chest.contents.push("ITEM:" + it);
       }
     });
 
@@ -585,15 +523,34 @@ export class ArenaRoom extends Room {
     this.onMessage("enter_arena", () => this.enterArena());
     this.onMessage("next_stage", () => this.nextStage());
     this.onMessage("loop_run", () => this.loopRun());
+    this.onMessage("leave_bazaar", () => this.leaveBazaar());
     this.onMessage("equipment", (client) => {
       const p = this.state.players.get(client.sessionId);
       if (!p || p.isGhost || p.hp <= 0) return;
       if (this.state.phase === "hub") return;
       const now = Date.now() / 1000;
       if (now < (p.equipCdUntil || 0)) return;
-      const heal = RUN.EQUIP_HEAL || 30;
+      const eqId = p.equipmentId || "HEAL";
+      const eq = EQUIPMENT[eqId] || EQUIPMENT.HEAL;
+      p.equipCdUntil = now + (eq.cd || RUN.EQUIP_CD_S || 15);
+      if (eqId === "MISSILE") {
+        const dmg = (eq.damage || 48) * this.playerDamageMult(p);
+        const r = eq.radius || 7;
+        this.state.enemies.forEach((e) => {
+          if (!e.alive) return;
+          const dx = e.pos.x - p.pos.x, dy = e.pos.y - p.pos.y, dz = e.pos.z - p.pos.z;
+          if (dx * dx + dy * dy + dz * dz <= r * r) this.damageEnemy(e, dmg);
+        });
+        this.broadcast("fx", { type: "equip_missile", target: client.sessionId, x: p.pos.x, y: p.pos.y, z: p.pos.z, r });
+        return;
+      }
+      if (eqId === "PHASE") {
+        p._phaseUntil = now + (eq.duration || 2.2);
+        this.broadcast("fx", { type: "equip_phase", target: client.sessionId, x: p.pos.x, y: p.pos.y, z: p.pos.z, duration: eq.duration || 2.2 });
+        return;
+      }
+      const heal = eq.heal || RUN.EQUIP_HEAL || 30;
       p.hp = Math.min(p.maxHp, p.hp + heal);
-      p.equipCdUntil = now + (RUN.EQUIP_CD_S || 15);
       this.broadcast("fx", { type: "equip_heal", target: client.sessionId, x: p.pos.x, y: p.pos.y, z: p.pos.z, heal });
     });
     this.onMessage("ping", (client, msg) => {
@@ -615,37 +572,18 @@ export class ArenaRoom extends Room {
     p.pos.x = spawn.x;
     p.pos.y = spawn.y;
     p.pos.z = spawn.z;
-    // v0.0.3.1: стартовый инвентарь — Звёздный Меч в руке, ANGER в первом слоте карт
-    p.weaponSlot = "STAR_SWORD";
-    p.daggerCount = 1;
-    for (let i = 0; i < 10; i++) p.cards.push(i === 0 ? "ANGER" : "");
-    p.backpack.push("CARD:FRENZY");
-    p.backpack.push("CARD:RAIN");
-    p.backpack.push("WEAPON:LIGHTNING_STAFF");
-    p.backpack.push("WEAPON:DAGGERS");
     p.gold = 0;
     p.xp = 0;
     p.survivorLevel = 1;
     p.lunarShards = 0;
+    p.equipmentId = "HEAL";
+    p.droneCount = 0;
     this.state.players.set(client.sessionId, p);
     console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
   }
 
-  // v0.0.3.1: вспомогательное — есть ли у игрока активная карта в слотах
-  playerHasCard(p, cardId) {
-    if (!p || !p.cards) return false;
-    for (let i = 0; i < p.cards.length; i++) if (p.cards[i] === cardId) return true;
-    return false;
-  }
-
-  anyPlayerHasCard(cardId) {
-    let hit = false;
-    this.state.players.forEach(p => { if (!hit && this.playerHasCard(p, cardId)) hit = true; });
-    return hit;
-  }
-
   cardSpawnMul() {
-    return this.anyPlayerHasCard("FRENZY") ? (CARDS.FRENZY.spawnMul || 3) : 1;
+    return 1;
   }
 
   combatPlayerCount() {
@@ -917,24 +855,7 @@ export class ArenaRoom extends Room {
   }
 
   grantToPlayer(p, kind, handType, itemId) {
-    if (kind === "WEAPON") {
-      p.daggerCount = String(handType || itemId || "") === "DAGGERS" ? 1 : (p.daggerCount || 1);
-      // v0.0.3.8: оружие из сундука. Если слот занят — старое в рюкзак.
-      const wid = String(handType || itemId || "").trim();
-      if (!wid) return;
-      if (p.weaponSlot) p.backpack.push("WEAPON:" + p.weaponSlot);
-      p.weaponSlot = wid;
-    } else if (kind === "CARD") {
-      // v0.0.3.8: карта из сундука. В первый свободный слот, иначе в рюкзак.
-      const cid = String(handType || itemId || "").trim();
-      if (!cid) return;
-      while (p.cards.length < 10) p.cards.push("");
-      let placed = false;
-      for (let i = 0; i < 10; i++) { if (!p.cards[i]) { p.cards[i] = cid; placed = true; break; } }
-      if (!placed) p.backpack.push("CARD:" + cid);
-    } else if (kind === "ITEM") {
-      this.equipItem(p, itemId || handType);
-    }
+    if (kind === "ITEM") this.equipItem(p, itemId || handType);
   }
 
   spawnInitialPickups() {
@@ -943,48 +864,48 @@ export class ArenaRoom extends Room {
   }
 
   spawnArenaPickups() {
-    const R = WORLD.PICKUP_RING || 32;
     const cost = chestGoldCost(this.state.runTimeSec);
-    const chests = 5;
-    for (let i = 0; i < chests; i++) {
-      const a = (i / chests) * Math.PI * 2;
-      const item = pickRandom(ITEMS.filter(x => !x.scrap));
+    const whites = lootPool("white");
+    const greens = lootPool("green");
+    const reds = lootPool("red");
+    const anyLoot = ITEMS.filter(x => !x.scrap);
+    const scatter = () => {
+      const R = WORLD.PICKUP_RING || 32;
+      const a = Math.random() * Math.PI * 2;
+      const r = 12 + Math.random() * (R - 10);
+      return { x: Math.cos(a) * r, y: 1.2, z: Math.sin(a) * r };
+    };
+    const nChests = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < nChests; i++) {
+      const item = pickRandom(whites.length ? whites : anyLoot);
+      const p = scatter();
+      this.addPickup({ kind: "CHEST", itemId: item.id, handType: "", goldCost: cost, ...p });
+    }
+    {
+      const pool = [...greens, ...reds];
+      const item = pickRandom(pool.length ? pool : anyLoot);
+      this.addPickup({ kind: "CHEST_LARGE", itemId: item.id, handType: "", goldCost: Math.round(cost * 1.8), ...scatter() });
+    }
+    {
+      const pick3 = () => pickRandom(anyLoot).id;
       this.addPickup({
-        kind: "CHEST", itemId: item.id, handType: "",
-        goldCost: cost,
-        x: Math.cos(a) * R, y: 1.2, z: Math.sin(a) * R,
+        kind: "CHEST_TRIPLE",
+        itemId: `${pick3()}|${pick3()}|${pick3()}`,
+        handType: "",
+        goldCost: Math.round(cost * 1.4),
+        ...scatter(),
       });
     }
-    const cards = ["ANGER", "FRENZY", "RAIN"];
-    for (let i = 0; i < cards.length; i++) {
-      const a = ((i + 0.5) / cards.length) * Math.PI * 2;
-      this.addPickup({
-        kind: "CARD", itemId: "", handType: cards[i], goldCost: 0,
-        x: Math.cos(a) * (R * 0.55), y: 1.2, z: Math.sin(a) * (R * 0.55),
-      });
-    }
-    this.addPickup({
-      kind: "SHRINE_BLOOD", itemId: "", handType: "", goldCost: 0,
-      x: 18, y: 1.2, z: 10,
-    });
-    this.addPickup({
-      kind: "SHRINE_CHANCE", itemId: "", handType: "", goldCost: 0,
-      x: -18, y: 1.2, z: 10,
-    });
-    this.addPickup({
-      kind: "SHRINE_COMBAT", itemId: "", handType: "", goldCost: 0,
-      x: 12, y: 1.2, z: -12,
-    });
-    const printables = ITEMS.filter(it => !it.scrap);
-    const printed = pickRandom(printables);
-    this.addPickup({
-      kind: "PRINTER", itemId: printed.id, handType: "", goldCost: 0,
-      x: 0, y: 1.2, z: 18,
-    });
-    this.addPickup({
-      kind: "SCRAPPER", itemId: "", handType: "", goldCost: 0,
-      x: 0, y: 1.2, z: -18,
-    });
+    this.addPickup({ kind: "SHRINE_BLOOD", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "SHRINE_CHANCE", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "SHRINE_COMBAT", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "SHRINE_NEWT", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    const printed = pickRandom(anyLoot);
+    this.addPickup({ kind: "PRINTER", itemId: printed.id, handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "SCRAPPER", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "DRONE", itemId: "", handType: "", goldCost: Math.round(cost * 1.6), ...scatter() });
+    const eqId = pickRandom(Object.keys(EQUIPMENT));
+    this.addPickup({ kind: "EQUIP", itemId: eqId, handType: "", goldCost: Math.round(cost * 1.3), ...scatter() });
   }
 
   addPickup({ kind, itemId, handType, x, y, z, goldCost = 0 }) {
@@ -1061,6 +982,8 @@ export class ArenaRoom extends Room {
     if (this.state.phase === "arena" || this.state.phase === "portal_ready") return;
     this.state.phase = "arena";
     this.state.levelIndex = 0;
+    this.state.loopCount = 0;
+    this.state.bluePortal = false;
     this.clearRunEconomy();
     this.startArena();
     const s = this.arenaSpawn();
@@ -1070,15 +993,22 @@ export class ArenaRoom extends Room {
   nextStage() {
     if (this.state.phase !== "portal_ready") return;
     const idx = this.state.levelIndex || 0;
-    const cur = LEVELS[idx] || LEVELS[0];
-    if (cur && cur.boss) {
+    const kind = stageKind(idx);
+    if (kind === "boss") {
       const shards = RUN.LUNAR_SHARDS_BOSS || 1;
       this.state.players.forEach((p) => { p.lunarShards = (p.lunarShards || 0) + shards; });
-      this.broadcast("chat", { name: "система", text: "финальный босс пал — лунные монеты в карман, возврат в лобби", id: "" });
+      this.broadcast("chat", { name: "система", text: "Митрикс пал — лунные монеты в карман, возврат в лобби", id: "" });
       this.returnToHub();
       return;
     }
-    this.state.levelIndex = Math.min(LEVELS.length - 1, idx + 1);
+    let next = idx + 1;
+    if (this._bazaarSkipStage) {
+      this._bazaarSkipStage = false;
+      next = Math.min(LEVELS.length - 1, idx + 2);
+    }
+    if (kind === "fork") next = LEVELS.findIndex(L => L.boss);
+    if (next < 0) next = LEVELS.length - 1;
+    this.state.levelIndex = Math.min(LEVELS.length - 1, next);
     this.state.players.forEach((p) => {
       p.gold = 0;
       if (p.isGhost || p.hp <= 0) {
@@ -1098,6 +1028,11 @@ export class ArenaRoom extends Room {
 
   loopRun() {
     if (this.state.phase !== "portal_ready") return;
+    if (stageKind(this.state.levelIndex || 0) !== "fork") {
+      this.broadcast("chat", { name: "система", text: "Loop доступен только на развилке 5-го этапа", id: "" });
+      return;
+    }
+    this.state.loopCount = (this.state.loopCount || 0) + 1;
     this.state.levelIndex = 0;
     this.state.players.forEach((p) => {
       p.gold = 0;
@@ -1111,7 +1046,7 @@ export class ArenaRoom extends Room {
     this.startArena();
     const s = this.arenaSpawn();
     this.teleportAllPlayers(s.x, s.y, s.z);
-    this.broadcast("chat", { name: "система", text: "Loop — круг сначала, билд и таймер остаются", id: "" });
+    this.broadcast("chat", { name: "система", text: `Loop ${this.state.loopCount} — круг сначала, билд и таймер остаются`, id: "" });
     this.broadcast("fx", { type: "next_stage", levelIndex: 0 });
   }
 
@@ -1127,6 +1062,9 @@ export class ArenaRoom extends Room {
     const ang = Math.random() * Math.PI * 2;
     this.state.portalX = Math.sin(ang) * dist;
     this.state.portalZ = Math.cos(ang) * dist;
+    this.state.bluePortal = false;
+    this.state.bluePortalX = 0;
+    this.state.bluePortalZ = 0;
     this.waveTimer = 0;
     // Очистить старые пикапы арены
     this.state.pickups.clear();
@@ -1138,6 +1076,52 @@ export class ArenaRoom extends Room {
     this.spawnWaveOfType("GROUND_CRAWLER", 3);
     this.spawnWaveOfType("CACO", 2);
     if (L && L.boss) this.spawnColossus();
+  }
+
+  enterBazaar() {
+    if (this.state.phase === "hub") return;
+    if (this.state.phase === "bazaar") return;
+    this._preBazaarPhase = this.state.phase;
+    this.state.phase = "bazaar";
+    this.state.pickups.clear();
+    this.addPickup({ kind: "RETURN_PORTAL", itemId: "", handType: "", goldCost: 0, x: 0, y: 1.2, z: -10 });
+    const lunar = lootPool("blue");
+    const shop = lunar.length ? lunar : ITEMS.filter(x => x.lunar);
+    for (let i = 0; i < 3; i++) {
+      const it = pickRandom(shop.length ? shop : ITEMS.filter(x => !x.scrap));
+      this.addPickup({
+        kind: "BAZAAR_ITEM", itemId: it.id, handType: "", goldCost: 1,
+        x: -8 + i * 8, y: 1.2, z: 8,
+      });
+    }
+    this.addPickup({ kind: "BAZAAR_SKIP", itemId: "", handType: "", goldCost: 1, x: 0, y: 1.2, z: 14 });
+    this.teleportAllPlayers(0, 1.6, 4);
+    this.broadcast("chat", { name: "система", text: "Базар между мирами — Ньют молчит. Лунные монеты.", id: "" });
+    this.broadcast("fx", { type: "bazaar", phase: "bazaar" });
+  }
+
+  leaveBazaar() {
+    if (this.state.phase !== "bazaar") return;
+    const back = this._preBazaarPhase || "arena";
+    this.state.phase = back;
+    this.state.pickups.clear();
+    if (back === "arena" || back === "portal_ready") this.spawnArenaPickups();
+    const s = this.arenaSpawn();
+    this.teleportAllPlayers(s.x, s.y, s.z);
+    this.broadcast("fx", { type: "bazaar", phase: back });
+  }
+
+  applyElite(e, typeId) {
+    const t = ENEMY_TYPES[typeId];
+    if (!e || !t || t.boss) return;
+    const chance = (RUN.ELITE_CHANCE || 0.08) * Math.min(2.5, this.dmul());
+    if (Math.random() > chance) {
+      e.elite = "";
+      return;
+    }
+    e.elite = pickRandom(["fire", "ice", "lightning"]);
+    e.hp = Math.max(1, Math.round(e.hp * 2.2));
+    e.maxHp = e.hp;
   }
 
   resetArena() {
@@ -1251,7 +1235,8 @@ export class ArenaRoom extends Room {
     const id = `e${++this.enemySeq}`;
     this.state.enemies.set(id, e);
     e._grace = ENEMY_GRACE_SEC;
-    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant });
+    this.applyElite(e, typeId);
+    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant, elite: e.elite });
     return id;
   }
 
@@ -1284,7 +1269,8 @@ export class ArenaRoom extends Room {
     const id = `e${++this.enemySeq}`;
     this.state.enemies.set(id, e);
     e._grace = ENEMY_GRACE_SEC;
-    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant });
+    this.applyElite(e, typeId);
+    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant, elite: e.elite });
     return id;
   }
 
@@ -1302,44 +1288,43 @@ export class ArenaRoom extends Room {
     if (!e.alive) return;
     const actualDmg = dmg * (this.state.dbgDamageMul || 1);
     e.hp -= actualDmg;
-    // ПОРТАЛ ОТ КРОВИ: если активен — каждая 1 ед урона даёт +0.15с зарядки
-    if (this.state.portalActive && this.state.portalCharge < this.state.portalTarget) {
-      this.state.portalCharge = Math.min(
-        this.state.portalTarget,
-        this.state.portalCharge + actualDmg * 0.15
-      );
-      if (this.state.portalCharge >= this.state.portalTarget && this.state.phase === "arena") {
-        this.state.phase = "portal_ready";
-        this.broadcast("fx", { type: "portal_ready" });
-      }
-    }
-    // Звук попадания
     this.broadcast("fx", { type: "hit_enemy", x: e.pos.x, y: e.pos.y, z: e.pos.z, dmg: actualDmg });
     if (e.hp <= 0) {
       e.alive = false;
-      this.broadcast("fx", { type: "enemy_die", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: e.enemyType });
-      // Бонус за убийство: +2 сек зарядки
-      if (this.state.portalActive && this.state.portalCharge < this.state.portalTarget) {
-        this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + 2);
-        if (this.state.portalCharge >= this.state.portalTarget && this.state.phase === "arena") {
-          this.state.phase = "portal_ready";
-          this.broadcast("fx", { type: "portal_ready" });
-        }
-      }
-      // v0.0.3.1: труп лежит CORPSE_LINGER_S сек (сносится в tick по corpseUntil)
+      this.broadcast("fx", { type: "enemy_die", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: e.enemyType, elite: e.elite });
       e.state = "dying";
       e.corpseUntil = Date.now() / 1000 + AI_DIRECTOR.CORPSE_LINGER_S;
       this.grantKillRewards();
+      if (Math.random() < (RUN.LUNAR_DROP || 0)) {
+        this.state.players.forEach((p) => {
+          if (p.isGhost || p.hp <= 0) return;
+          p.lunarShards = (p.lunarShards || 0) + 1;
+        });
+        this.broadcast("chat", { name: "система", text: "редкий дроп — лунная монета", id: "" });
+      }
     }
+  }
+
+  consumeExtraLife(p) {
+    if (!p || !p.itemsInBody) return false;
+    const arr = [...p.itemsInBody];
+    const idx = arr.findIndex((id) => ITEMS_BY_ID[id] && ITEMS_BY_ID[id].extraLife);
+    if (idx < 0) return false;
+    p.itemsInBody.splice(idx, 1);
+    p.passiveItemId = p.itemsInBody[0] || "";
+    this.refreshItemHp(p);
+    p.hp = p.maxHp;
+    p.isGhost = false;
+    return true;
   }
 
   damagePlayer(p, dmg, sessionId, fromX = 0, fromZ = 0) {
     if (p.hp <= 0 || p.isGhost) return;
     if (this.state.dbgGodMode) return;
-    // В хабе урона нет (мобы не атакуют)
     if (this.state.phase !== "arena" && this.state.phase !== "portal_ready") return;
-    // v0.0.3.1: Звёздный Блок — поглощает урон пока активен
     const nowSec = Date.now() / 1000;
+    if ((p._phaseUntil || 0) > nowSec) return;
+    if ((p._stealthUntil || 0) > nowSec) return;
     if ((p.blockAbsorbLeft || 0) > 0) {
       const absorb = Math.min(p.blockAbsorbLeft, dmg);
       p.blockAbsorbLeft -= absorb;
@@ -1348,9 +1333,20 @@ export class ArenaRoom extends Room {
       if (p.blockAbsorbLeft <= 0) { p.blockActiveUntil = 0; p.blockAbsorbLeft = 0; }
       if (dmg <= 0) return;
     }
+    const armor = Math.max(0, sumItemStat(p, "armor"));
+    if (armor > 0) dmg *= 100 / (100 + armor);
     p.hp -= dmg;
-    p._lastDmgAt = Date.now(); // для HP-регенерации вне боя
+    p._lastDmgAt = Date.now();
+    if (sumItemStat(p, "stealth") > 0) {
+      p._stealthUntil = nowSec + 1.5;
+      this.broadcast("fx", { type: "stealth", target: sessionId });
+    }
     if (p.hp < 1) {
+      if (this.consumeExtraLife(p)) {
+        this.broadcast("fx", { type: "dio", target: sessionId });
+        this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} воскрес (Дио)`, id: "" });
+        return;
+      }
       p.hp = 0;
       let alive = 0;
       this.state.players.forEach((pl) => {
@@ -1403,16 +1399,19 @@ export class ArenaRoom extends Room {
     this.state.players.forEach(p => {
       if (p.isGhost || p.hp <= 0 || p.hp >= p.maxHp) return;
       const last = p._lastDmgAt || 0;
-      if (nowMs - last < 5000) return;
+      if (nowMs - last < (COMBAT.REGEN_DELAY_S || 3) * 1000) return;
       p._regenAcc = (p._regenAcc || 0) + dt;
       if (p._regenAcc >= 1.0) {
         p._regenAcc -= 1.0;
-        p.hp = Math.min(p.maxHp, p.hp + 1);
+        const lv = Math.max(1, p.survivorLevel || 1);
+        const regen = (COMBAT.REGEN_PER_S || 5) * 0.2 + (lv - 1) * 0.12 + sumItemStat(p, "regen");
+        p.hp = Math.min(p.maxHp, p.hp + Math.max(0.2, regen));
       }
     });
     // Снаряды игрока бьют врагов. Огненные шары мобов — только игроков (иначе стрелок убивает себя в момент выстрела).
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
+      if (!pr) { this.projectiles.splice(i, 1); continue; }
       if (pr.homing && !pr.enemyProjectile) {
         let te = pr.targetId ? this.state.enemies.get(pr.targetId) : null;
         if (!te || !te.alive) {
@@ -1452,17 +1451,7 @@ export class ArenaRoom extends Room {
     if (!combatPhase) return;
 
     const nowSec = Date.now() / 1000;
-    this.state.players.forEach(p => {
-      if (p.weaponSlot !== "DAGGERS" || p.isGhost || p.hp <= 0) return;
-      if (!p._lmbHeld) { p._daggerNext = 0; return; }
-      if ((p.daggerCount || 1) >= 10) return;
-      if (!p._daggerNext) p._daggerNext = nowSec + 1;
-      if (nowSec >= p._daggerNext) {
-        p.daggerCount = Math.min(10, (p.daggerCount || 1) + 1);
-        p._daggerNext = nowSec + 1;
-        p.lmbCdUntil = p._daggerNext;
-      }
-    });
+    void nowSec;
 
     // v0.0.3.1: Фалл→респаун + 5% HP при падении в дыру (клиент шлёт fall)
     // (само событие приходит через onMessage("fall"))
@@ -1634,7 +1623,7 @@ export class ArenaRoom extends Room {
     // v0.0.3.1: вражеские снаряды бьют игроков (код выше только по врагам) — работаем в том же tick
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
-      if (!pr.enemyProjectile) continue;
+      if (!pr || !pr.enemyProjectile) continue;
       let hitAny = false;
       this.state.players.forEach((pl, sid) => {
         if (hitAny || pl.isGhost || pl.hp <= 0) return;
@@ -1648,8 +1637,7 @@ export class ArenaRoom extends Room {
       if (hitAny) this.projectiles.splice(i, 1);
     }
 
-    // Карта RAIN — метеоритный дождь в радиусе видимости носителя
-    this.tickMeteorRain(dt);
+    this.tickDrones(dt);
 
     // ── v0.0.3.1: AI Director — бюджет-based спавн волнами ───────────
     if (this.state.phase === "arena" || this.state.phase === "portal_ready") {
@@ -1705,38 +1693,23 @@ export class ArenaRoom extends Room {
     }
   }
 
-  tickMeteorRain(dt) {
-    const def = CARDS.RAIN;
-    if (!def) return;
-    const casters = [];
+  tickDrones(dt) {
+    if (this.state.phase !== "arena" && this.state.phase !== "portal_ready") return;
     this.state.players.forEach((p, sid) => {
-      if (p.isGhost || p.hp <= 0) return;
-      if (this.playerHasCard(p, "RAIN")) casters.push({ p, sid });
+      const n = p.droneCount || 0;
+      if (n <= 0 || p.isGhost || p.hp <= 0) return;
+      p._droneAcc = (p._droneAcc || 0) + dt;
+      const interval = Math.max(0.28, 0.85 / n);
+      if (p._droneAcc < interval) return;
+      p._droneAcc = 0;
+      const hit = this.nearestEnemy(p.pos, 32);
+      if (!hit) return;
+      this.damageEnemy(hit.e, 7 * this.playerDamageMult(p));
+      this.broadcast("fx", {
+        type: "drone_shot", target: sid,
+        x: p.pos.x, y: (p.pos.y || 1.6) + 1.4, z: p.pos.z,
+        tx: hit.e.pos.x, ty: hit.e.pos.y, tz: hit.e.pos.z,
+      });
     });
-    if (!casters.length) { this._meteorAcc = 0; return; }
-    this._meteorAcc = (this._meteorAcc || 0) + dt;
-    const interval = def.interval || 0.42;
-    const vis = def.visRange || 90;
-    const r = def.radius || 7;
-    while (this._meteorAcc >= interval) {
-      this._meteorAcc -= interval;
-      const { p, sid } = casters[Math.floor(Math.random() * casters.length)];
-      const ang = Math.random() * Math.PI * 2;
-      const dist = Math.sqrt(Math.random()) * vis;
-      const x = p.pos.x + Math.sin(ang) * dist;
-      const z = p.pos.z + Math.cos(ang) * dist;
-      const r2 = r * r;
-      this.state.enemies.forEach(e => {
-        if (!e.alive) return;
-        const dx = e.pos.x - x, dz = e.pos.z - z;
-        if (dx * dx + dz * dz <= r2) this.damageEnemy(e, def.enemyDamage || 28);
-      });
-      this.state.players.forEach((pl, psid) => {
-        if (pl.isGhost || pl.hp <= 0) return;
-        const dx = pl.pos.x - x, dz = pl.pos.z - z;
-        if (dx * dx + dz * dz <= r2) this.damagePlayer(pl, def.playerDamage || 10, psid, x, z);
-      });
-      this.broadcast("fx", { type: "meteor", x, y: 22, z, tx: x, ty: 1, tz: z, r, color: 0xff3311 });
-    }
   }
 }
