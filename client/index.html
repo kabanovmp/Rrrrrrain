@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Rrrrrrain — v0.0.3.23</title>
+      <title>Rrrrrrain — v0.0.7.1</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #eee; font-family: 'Trebuchet MS', 'Segoe UI', sans-serif; }
@@ -12,13 +12,16 @@
     body.in-game #menu { display: none !important; }
     body:not(.in-game) #hp-bar,
     body:not(.in-game) #status,
+    body:not(.in-game) #runHud,
     body:not(.in-game) #crosshair,
     body:not(.in-game) #radarHud,
     body:not(.in-game) #cardHud,
     body:not(.in-game) #wpnCdHud,
     body:not(.in-game) #fpsHud,
     body:not(.in-game) #weaponHud,
-    body:not(.in-game) #blockHud { display: none !important; }
+    body:not(.in-game) #blockHud,
+    body:not(.in-game) #passivesHud,
+    body:not(.in-game) #aimEnemyHud { display: none !important; }
     #menu {
       position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
       background: radial-gradient(ellipse at 50% 42%, #2a0c0c 0%, #0a0404 55%, #000 100%);
@@ -46,6 +49,13 @@
       background: rgba(8,6,4,0.62); border: 1px solid rgba(200,140,80,0.32);
       border-radius: 999px; padding: 7px 14px; line-height: 1.2; pointer-events: none;
       max-width: min(46vw, 420px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #runHud {
+      position: fixed; right: 16px; top: 14px; z-index: 20;
+      font-size: 13px; letter-spacing: 0.4px; color: #f0e6d4;
+      text-shadow: 0 1px 3px #000; text-align: right;
+      background: rgba(8,6,4,0.62); border: 1px solid rgba(200,140,80,0.32);
+      border-radius: 12px; padding: 8px 14px; line-height: 1.35; pointer-events: none;
     }
     #dead { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 30;
       background: rgba(20, 0, 0, 0.4); color: #ff5a1f; font-size: 24px; letter-spacing: 4px; }
@@ -80,7 +90,7 @@
     .cd-ind .label { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       font-family: inherit; font-size: 11px; font-weight: bold; color: #fff; text-shadow: 0 0 3px #000; }
     #cardHud { left: 16px !important; bottom: 92px !important; }
-    #wpnCdHud { left: 16px !important; bottom: 42px !important; }
+    #wpnCdHud { right: 16px !important; left: auto !important; bottom: 16px !important; }
     #wpnCdHud, #fpsHud, #weaponHud { pointer-events: none; }
     #fpsHud {
       left: 50% !important; right: auto !important; bottom: -8% !important;
@@ -103,11 +113,12 @@
   <div id="hud-crack"></div>
   <div id="crosshair" style="display:none"></div>
   <div id="status"></div>
+  <div id="runHud"></div>
   <div id="hp-bar"><div id="hp-fill"></div><div id="hp-text">HP</div></div>
   <div id="cd-left" class="cd-ind"><div class="fill"></div><div class="label">L</div></div>
   <div id="cd-right" class="cd-ind"><div class="fill"></div><div class="label">R</div></div>
   <div id="dmg-numbers"></div>
-  <div id="dead">ты призрак · воскрешение через дебаг-панель (~)</div>
+  <div id="dead">наблюдатель · воскреснешь на следующем этапе</div>
   <div id="debug-panel" style="display:none;position:fixed;top:20px;right:20px;width:420px;background:rgba(10,10,15,0.92);border:1px solid #445;border-radius:6px;padding:20px;color:#dde;font-family:'Courier New',monospace;font-size:18px;z-index:100;pointer-events:auto;">
     <div style="font-weight:bold;color:#8bf;margin-bottom:8px;border-bottom:1px solid #445;padding-bottom:6px;">DEBUG (~ — закрыть)</div>
     <div style="opacity:.6;margin-bottom:8px;font-size:10px;">все настройки синхронны между игроками</div>
@@ -156,15 +167,15 @@
       <button data-act="respawnAll" class="dbg-btn">воскресить всех</button>
       <button data-act="killAllEnemies" class="dbg-btn">убить врагов</button>
       <button data-give-weapon="SWORD" class="dbg-btn" style="background:#5a4a1a;">выдать меч</button>
-      <button data-act="tpHub" class="dbg-btn">в хаб</button>
+      <button data-act="tpHub" class="dbg-btn">в лобби</button>
       <button data-act="tpArena" class="dbg-btn">на арену</button>
-      <button data-act="resetRun" class="dbg-btn" style="grid-column:span 2;background:#553;">сбросить забеги (хаб не трогает)</button>
+      <button data-act="resetRun" class="dbg-btn" style="grid-column:span 2;background:#553;">сбросить забеги (лобби не трогает)</button>
     </div>
   </div>
   <style>.dbg-btn { background:#334; color:#dde; border:1px solid #556; padding:6px; cursor:pointer; font-size:11px; font-family:inherit; border-radius:3px; } .dbg-btn:hover { background:#445; }</style>
   <div id="menu">
     <h1>RRRRRRAIN</h1>
-      <p>кооп · v0.0.3.23</p>
+      <p>кооп · третье лицо · pixel · v0.0.7.1</p>
     <div class="row">
       <input id="name" placeholder="твоё имя" value="sgustok" maxlength="20" />
     </div>

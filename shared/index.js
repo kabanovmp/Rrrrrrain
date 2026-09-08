@@ -5,16 +5,17 @@ export const NET = {
   TICK_RATE: 20,                 // server broadcast Hz
   PLAYER_SEND_HZ: 30,            // client input send rate (повышено для меньшего рассинхрона yaw)
   ROOM_NAME: "arena",
-  MAX_PLAYERS: 8,
+  MAX_PLAYERS: 4,
 };
 
 export const WORLD = {
   ARENA_RADIUS: 600,             // 1200м диаметр по ТЗ v0.0.3.0
   ARENA_HEIGHT: 100,
-  HUB_RADIUS: 36,                // радиус хаба (слоты, сундуки, портал, край)
-  // Портал хаба — на ободе, МЕЖДУ постаментами (кольцо слотов = 0.5 R), не на луче слота.
-  HUB_PORTAL_R: 32.4,            // 0.90 * HUB_RADIUS
-  HUB_PORTAL_ANG: Math.PI / 20,  // 9° — середина между слотами 0 и 1, не на сундуках (45°)
+  HUB_RADIUS: 36,                // радиус лобби (край площадки)
+  HUB_PORTAL_R: 0,               // портал лобби в центре, как на арене
+  HUB_PORTAL_ANG: 0,
+  LOBBY_SPAWN_Z: 14,             // спавн лицом к порталу, не на площадке
+  LOBBY_VAULT_X: 12,             // хранилище справа от портала
   GRAVITY: 20,                   // руки-меч уже с гравитацией — не летаем
   BASE_MOVE_SPEED: 6,
   BASE_FLY_SPEED: 5,
@@ -29,7 +30,70 @@ export const WORLD = {
   PORTAL_DIST_MIN: 74,
   PORTAL_DIST_MAX: 90,
   PORTAL_HOLD_S: 1.5,
+  CAM_DIST: 6.6,
+  CAM_SHOULDER: 1.05,
+  CAM_LIFT: 0.55,
 };
+
+/** Петля ливня — золото, XP, таймер сложности, оборона портала. */
+export const RUN = {
+  GOLD_PER_KILL: 8,
+  XP_PER_KILL: 12,
+  LEVEL_CAP: 94,
+  HP_PER_LEVEL: 5,
+  DMG_PER_LEVEL: 0.02,
+  CHEST_BASE_GOLD: 25,
+  COOP_PLAYER_SCALE: 0.2,
+  LUNAR_SHARDS_BOSS: 1,
+  EQUIP_HEAL: 30,
+  EQUIP_CD_S: 15,
+  PORTAL_DEFEND_S: 90,
+  DIFFICULTY_STEPS: [
+    { t: 0, ru: "Easy" },
+    { t: 60, ru: "Medium" },
+    { t: 180, ru: "Hard" },
+    { t: 360, ru: "I'M READY TO DIE" },
+  ],
+};
+
+export function difficultyLabel(runTimeSec) {
+  let ru = RUN.DIFFICULTY_STEPS[0].ru;
+  for (const s of RUN.DIFFICULTY_STEPS) {
+    if ((runTimeSec || 0) >= s.t) ru = s.ru;
+  }
+  return ru;
+}
+
+export function difficultyMul(runTimeSec, playerCount = 1) {
+  const time = 1 + Math.max(0, runTimeSec || 0) / 180;
+  const coop = 1 + (RUN.COOP_PLAYER_SCALE || 0.2) * Math.max(0, (playerCount || 1) - 1);
+  return time * coop;
+}
+
+export function chestGoldCost(runTimeSec) {
+  return Math.max(8, Math.round((RUN.CHEST_BASE_GOLD || 25) * difficultyMul(runTimeSec, 1)));
+}
+
+export function xpToNextLevel(level) {
+  const lv = Math.max(1, level || 1);
+  return Math.round(40 + lv * 18);
+}
+
+export function lobbyDisplayPositions() {
+  const vx = WORLD.LOBBY_VAULT_X || 12;
+  const out = [];
+  for (let i = 0; i < 20; i++) {
+    const row = i < 10 ? 0 : 1;
+    const col = i % 10;
+    out.push({ x: vx + 1.4 + row * 2.3, z: -9 + col * 2 });
+  }
+  return out;
+}
+
+export function lobbyChestPositions() {
+  const vx = WORLD.LOBBY_VAULT_X || 12;
+  return [-4.8, -1.6, 1.6, 4.8].map(z => ({ x: vx - 1.6, z }));
+}
 
 // v0.0.3.0: HP=100 по ТЗ
 export const COMBAT = {
@@ -199,25 +263,52 @@ export const GROUND_CRAWLER_VARIANTS = [
   { tint: 0xff80ff, sizeMul: 1.10, speedMul: 0.95, hpMul: 1.10 },
 ];
 
-// Пассивные предметы (надето — постоянный бафф). На MVP: 3 штуки.
-// Первый найденный = надетый (по текущей реализации). Надетый пассив — items[0].
+// Пассивки забега: стакаются без лимита. Редкость — цвет GDD.
 export const ITEMS = [
-  { id: "BLOODSTONE",  tier: "common", name: "Кровавый камень", effect: "+2 макс. HP",      color: 0xdd2244, glyph: "◇" },
-  { id: "SWIFTBOOT",   tier: "common", name: "Скороход",         effect: "+30% скорость",   color: 0x66ff99, glyph: "△" },
-  { id: "EMBER_SIGIL", tier: "common", name: "Сигил Углей",     effect: "+50% урон",         color: 0xff9922, glyph: "✦" },
+  { id: "BLOODSTONE",  rarity: "white", name: "Кровавый камень", effect: "+12 макс. HP / стак", color: 0xe8e8e8, glyph: "◇", hp: 12 },
+  { id: "SWIFTBOOT",   rarity: "white", name: "Скороход",         effect: "+12% скорость / стак", color: 0xd0d0d0, glyph: "△", move: 0.12 },
+  { id: "EMBER_SIGIL", rarity: "white", name: "Сигил углей",     effect: "+12% урон / стак", color: 0xf0f0f0, glyph: "✦", dmg: 0.12 },
+  { id: "STORM_LINK",  rarity: "green", name: "Цепь ливня",      effect: "+8% урон и +6 HP / стак", color: 0x44cc66, glyph: "⛓", hp: 6, dmg: 0.08 },
+  { id: "CRIMSON_PACT", rarity: "red",  name: "Багровый пакт",   effect: "+25% урон и +20 HP / стак", color: 0xee3030, glyph: "☠", hp: 20, dmg: 0.25 },
 ];
-// Мап для быстрого поиска по id
 export const ITEMS_BY_ID = Object.fromEntries(ITEMS.map(i => [i.id, i]));
 
-// Level structure — v0.0.3.1: 5 уровней + 1 босс.
-// skyColor / floorColor задают уникальную планетарную тему для каждого уровня.
+export function playerItemList(p) {
+  const out = [];
+  if (!p) return out;
+  const body = p.itemsInBody;
+  if (body && body.length) {
+    const arr = typeof body.toArray === "function" ? body.toArray() : [...body];
+    for (const id of arr) if (id) out.push(id);
+    return out;
+  }
+  if (p.passiveItemId) out.push(p.passiveItemId);
+  return out;
+}
+
+export function sumItemStat(p, key) {
+  let s = 0;
+  for (const id of playerItemList(p)) {
+    const it = ITEMS_BY_ID[id];
+    if (it && typeof it[key] === "number") s += it[key];
+  }
+  return s;
+}
+
+export function stackedPassives(p) {
+  const counts = {};
+  for (const id of playerItemList(p)) counts[id] = (counts[id] || 0) + 1;
+  return Object.entries(counts).map(([id, n]) => ({ id, n, ...ITEMS_BY_ID[id] }));
+}
+
+// Этапы круга: магический ливень, не sci-fi планеты.
 export const LEVELS = [
-  { id: "L1", label: "Пустошь Звёзд",   skyColor: 0x000000, floorColor: 0x0a0a0a, portalCharge: 10, stars: true  },
-  { id: "L2", label: "Марсианские Дюны", skyColor: 0x2a0a1a, floorColor: 0x3a1a10, portalCharge: 12, planet: 0xff5522 },
-  { id: "L3", label: "Ледяная Пустыня", skyColor: 0x0a1a2a, floorColor: 0x2a4050, portalCharge: 14, planet: 0x66ccff },
-  { id: "L4", label: "Золотая Пустыня",  skyColor: 0x2a2a0a, floorColor: 0x4a3a1a, portalCharge: 16, planet: 0xffdd66 },
-  { id: "L5", label: "Пурпурная Бездна", skyColor: 0x1a002a, floorColor: 0x2a1a3a, portalCharge: 18, planet: 0xcc44ff },
-  { id: "BOSS", label: "Логово Владыки", skyColor: 0x1a0000, floorColor: 0x2a0000, portalCharge: 25, planet: 0xff2020, boss: true },
+  { id: "L1", label: "Морось на костях",     skyColor: 0x1a1220, floorColor: 0x3a322c, portalCharge: 90 },
+  { id: "L2", label: "Ливень пепла",         skyColor: 0x2a1018, floorColor: 0x4a2418, portalCharge: 90 },
+  { id: "L3", label: "Стеклянный град",      skyColor: 0x102028, floorColor: 0x2a4050, portalCharge: 90 },
+  { id: "L4", label: "Золотая жила ливня",   skyColor: 0x241808, floorColor: 0x4a3a18, portalCharge: 90 },
+  { id: "L5", label: "Фиолетовая бездна",    skyColor: 0x160428, floorColor: 0x2a1840, portalCharge: 90 },
+  { id: "BOSS", label: "Хозяин Ливня",        skyColor: 0x1a0008, floorColor: 0x2a0808, portalCharge: 90, boss: true },
 ];
 
 export function pickRandom(arr, rng = Math.random) {

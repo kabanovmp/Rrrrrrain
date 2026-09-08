@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { WORLD } from "@mhfps/shared";
+import { WORLD, sumItemStat } from "@mhfps/shared";
 
 // FPS controller: gravity + jump, no flight. Pointer-lock.
 const GRAVITY = 20;
@@ -59,9 +59,9 @@ export class FpsController {
       // Нормализуем yaw в [-π, π] чтобы не накапливалась ошибка точности на больших числах
       if (this.yaw > Math.PI) this.yaw -= 2 * Math.PI;
       if (this.yaw < -Math.PI) this.yaw += 2 * Math.PI;
-      const lim = Math.PI / 2 - 0.05;
+      const lim = 1.15;
       if (this.pitch > lim) this.pitch = lim;
-      if (this.pitch < -lim) this.pitch = -lim;
+      if (this.pitch < -0.85) this.pitch = -0.85;
     });
   }
 
@@ -81,25 +81,23 @@ export class FpsController {
 
     const baseSpeed = WORLD.BASE_MOVE_SPEED;
 
-    // v0.0.3.0: Q/E — дэш влево/вправо. Shift — бег x1.5 без стамины.
-    if (this.dashCd <= 0) {
-      if (this.keys.KeyQ) {
-        this.vel.add(right.clone().multiplyScalar(-DASH_IMPULSE));
-        this.dashCd = DASH_CD;
-      } else if (this.keys.KeyE) {
-        this.vel.add(right.clone().multiplyScalar(DASH_IMPULSE));
-        this.dashCd = DASH_CD;
-      }
+    // Utility (R): рывок вперёд. Q — снаряжение, E — взаимодействие (не дэш).
+    if (this.dashCd <= 0 && this.keys.KeyR) {
+      this.vel.add(forward.clone().multiplyScalar(DASH_IMPULSE));
+      this.dashCd = DASH_CD;
     }
     let speed = baseSpeed;
     if (this.keys.ShiftLeft || this.keys.ShiftRight) speed *= RUN_MULT;
     const mul = window.room?.state?.dbgSpeedMul;
     if (mul && mul !== 1) speed *= mul;
     // Карта FRENZY (надета) — ×2 к перемещению
-    if (myPlayer?.cards) {
-      const cards = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
+    const mp = (typeof window !== "undefined") ? window.myPlayer : null;
+    if (mp?.cards) {
+      const cards = mp.cards.toArray ? mp.cards.toArray() : [...mp.cards];
       if (cards.includes("FRENZY")) speed *= 2;
     }
+    const moveBonus = sumItemStat(mp, "move");
+    if (moveBonus) speed *= 1 + moveBonus;
     this.dashCd = Math.max(0, this.dashCd - dt);
 
     this.vel.x = move.x * speed;
@@ -166,10 +164,22 @@ export class FpsController {
       this.grounded = true;
     }
 
-    this.camera.position.copy(this.position);
     this.camera.rotation.order = "YXZ";
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch;
-    this.camera.rotation.z = 0; // важно: если z случайно получит не-ноль, экран наклонится и прицел уедет
+    this.camera.rotation.z = 0;
+    this._camDist = this._camDist ?? (WORLD.CAM_DIST || 6.6);
+    const wantDist = (this.grounded ? (WORLD.CAM_DIST || 6.6) : (WORLD.CAM_DIST || 6.6) + 2.4);
+    this._camDist += (wantDist - this._camDist) * Math.min(1, dt * 5);
+    const dist = this._camDist;
+    const shoulder = WORLD.CAM_SHOULDER || 1.05;
+    const lift = WORLD.CAM_LIFT || 0.55;
+    const cp = Math.cos(this.pitch);
+    const sp = Math.sin(this.pitch);
+    this.camera.position.set(
+      this.position.x + Math.sin(this.yaw) * cp * dist + Math.cos(this.yaw) * shoulder,
+      this.position.y + lift - sp * dist,
+      this.position.z + Math.cos(this.yaw) * cp * dist - Math.sin(this.yaw) * shoulder
+    );
   }
 }

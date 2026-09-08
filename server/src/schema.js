@@ -32,6 +32,11 @@ export class Player extends Schema {
     this.lmbCdUntil = 0;
     this.rmbCdUntil = 0;
     this.daggerCount = 1;
+    this.gold = 0;
+    this.xp = 0;
+    this.survivorLevel = 1;
+    this.lunarShards = 0;
+    this.equipCdUntil = 0;
   }
 }
 type(Vec3)(Player.prototype, "pos");
@@ -58,6 +63,11 @@ type("number")(Player.prototype, "blockCdUntil");
 type("number")(Player.prototype, "lmbCdUntil");
 type("number")(Player.prototype, "rmbCdUntil");
 type("number")(Player.prototype, "daggerCount");
+type("number")(Player.prototype, "gold");
+type("number")(Player.prototype, "xp");
+type("number")(Player.prototype, "survivorLevel");
+type("number")(Player.prototype, "lunarShards");
+type("number")(Player.prototype, "equipCdUntil");
 
 export class Enemy extends Schema {
   constructor() {
@@ -96,6 +106,7 @@ export class Pickup extends Schema {
     this.itemId = "";
     this.handType = "";
     this.taken = false;
+    this.goldCost = 0;
   }
 }
 type(Vec3)(Pickup.prototype, "pos");
@@ -103,6 +114,7 @@ type("string")(Pickup.prototype, "kind");
 type("string")(Pickup.prototype, "itemId");
 type("string")(Pickup.prototype, "handType");
 type("boolean")(Pickup.prototype, "taken");
+type("number")(Pickup.prototype, "goldCost");
 
 export class HubSlot extends Schema {
   constructor() {
@@ -158,7 +170,9 @@ export class GameState extends Schema {
     this.aiNextWaveAt = 0;         // когда следующая волна может спавниться
     this.levelIndex = 0;           // 0..5 (5 = boss)
     this.dbgDither = 3;            // агрессивность дизеринга 1..10
-    this.dbgWeaponDmgMul = 1.0;    // множитель урона активного оружия
+    this.dbgWeaponDmgMul = 1.0;
+    this.runTimeSec = 0;
+    this.portalTarget = 90;
   }
 }
 type({ map: Player })(GameState.prototype, "players");
@@ -185,3 +199,4 @@ type("number")(GameState.prototype, "aiNextWaveAt");
 type("number")(GameState.prototype, "levelIndex");
 type("number")(GameState.prototype, "dbgDither");
 type("number")(GameState.prototype, "dbgWeaponDmgMul");
+type("number")(GameState.prototype, "runTimeSec");

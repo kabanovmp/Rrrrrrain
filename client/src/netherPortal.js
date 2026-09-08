@@ -251,21 +251,26 @@ export function setNetherPortalState(group, state, chargeRatio = 0, tSec = 0) {
   tickNetherPortal(group, tSec);
 }
 
-const _local = new THREE.Vector3();
-export function isInsideNetherPortal(group, x, y, z) {
-  if (!group) return false;
-  _local.set(x, y, z);
-  group.worldToLocal(_local);
-  const bs = group.userData.bs || 1;
-  return Math.abs(_local.x) < bs * 1.35
-    && _local.y > -0.2 && _local.y < bs * 4.4
-    && Math.abs(_local.z) < 2.4;
+const _portalWorld = new THREE.Vector3();
+function portalWorldXZ(group) {
+  group.updateWorldMatrix(true, false);
+  group.getWorldPosition(_portalWorld);
+  return _portalWorld;
 }
 
-const _nearWorld = new THREE.Vector3();
+/** Стояние на фиолетовой площадке — мировой цилиндр, не локальный AABB после lookAt. */
+export function isInsideNetherPortal(group, x, y, z) {
+  if (!group) return false;
+  const w = portalWorldXZ(group);
+  const bs = group.userData.bs || 1;
+  const r = bs * 2.65;
+  const dx = x - w.x, dz = z - w.z;
+  return dx * dx + dz * dz <= r * r && y > 0.15 && y < 6.5;
+}
+
 export function nearNetherPortal(group, x, z, range = 5) {
   if (!group) return false;
-  group.getWorldPosition(_nearWorld);
-  const dx = x - _nearWorld.x, dz = z - _nearWorld.z;
+  const w = portalWorldXZ(group);
+  const dx = x - w.x, dz = z - w.z;
   return dx * dx + dz * dz <= range * range;
 }

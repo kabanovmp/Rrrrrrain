@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
-import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen, getHubBedPos } from "./world.js";
-import { setupTerrainV3, terrainHeight } from "./worldV3.js";
+import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS, difficultyLabel, LEVELS, stackedPassives, sumItemStat, xpToNextLevel, RUN } from "@mhfps/shared";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, setChestOpen } from "./world.js";
+import { setupTerrainV3, terrainHeight, applyArenaTheme } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
 
 // v0.0.3.1 — Звёздный Блок (ПКМ) + AI Director + Flying Shooter + карты/инвентарь
@@ -86,18 +86,20 @@ function triggerSwordSwing() { viewKick = 1; }
 
 const wpnCdHud = document.createElement("div");
 wpnCdHud.id = "wpnCdHud";
-wpnCdHud.style.cssText = "position:fixed;left:16px;bottom:42px;transform:none;display:flex;flex-direction:row;gap:8px;pointer-events:none;z-index:21;font-family:'Trebuchet MS',sans-serif;";
+wpnCdHud.style.cssText = "position:fixed;right:16px;bottom:16px;left:auto;transform:none;display:flex;flex-direction:row;gap:8px;pointer-events:none;z-index:21;font-family:'Trebuchet MS',sans-serif;";
 function makeCdChip(label) {
   const d = document.createElement("div");
   d.style.cssText = "position:relative;min-width:72px;padding:6px 10px 9px;border-radius:7px;background:rgba(8,6,4,0.78);border:1px solid rgba(200,140,80,0.35);color:#f2e6d4;font-size:12px;text-align:center;letter-spacing:0.3px;overflow:hidden;";
   d.innerHTML = `<div style="opacity:.75;font-size:11px;font-weight:700;">${label}</div><div class="cdv">готово</div><div class="cdbar" style="position:absolute;left:0;bottom:0;height:3px;width:0;background:#ffcc66;"></div>`;
   return d;
 }
-const lmbChip = makeCdChip("ЛКМ");
-const rmbChip = makeCdChip("ПКМ");
-const extraChip = makeCdChip("—");
-extraChip.style.display = "none";
-wpnCdHud.append(lmbChip, rmbChip, extraChip);
+const lmbChip = makeCdChip("Primary");
+const rmbChip = makeCdChip("Secondary");
+const extraChip = makeCdChip("Utility R");
+extraChip.style.display = "flex";
+const specChip = makeCdChip("Special");
+const eqChip = makeCdChip("Q");
+wpnCdHud.append(lmbChip, rmbChip, extraChip, specChip, eqChip);
 document.body.appendChild(wpnCdHud);
 fpsHud.style.display = "none";
 wpnCdHud.style.display = "none";
@@ -219,6 +221,10 @@ loadoutPanel.innerHTML = V31_MODE ? `
         <div style="font-size:11px;color:#8a7050;letter-spacing:1px;text-align:center;">КАРТЫ (10 слотов)</div>
         <div id="lpCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;"></div>
       </div>
+      <div style="margin-top:8px;">
+        <div style="font-size:11px;color:#8a7050;letter-spacing:1px;text-align:center;">ПАССИВКИ (стаки)</div>
+        <div id="lpPassivesV31" style="max-height:120px;overflow:auto;font-size:12px;color:#c0a070;margin-top:6px;line-height:1.45;"></div>
+      </div>
       <div style="margin-top:auto;font-size:11px;color:#8a7050;text-align:center;line-height:1.4;padding-top:8px;border-top:1px solid #6a4a2833;">
         ЛКМ / ПКМ — умения оружия
       </div>
@@ -262,7 +268,48 @@ function hideLoadoutPanel() {
   }
 }
 
-const cardHud = document.createElement("div");
+const aimEnemyHud = document.createElement("div");
+aimEnemyHud.id = "aimEnemyHud";
+aimEnemyHud.style.cssText = "position:fixed;left:50%;top:52px;transform:translateX(-50%);z-index:16;pointer-events:none;min-width:220px;max-width:42vw;display:none;font-family:'Trebuchet MS',sans-serif;";
+aimEnemyHud.innerHTML = `<div id="aimEnemyName" style="text-align:center;font-size:12px;color:#f0e6d4;text-shadow:0 1px 3px #000;margin-bottom:4px;"></div><div style="height:10px;background:rgba(8,6,4,0.75);border:1px solid rgba(200,80,80,0.55);border-radius:5px;overflow:hidden;"><div id="aimEnemyFill" style="height:100%;width:100%;background:linear-gradient(90deg,#d83a3a,#d87f3a);"></div></div>`;
+document.body.appendChild(aimEnemyHud);
+
+function updateAimEnemyHud() {
+  if (!room || room.state.phase === "hub") {
+    aimEnemyHud.style.display = "none";
+    return;
+  }
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  let best = null, bestDot = 0.88, bestId = "";
+  room.state.enemies.forEach((e, id) => {
+    if (!e || !e.alive) return;
+    const vx = e.pos.x - camera.position.x;
+    const vy = e.pos.y - camera.position.y;
+    const vz = e.pos.z - camera.position.z;
+    const len = Math.hypot(vx, vy, vz) || 1;
+    if (len > 90) return;
+    const dot = (vx * dir.x + vy * dir.y + vz * dir.z) / len;
+    if (dot > bestDot) { bestDot = dot; best = e; bestId = id; }
+  });
+  if (!best) { aimEnemyHud.style.display = "none"; return; }
+  const pct = Math.max(0, Math.min(1, best.hp / (best.maxHp || 1)));
+  document.getElementById("aimEnemyName").textContent = (ENEMY_TYPES[best.enemyType]?.id || best.enemyType || "враг") + "  " + Math.round(best.hp) + "/" + Math.round(best.maxHp || 0);
+  document.getElementById("aimEnemyFill").style.width = (pct * 100).toFixed(1) + "%";
+  aimEnemyHud.style.display = "block";
+  void bestId;
+}
+passivesHud.id = "passivesHud";
+passivesHud.style.cssText = "position:fixed;left:50%;top:58px;transform:translateX(-50%);z-index:16;pointer-events:none;font-size:12px;color:#e6d9c2;text-shadow:0 1px 3px #000;letter-spacing:0.4px;text-align:center;max-width:70vw;";
+document.body.appendChild(passivesHud);
+function renderPassivesHud() {
+  if (!myPlayer || !room || room.state.phase === "hub") {
+    passivesHud.textContent = "";
+    return;
+  }
+  const stacks = stackedPassives(myPlayer);
+  passivesHud.textContent = stacks.map(s => `${s.glyph || "•"}${s.n > 1 ? "×" + s.n : ""}`).join("  ");
+}
 cardHud.id = "cardHud";
 cardHud.style.cssText = "position:fixed;left:16px;bottom:92px;display:flex;gap:8px;z-index:16;pointer-events:auto;";
 document.body.appendChild(cardHud);
@@ -562,7 +609,7 @@ function passiveSlotHtml(id, isSpare = false) {
 function renderLoadoutPanel() {
   if (!myPlayer) return;
   const hpEl = document.getElementById("loadoutHp");
-  hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • ПРИЗРАК" : "");
+      hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • НАБЛЮДАТЕЛЬ" : "");
   if (V31_MODE) {
     // Оружие
     v31WeaponSlot(myPlayer.weaponSlot || "");
@@ -590,29 +637,24 @@ function renderLoadoutPanel() {
       if (bpCount) bpCount.textContent = bp.length === 1 ? "1 предмет" : (bp.length + " предметов");
     }
     v31InstallBackpackDrop(); // можно кидать в пустое место рюкзака
+    const ps = document.getElementById("lpPassivesV31");
+    if (ps) {
+      const stacks = stackedPassives(myPlayer);
+      if (!stacks.length) ps.textContent = "пусто — сундуки за золото на арене";
+      else ps.innerHTML = stacks.map(s => `${s.glyph || "•"} ${s.name || s.id} ×${s.n}`).join("<br>");
+    }
     renderCardHud();
     return;
   }
   const hands = document.getElementById("lpHands");
-  const legHtml = `<div style="background:linear-gradient(180deg,#1a0f08,#0a0503);border:2px solid #3a2818;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:center;${myPlayer.hasLegs>0?"box-shadow:inset 0 0 10px #66ff9933;":"opacity:0.55;"}">
-    <div style="width:44px;height:44px;border-radius:6px;background:#0a1a10;border:1px solid #66ff99;color:#66ff99;display:flex;align-items:center;justify-content:center;font-size:22px;">⚚</div>
-    <div style="flex:1;"><div style="font-size:11px;color:#8a7050;letter-spacing:1px;">НОГИ</div>
-      <div style="font-size:16px;color:${myPlayer.hasLegs>0?"#66ff99":"#666"};font-weight:bold;">${myPlayer.hasLegs}/2</div>
-      <div style="font-size:12px;color:#c0a070;">Скорость бега</div></div>
-  </div>`;
-  hands.innerHTML =
-    handSlotHtml("ЛЕВАЯ РУКА", myPlayer.hasLeftHand ? myPlayer.leftHandType : "") +
-    handSlotHtml("ПРАВАЯ РУКА", myPlayer.hasRightHand ? myPlayer.rightHandType : "") +
-    legHtml;
+  if (hands) hands.innerHTML = "<div style='font-size:13px;color:#8a7050;'>оружие и карты — режим сетки TAB</div>";
   const passives = document.getElementById("lpPassives");
-  let html = passiveSlotHtml(myPlayer.passiveItemId || "");
-  const spares = [...(myPlayer.itemsInBody || [])];
-  if (spares.length === 0) {
-    html += passiveSlotHtml("", true);
-  } else {
-    spares.forEach(id => { html += passiveSlotHtml(id, true); });
+  if (passives) {
+    const stacks = stackedPassives(myPlayer);
+    passives.innerHTML = stacks.length
+      ? stacks.map(s => passiveSlotHtml(s.id)).join("")
+      : passiveSlotHtml("");
   }
-  passives.innerHTML = html;
 }
 
 // Чат (внизу слева)
@@ -763,7 +805,7 @@ function sendDebug(payload) {
   const pix = document.getElementById("dbg-pix");
   const pixV = document.getElementById("dbg-pix-v");
   if (pix && pixV) {
-    const savedPix = parseInt(localStorage.getItem("rain_pix") || "1", 10);
+    const savedPix = parseInt(localStorage.getItem("rain_pix") || "2", 10);
     pix.value = String(savedPix); pixV.textContent = String(savedPix);
     if (window.__setPixelScale) window.__setPixelScale(savedPix);
     pix.addEventListener("input", () => {
@@ -782,7 +824,8 @@ function updateHpBar(hp, maxHp) {
   if (!fill || !text) return;
   const pct = Math.max(0, Math.min(1, hp / (maxHp || 1)));
   fill.style.width = (pct * 100).toFixed(1) + "%";
-  text.textContent = `${hp} / ${maxHp}`;
+  const lv = (typeof myPlayer !== "undefined" && myPlayer && myPlayer.survivorLevel) ? myPlayer.survivorLevel : 1;
+  text.textContent = `${Math.round(hp)} / ${Math.round(maxHp)}  ·  ур.${lv}`;
   // Зелёный → жёлтый → красный
   if (pct > 0.6) fill.style.background = "linear-gradient(90deg, #4bd85a, #7fd83a)";
   else if (pct > 0.3) fill.style.background = "linear-gradient(90deg, #d8b03a, #d87f3a)";
@@ -974,7 +1017,7 @@ function fitToViewport() {
   const h = Math.max(1, Math.floor((vv && vv.height) || window.innerHeight));
   if (!w || !h) return;
   camera.aspect = w / h;
-  camera.fov = h < 700 ? 84 : (h < 850 ? 80 : (h < 980 ? 76 : 72));
+  camera.fov = h < 700 ? 62 : (h < 850 ? 58 : 55);
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(w, h, false);
@@ -995,7 +1038,7 @@ scene.add(hubGroup, arenaGroup);
 if (V3_MODE) {
   // v0.0.3.4 — включаем ХАБ (старт в нём) + арена (V3 террайн)
   setupHub(hubGroup);
-  setupTerrainV3(arenaGroup, 1);
+  setupTerrainV3(arenaGroup, 0);
   hubGroup.visible = true;      // виден в phase==="hub"
   arenaGroup.visible = false;    // показывается когда игрок перейдёт на арену
   // v0.0.3.6: туман только на арене. В хабе его нет — всё ясно видно.
@@ -1055,14 +1098,18 @@ let colorIdxCounter = 0;
 // Пикапы = пьедесталы
 const pickupMeshes = new Map();
 function makePickupMesh(pk) {
-  const raw = pk.kind + ":" + (pk.handType || pk.itemId || "");
-  const ped = createPedestalMesh("HAND", "bone");
+  const isChest = pk.kind === "CHEST" || (pk.goldCost || 0) > 0;
+  const lootKey = isChest
+    ? ("ITEM:" + (pk.itemId || pk.handType || ""))
+    : (pk.kind + ":" + (pk.handType || pk.itemId || ""));
+  const ped = createPedestalMesh(isChest ? "ACCESSORY" : "HAND", "bone");
   if (ped.userData.crystal) ped.userData.crystal.visible = false;
-  const loot = createFloatingLootCard(raw);
+  const loot = createFloatingLootCard(lootKey);
   loot.position.y = 2.22;
   ped.add(loot);
   ped.userData.floatCard = loot.userData.floatCard;
   ped.userData.floatBaseY = loot.userData.floatBaseY;
+  ped.userData.goldCost = pk.goldCost || 0;
   return ped;
 }
 
@@ -1080,6 +1127,7 @@ function ensureHubStorageInit() {
   slots.forEach((s, i) => {
     const g = createHubSlotMesh();
     g.position.set(s.pos.x, 0, s.pos.z);
+    if (s.pos.x || s.pos.z) g.rotation.y = Math.atan2(-s.pos.x, -s.pos.z);
     hubGroup.add(g);
     hubSlotMeshes[i] = g;
     refreshSlotContent(i, s);
@@ -1088,6 +1136,7 @@ function ensureHubStorageInit() {
   chests.forEach((c, i) => {
     const g = createHubChestMesh();
     g.position.set(c.pos.x, 0, c.pos.z);
+    if (c.pos.x || c.pos.z) g.rotation.y = Math.atan2(-c.pos.x, -c.pos.z);
     hubGroup.add(g);
     hubChestMeshes[i] = g;
     updateChestCount(g, c.contents.length);
@@ -1457,6 +1506,18 @@ function spawnWaveFx(x, y, z, r) {
 // ═══════════════════════════════════════════════════════════════════
 const controller = new FpsController(camera, canvas);
 window.controller = controller;
+let localHero = null;
+function syncLocalHero(dt) {
+  if (!localHero) {
+    localHero = createOtherPlayer("ты", 0);
+    if (localHero.userData.nameSprite) localHero.userData.nameSprite.visible = false;
+    scene.add(localHero);
+  }
+  localHero.position.set(controller.position.x, controller.position.y - 1.6, controller.position.z);
+  localHero.rotation.y = controller.yaw + Math.PI;
+  const moving = Math.hypot(controller.vel.x, controller.vel.z) > 0.35;
+  animateOtherPlayer(localHero, dt, moving);
+}
 
 // Надёжный выход из Pointer Lock — чтобы курсор не пропадал во всём браузере
 function safeExitPointerLock() {
@@ -1504,7 +1565,7 @@ document.getElementById("play").addEventListener("click", async () => {
     menu.style.display = "none";
     document.body.classList.add("in-game");
     crosshair.style.display = "block";
-    radar.style.display = "block";
+    radar.style.display = "none";
     controller.enable();
     setupRoomHandlers();
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
@@ -1518,6 +1579,7 @@ function setupRoomHandlers() {
   room.state.players.onAdd((p, id) => {
     if (id === selfId) {
       myPlayer = p;
+      window.myPlayer = p;
     } else {
       // Другой игрок — создаём модель.
       // Сервер шлёт pos.y = 1.6 (центр камеры), а модель рисуется от ног (Y=0).
@@ -1692,14 +1754,18 @@ function setupRoomHandlers() {
       portalGraceUntil = performance.now() + 2500;
     }
     if (toHub) {
-      controller.setPosition(0, 1.6, WORLD.HUB_RADIUS * 0.25);
-      portalGraceUntil = performance.now() + 2500;
+      const hz = WORLD.LOBBY_SPAWN_Z || 14;
+      controller.setPosition(0, 1.6, hz);
+      controller.yaw = Math.atan2(0, hz);
+      if (!first) portalGraceUntil = performance.now() + 2500;
       deadHud.classList.remove("on");
       deathTimer = 0;
     }
   }
   room.state.listen("phase", (v) => applyPhase(v));
+  room.state.listen("levelIndex", (v) => applyArenaTheme(arenaGroup, v || 0));
   applyPhase(room.state.phase);
+  applyArenaTheme(arenaGroup, room.state.levelIndex || 0);
   room.onStateChange(() => applyPhase(room.state.phase));
 
   // ── FX ────────────────────────────────────────────────────
@@ -1834,8 +1900,25 @@ function setupRoomHandlers() {
       spawnDeathBurst(msg.x, msg.y, msg.z, msg.kind);
       playSound("enemy_death");
     }
+    else if (msg.type === "equip_heal") {
+      playSound("pickup");
+      if (msg.target === selfId) {
+        hintText.textContent = "аптечка +" + (msg.heal || 30);
+        hintText.style.opacity = 1;
+        hintTimer = 1.1;
+      }
+    }
+    else if (msg.type === "ping") {
+      spawnWaveFx(msg.x, msg.y, msg.z, 4);
+      hintText.textContent = (msg.name || "?") + " · ping";
+      hintText.style.opacity = 1;
+      hintTimer = 1.4;
+    }
     else if (msg.type === "wipe_hub") {
       applyPhase("hub", true);
+    }
+    else if (msg.type === "next_stage") {
+      applyArenaTheme(arenaGroup, msg.levelIndex || 0);
     }
     else if (msg.type === "phase_teleport") {
       if (msg.x != null && msg.z != null) {
@@ -1867,11 +1950,22 @@ function flashCracks() {
 // ═══════════════════════════════════════════════════════════════════
 let lastCastMs = 0;
 canvas.addEventListener("mousedown", (ev) => {
-  if (!room || !myPlayer) return;
+  if (!room || !myPlayer || myPlayer.isGhost) return;
   if (V3_MODE) {
     const wdef = WEAPONS[myPlayer.weaponSlot];
     const combat = room.state.phase === "arena" || room.state.phase === "portal_ready";
     if (ev.button === 0) lmbHeld = true;
+    if (ev.button === 1) {
+      ev.preventDefault();
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
+      room.send("ping", {
+        x: controller.position.x + dir.x * 18,
+        y: controller.position.y + dir.y * 18,
+        z: controller.position.z + dir.z * 18,
+      });
+      return;
+    }
     if (!wdef) return;
     const spellId = ev.button === 0 ? wdef.lmb : ev.button === 2 ? wdef.rmb : null;
     if (!spellId) return;
@@ -1889,7 +1983,7 @@ canvas.addEventListener("mousedown", (ev) => {
     camera.updateMatrixWorld(true);
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
-    const origin = controller.position.clone().add(new THREE.Vector3(0, 0.4, 0));
+    const origin = controller.position.clone();
     sendInput();
     if (spell.isDaggerCharge) return;
     if (spell.isShield) { localBlockHp = 100; shieldGraceUntil = performance.now() + 1500; }
@@ -1984,12 +2078,10 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.code === "Escape") controller.releasePointer();
-  // R — респавн, если вы призрак
-  if (ev.code === "KeyR") {
-    if (myPlayer && myPlayer.isGhost) room.send("respawn");
+  if (ev.code === "KeyQ") {
+    if (myPlayer && !myPlayer.isGhost) room.send("equipment");
     return;
   }
-  // Tab — панель снаряжения (переключение)
   if (ev.code === "Tab") {
     ev.preventDefault();
     if (loadoutOpen) hideLoadoutPanel();
@@ -1997,7 +2089,16 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   // R-респ убран — теперь в дебаг-панели
-  if (ev.code === "KeyF") {
+  if (ev.code === "KeyG") {
+    if (room && room.state.phase === "portal_ready") {
+      flashTeleport();
+      playSound("teleport");
+      sendPortalPhase("hub");
+      portalGraceUntil = performance.now() + 2500;
+    }
+    return;
+  }
+  if (ev.code === "KeyE") {
     // 1) На арене или в хабе — пикапы приоритетнее
     let bestId = null, bestD = Infinity;
     pickupMeshes.forEach((m, id) => {
@@ -2133,7 +2234,28 @@ let portalHoldTime = 0;
 let lastPortalKind = null;
 let portalPendingPhase = null;
 let portalGraceUntil = 0;
+let portalPendingAt = 0;
 const PORTAL_HOLD_S = WORLD.PORTAL_HOLD_S || 1.5;
+const PORTAL_PENDING_MS = 5000;
+function sendPortalPhase(phase) {
+  if (!phase) return;
+  if (phase === "arena") {
+    room.send("phase", { phase });
+    room.send("enter_arena");
+    portalPendingPhase = "arena";
+  } else if (phase === "hub") {
+    room.send("phase", { phase });
+    room.send("return_hub");
+    portalPendingPhase = "hub";
+  } else if (phase === "next") {
+    room.send("next_stage");
+    portalPendingPhase = "__stage";
+  } else {
+    room.send("phase", { phase });
+    portalPendingPhase = phase;
+  }
+  portalPendingAt = performance.now();
+}
 function handlePortalTriggers(dt) {
   if (!room || !myPlayer) return;
   const cur = room.state.phase;
@@ -2143,44 +2265,46 @@ function handlePortalTriggers(dt) {
     return;
   }
   if (portalPendingPhase) {
-    if (cur === portalPendingPhase) { portalPendingPhase = null; portalHoldTime = 0; }
-    hintText.style.opacity = 0;
-    return;
+    const arrived = portalPendingPhase === "__stage"
+      ? (cur === "arena" || cur === "hub")
+      : (cur === portalPendingPhase);
+    if (arrived || performance.now() - portalPendingAt > PORTAL_PENDING_MS) {
+      portalPendingPhase = null;
+      portalHoldTime = 0;
+    }
+    if (portalPendingPhase) {
+      hintText.style.opacity = 0;
+      return;
+    }
   }
   const p = controller.position;
   const hubP = hubGroup.userData.hubPortal;
   const arenaP = arenaGroup.userData.portal;
-  let inside = false, near = false, ready = false, goHub = false, goArena = false, target = null, mesh = null;
+  let inside = false, near = false, ready = false, target = null, mesh = null, goPhase = null;
   if (cur === "hub") {
     mesh = hubP;
     inside = playerInsidePortal(hubP, p.x, p.y, p.z);
     near = playerNearPortal(hubP, p.x, p.z, 6);
-    if (inside) { ready = true; goArena = true; target = "hub"; }
+    if (inside) { ready = true; goPhase = "arena"; target = "hub"; }
   } else {
     mesh = arenaP;
     inside = playerInsidePortal(arenaP, p.x, p.y, p.z);
     near = playerNearPortal(arenaP, p.x, p.z, 6);
     if (inside || near) target = "arena";
-    if ((inside || near) && cur === "portal_ready") { ready = true; goHub = true; }
+    if ((inside || near) && cur === "portal_ready") { ready = true; goPhase = "next"; }
   }
   if (ready) {
     if (lastPortalKind !== target) { portalHoldTime = 0; lastPortalKind = target; }
     portalHoldTime += dt;
     const pct = Math.min(100, Math.round(portalHoldTime / PORTAL_HOLD_S * 100));
-    hintText.textContent = `вход в портал… ${pct}%`;
+    hintText.textContent = (goPhase === "next" ? `следующий этап… ${pct}%` : `вход в портал… ${pct}%`);
     hintText.style.opacity = 1;
     hintTimer = 0.3;
     if (mesh) updateArenaPortal({ userData: { portal: mesh } }, "hold", performance.now() * 0.001, pct / 100);
     if (portalHoldTime >= PORTAL_HOLD_S) {
       flashTeleport();
       playSound("teleport");
-      if (goHub) {
-        room.send("return_hub");
-        portalPendingPhase = "hub";
-      } else if (goArena) {
-        room.send("enter_arena");
-        portalPendingPhase = "arena";
-      }
+      sendPortalPhase(goPhase);
       portalHoldTime = 0;
       lastPortalKind = null;
       portalGraceUntil = performance.now() + 2500;
@@ -2191,13 +2315,13 @@ function handlePortalTriggers(dt) {
   } else if (inside || near) {
     portalHoldTime = 0;
     if (cur === "arena" && !room.state.portalActive) {
-      hintText.textContent = inside ? "[F] зажечь портал" : "подойди в проём · [F] зажечь";
+      hintText.textContent = inside ? "[E] зажечь портал" : "подойди в проём · [E] зажечь";
     } else if (cur === "arena" && room.state.portalActive && cur !== "portal_ready") {
       const cur2 = Math.floor(room.state.portalCharge);
       const tot = Math.floor(room.state.portalTarget);
       hintText.textContent = inside ? `портал копится: ${cur2}/${tot}` : `рамка Незера · кровь ${cur2}/${tot}`;
     } else if (cur === "portal_ready") {
-      hintText.textContent = inside ? "стой в фиолетовой воде — телепорт" : "войди в проём портала";
+      hintText.textContent = "удержи — следующий этап · [G] в лобби";
     } else if (cur === "hub") {
       hintText.textContent = inside ? "стой в портале — переход на арену" : "войди в фиолетовую рамку";
     } else {
@@ -2212,6 +2336,25 @@ function handlePortalTriggers(dt) {
 }
 
 
+function updateArenaLootHint() {
+  if (!room || !myPlayer) return;
+  if (room.state.phase === "hub") return;
+  let best = null, bestD = 3;
+  pickupMeshes.forEach((m, id) => {
+    const pk = room.state.pickups.get(id);
+    if (!pk || pk.taken) return;
+    const d = m.position.distanceTo(controller.position);
+    if (d < bestD) { bestD = d; best = pk; }
+  });
+  if (!best) return;
+  const it = ITEMS.find(x => x.id === (best.itemId || best.handType));
+  const name = it?.name || best.handType || best.itemId || "лут";
+  const cost = best.goldCost || 0;
+  hintText.textContent = cost > 0 ? `[E] ${name} · ${cost} золота` : `[E] взять ${name}`;
+  hintText.style.opacity = 1;
+  hintTimer = 0.25;
+}
+
 // Подсказка о взаимодействии с хаб-объектами
 function updateHubInteractionHint() {
   if (!room || !myPlayer || room.state.phase !== "hub") return;
@@ -2221,14 +2364,14 @@ function updateHubInteractionHint() {
     const d = g.position.distanceTo(controller.position);
     if (d < 2 && !action) {
       const slot = room.state.hubSlots[i];
-      if (slot && !slot.empty) action = `[F] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}`;
+      if (slot && !slot.empty) action = `[E] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}`;
       else if (slot && slot.empty && myPlayer) {
         const bp = myPlayer.backpack && (myPlayer.backpack.toArray ? myPlayer.backpack.toArray() : [...myPlayer.backpack]);
-        if (bp && bp.length) action = `[F] положить ${bp[0]}`;
+        if (bp && bp.length) action = `[E] положить ${bp[0]}`;
         else if (myPlayer.cards) {
           const arr = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
           const c = arr.find(Boolean);
-          if (c) action = `[F] положить карту (${c})`;
+          if (c) action = `[E] положить карту (${c})`;
         }
       }
     }
@@ -2238,7 +2381,7 @@ function updateHubInteractionHint() {
     if (d < 2.5 && !action) {
       const chest = room.state.hubChests[i];
       const n = chest ? chest.contents.length : 0;
-      if (n > 0) action = `[F] открыть сундук (${n})`;
+      if (n > 0) action = `[E] открыть сундук (${n})`;
       else action = "сундук пуст";
     }
   });
@@ -2530,6 +2673,7 @@ let fellFlashUntil = 0;
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   controller.update(dt, myPlayer);
+  syncLocalHero(dt);
 
   // v0.0.3.1: ПАДЕНИЕ С КРАЯ НА АРЕНЕ → сервер возвращает игрока на край с 5% HP
   if (room && myPlayer && room.state.phase === "arena") {
@@ -2580,11 +2724,14 @@ function animate() {
     const rmbSpell = wdef ? SPELLS[wdef.rmb] : null;
     fillChip(lmbChip, myPlayer.lmbCdUntil, wdef?.lmbHint || "готово", lmbSpell?.cooldown);
     fillChip(rmbChip, myPlayer.rmbCdUntil, wdef?.rmbHint || "готово", rmbSpell?.cooldown);
-    if (myPlayer.weaponSlot === "DAGGERS") {
-      extraChip.style.display = "block";
-      extraChip.querySelector(".cdv").textContent = `${myPlayer.daggerCount || 1}/10`;
-      extraChip.firstChild.textContent = "НОЖИ";
-    } else extraChip.style.display = "none";
+    extraChip.style.display = "flex";
+    extraChip.querySelector(".cdv").textContent = controller.dashCd > 0.05
+      ? ("КД " + controller.dashCd.toFixed(1) + "с")
+      : (myPlayer.weaponSlot === "DAGGERS" ? `${myPlayer.daggerCount || 1}/10` : "рывок");
+    specChip.querySelector(".cdv").textContent = "—";
+    const eqLeft = Math.max(0, (myPlayer.equipCdUntil || 0) - nowS);
+    eqChip.querySelector(".cdv").textContent = eqLeft > 0.05 ? ("КД " + eqLeft.toFixed(1) + "с") : "аптечка";
+    eqChip.style.borderColor = eqLeft > 0.05 ? "#a64" : "#6c6";
     blockCdHud.style.display = "none";
   }
   // ── ПАДЕНИЕ С КРАЯ: смерть + респаун в центре хаба ────────
@@ -2595,7 +2742,7 @@ function animate() {
     const outside = distXZ > WORLD.HUB_RADIUS * 1.05;
     const belowDeath = p.y < -5;
     if (belowDeath || (outside && p.y < 0)) {
-      controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.3);
+      controller.setPosition(0, 2, WORLD.LOBBY_SPAWN_Z || 14);
       // Обнулить вертикальную скорость внутри контроллера
       if (controller.velocity) { controller.velocity.x = 0; controller.velocity.y = 0; controller.velocity.z = 0; }
       playSound("teleport");
@@ -2742,7 +2889,7 @@ function animate() {
   // TAB — обновлять сетку только при смене инвентаря (иначе DnD ломается каждый кадр)
   if (loadoutOpen) {
     const hpEl = document.getElementById("loadoutHp");
-    if (hpEl && myPlayer) hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • ПРИЗРАК" : "");
+    if (hpEl && myPlayer) hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • НАБЛЮДАТЕЛЬ" : "");
     const cards = myPlayer && myPlayer.cards ? ((myPlayer.cards.toArray && myPlayer.cards.toArray()) || [...myPlayer.cards]) : [];
     const bp = myPlayer && myPlayer.backpack ? ((myPlayer.backpack.toArray && myPlayer.backpack.toArray()) || [...myPlayer.backpack]) : [];
     const sig = (myPlayer?.weaponSlot || "") + "|" + cards.join(",") + "|" + bp.join(",");
@@ -2751,10 +2898,7 @@ function animate() {
       renderLoadoutPanel();
     }
   }
-    // Алтарь-переработчик
-    if (hubGroup.userData.hubAltar && room.state.hubReforgeSlots) {
-      updateHubAltar(hubGroup.userData.hubAltar, [...room.state.hubReforgeSlots], tSec);
-    }
+    updateArenaLootHint();
     updateHubInteractionHint();
     handlePortalTriggers(dt);
   }
@@ -2821,38 +2965,9 @@ function animate() {
   // рука — ниже и с перспективой; оружие отдельно справа снизу
   if (V3_MODE) {
     const inGame = menu.style.display === "none";
-    fpsHud.style.display = inGame ? "block" : "none";
-    weaponHud.style.display = inGame ? "block" : "none";
+    fpsHud.style.display = "none";
+    weaponHud.style.display = "none";
     wpnCdHud.style.display = inGame ? "flex" : "none";
-    const wdef = WEAPONS[myPlayer?.weaponSlot];
-    if (handHud.dataset.src !== HAND_SPRITE) {
-      handHud.src = HAND_SPRITE;
-      handHud.dataset.src = HAND_SPRITE;
-    }
-    if (!wdef) weaponHud.style.opacity = "0";
-    else {
-      weaponHud.style.opacity = "1";
-      const kind = wdef.hud || "sword";
-      const extra = kind === "daggers" ? (myPlayer.daggerCount || 1) : 1;
-      const src = hudSprite(kind, extra);
-      if (weaponHud.dataset.src !== src) { weaponHud.src = src; weaponHud.dataset.src = src; }
-    }
-  }
-  if (V3_MODE && fpsHud.style.display !== "none") {
-    const running = !!(controller.keys.ShiftLeft || controller.keys.ShiftRight);
-    const spd = Math.hypot(controller.vel.x, controller.vel.z);
-    const walkAmp = moved ? (running ? 1.0 : 0.75) : 0.12;
-    swordBob += dt * (moved ? (7.4 + Math.min(7, spd * 0.4)) : 1.6);
-    viewKick = Math.max(0, viewKick - dt * 7);
-    const kick = viewKick * viewKick;
-    const bobX = Math.sin(swordBob) * 22 * walkAmp;
-    const bobY = (1 - Math.cos(swordBob * 2)) * 10 * walkAmp;
-    const plant = 4;
-    const strafe = ((controller.keys.KeyA ? 1 : 0) - (controller.keys.KeyD ? 1 : 0)) * (moved ? 10 : 0);
-    fpsHud.style.transform = "translateX(-50%) rotateX(-50deg)";
-    fpsHud.style.transformOrigin = "50% 100%";
-    handHud.style.transform = `translateX(calc(-50% + ${bobX + strafe}px)) translateY(${plant - bobY}px)`;
-    weaponHud.style.transform = `translate(${bobX * 0.25 + kick * 4}px, ${-bobY * 0.35 - kick * 10}px)`;
   }
   if (starShieldGroup) {
     const on = !!(myPlayer && (myPlayer.blockAbsorbLeft || 0) > 0);
@@ -2892,6 +3007,7 @@ function animate() {
   fadeHandCracks(handsRoot, dt);
 
   drawRadar();
+  updateAimEnemyHud();
   updateCooldownHud();
   // v0.0.3.4: всегда через post (глобальный дизеринг). Pixelscale дополнительно пикселизует.
   if (!postScene) { ensurePostFx(); resizeLowResRT(); }
@@ -2911,7 +3027,7 @@ animate();
 // СТАТУС-ЛЕНТА
 // ═══════════════════════════════════════════════════════════════════
 function phaseLabelRu(ph) {
-  return ({ hub: "Хаб", arena: "Арена", portal_ready: "Портал готов", wipe_hub: "Возврат" })[ph] || ph;
+  return ({ hub: "Лобби", arena: "Арена", portal_ready: "Портал готов", wipe_hub: "Возврат" })[ph] || ph;
 }
 setInterval(() => {
   if (!room) return;
@@ -2921,11 +3037,31 @@ setInterval(() => {
   if (ph === "arena" && room.state.portalActive) {
     bits.push(`портал ${Math.floor(room.state.portalCharge)}/${Math.floor(room.state.portalTarget)}`);
   } else if (ph === "portal_ready") {
-    bits.push("войди в портал");
+    bits.push("следующий этап / [G] лобби");
   } else if (ph === "hub") {
     bits.push("удержи портал");
   }
+  const L = LEVELS[room.state.levelIndex || 0];
+  if (ph !== "hub" && L) bits.push(L.label);
   const n = room.state.players.size;
   if (n > 1) bits.push(n + " игрока");
+  if (myPlayer && (myPlayer.lunarShards || 0) > 0) bits.push("лунные " + myPlayer.lunarShards);
   status.textContent = bits.join(" · ");
+  renderPassivesHud();
+  const runHud = document.getElementById("runHud");
+  if (runHud) {
+    if (ph === "hub") {
+      runHud.textContent = "";
+    } else {
+      const t = Math.floor(room.state.runTimeSec || 0);
+      const mm = String(Math.floor(t / 60)).padStart(2, "0");
+      const ss = String(t % 60).padStart(2, "0");
+      const gold = myPlayer && myPlayer.gold != null ? Math.floor(myPlayer.gold) : 0;
+      const lv = myPlayer && myPlayer.survivorLevel ? myPlayer.survivorLevel : 1;
+      const xp = myPlayer && myPlayer.xp != null ? Math.floor(myPlayer.xp) : 0;
+      const need = xpToNextLevel(lv);
+      const lunar = myPlayer && myPlayer.lunarShards != null ? Math.floor(myPlayer.lunarShards) : 0;
+      runHud.innerHTML = `${difficultyLabel(t)} · ${mm}:${ss}<br>золото ${gold} · лунные ${lunar}<br>ур. ${lv} · ${xp}/${need} XP`;
+    }
+  }
 }, 250);
