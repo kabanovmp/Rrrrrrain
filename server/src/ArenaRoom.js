@@ -753,10 +753,13 @@ export class ArenaRoom extends Room {
   }
 
   setupHubStorage() {
-    // 20 постаментов на среднем радиусе
+    // Постаменты по дуге, с разрывом у портала — рамка не стоит на слоте.
     const R = WORLD.HUB_RADIUS * 0.5;
+    const portalA = WORLD.HUB_PORTAL_ANG != null ? WORLD.HUB_PORTAL_ANG : Math.PI / 20;
+    const gap = 0.62; // ~35° с каждой стороны портала
+    const span = Math.PI * 2 - gap * 2;
     for (let i = 0; i < 20; i++) {
-      const a = (i / 20) * Math.PI * 2;
+      const a = portalA + gap + ((i + 0.5) / 20) * span;
       const s = new HubSlot();
       s.pos.x = Math.cos(a) * R;
       s.pos.y = 1.0;
