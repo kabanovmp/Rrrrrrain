@@ -32,6 +32,30 @@ export const WORLD = {
   PORTAL_HOLD_S: 1.5,
 };
 
+/** Петля ливня — золото, таймер сложности, оборона портала. */
+export const RUN = {
+  GOLD_PER_KILL: 8,
+  PORTAL_DEFEND_S: 90,
+  DIFFICULTY_STEPS: [
+    { t: 0, ru: "Морось" },
+    { t: 60, ru: "Ливень" },
+    { t: 180, ru: "Буря" },
+    { t: 360, ru: "Я ГОТОВ УМЕРЕТЬ" },
+  ],
+};
+
+export function difficultyLabel(runTimeSec) {
+  let ru = RUN.DIFFICULTY_STEPS[0].ru;
+  for (const s of RUN.DIFFICULTY_STEPS) {
+    if ((runTimeSec || 0) >= s.t) ru = s.ru;
+  }
+  return ru;
+}
+
+export function difficultyMul(runTimeSec) {
+  return 1 + Math.max(0, runTimeSec || 0) / 180;
+}
+
 export function lobbyDisplayPositions() {
   const vx = WORLD.LOBBY_VAULT_X || 12;
   const out = [];

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
-import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS } from "@mhfps/shared";
+import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS, difficultyLabel } from "@mhfps/shared";
 import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, setChestOpen } from "./world.js";
 import { setupTerrainV3, terrainHeight } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
@@ -2937,4 +2937,16 @@ setInterval(() => {
   const n = room.state.players.size;
   if (n > 1) bits.push(n + " игрока");
   status.textContent = bits.join(" · ");
+  const runHud = document.getElementById("runHud");
+  if (runHud) {
+    if (ph === "hub") {
+      runHud.textContent = "";
+    } else {
+      const t = Math.floor(room.state.runTimeSec || 0);
+      const mm = String(Math.floor(t / 60)).padStart(2, "0");
+      const ss = String(t % 60).padStart(2, "0");
+      const gold = myPlayer && myPlayer.gold != null ? Math.floor(myPlayer.gold) : 0;
+      runHud.innerHTML = `${difficultyLabel(t)} · ${mm}:${ss}<br>золото ${gold}`;
+    }
+  }
 }, 250);

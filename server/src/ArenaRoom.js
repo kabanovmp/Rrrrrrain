@@ -1,7 +1,7 @@
 import colyseus from "colyseus";
 import { GameState, Player, Enemy, Pickup, Vec3, HubSlot, HubChest } from "./schema.js";
 const { Room } = colyseus.default || colyseus;
-import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions } from "../../shared/index.js";
+import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions, RUN, difficultyMul } from "../../shared/index.js";
 
 const TICK_MS = 1000 / NET.TICK_RATE;
 const ENEMY_GRACE_SEC = 2.0;   // 2 сек нельзя атаковать после спавна
@@ -561,6 +561,7 @@ export class ArenaRoom extends Room {
     p.backpack.push("WEAPON:LIGHTNING_STAFF");
     p.backpack.push("WEAPON:DAGGERS");
     p.backpack.push("WEAPON:CIGARETTE");
+    p.gold = 0;
     this.state.players.set(client.sessionId, p);
     console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
   }
@@ -902,8 +903,22 @@ export class ArenaRoom extends Room {
     this.state.phase = "hub";
     this.resetArena();
     if (prev !== "hub") this.autoDepositPlayerInventory();
+    this.clearRunEconomy();
     const s = this.hubSpawn();
     this.teleportAllPlayers(s.x, s.y, s.z);
+  }
+
+  clearRunEconomy() {
+    this.state.runTimeSec = 0;
+    this.state.players.forEach((p) => { p.gold = 0; });
+  }
+
+  grantKillGold() {
+    const n = RUN.GOLD_PER_KILL || 8;
+    this.state.players.forEach((p) => {
+      if (p.isGhost || p.hp <= 0) return;
+      p.gold = (p.gold || 0) + n;
+    });
   }
 
   enterArena() {
@@ -918,6 +933,7 @@ export class ArenaRoom extends Room {
     this.state.wave = 1;
     this.state.portalCharge = 0;
     this.state.portalActive = false;
+    this.state.portalTarget = RUN.PORTAL_DEFEND_S || 90;
     const minD = WORLD.PORTAL_DIST_MIN || 74;
     const maxD = WORLD.PORTAL_DIST_MAX || 90;
     const dist = minD + Math.random() * (maxD - minD);
@@ -1048,7 +1064,7 @@ export class ArenaRoom extends Room {
       e.variant = v;
       baseHp = Math.round(baseHp * (vv.hpMul || 1));
     }
-    e.hp = baseHp;
+    e.hp = Math.max(1, Math.round(baseHp * difficultyMul(this.state.runTimeSec)));
     e.maxHp = e.hp;
     e.spawnedAt = Date.now() / 1000;
     // v0.0.3.0: спавним врагов 40-80м от центра — в радиусе тумана, но видны
@@ -1113,6 +1129,7 @@ export class ArenaRoom extends Room {
       // v0.0.3.1: труп лежит CORPSE_LINGER_S сек (сносится в tick по corpseUntil)
       e.state = "dying";
       e.corpseUntil = Date.now() / 1000 + AI_DIRECTOR.CORPSE_LINGER_S;
+      this.grantKillGold();
     }
   }
 
@@ -1166,6 +1183,7 @@ export class ArenaRoom extends Room {
     this.projectiles.length = 0;
     this.state.pickups.clear();
     if (prev !== "hub") this.autoDepositPlayerInventory();
+    this.clearRunEconomy();
     const s = this.hubSpawn();
     this.state.players.forEach((pl, sid) => {
       pl.isGhost = false;
@@ -1434,6 +1452,14 @@ export class ArenaRoom extends Room {
 
     // ── v0.0.3.1: AI Director — бюджет-based спавн волнами ───────────
     if (this.state.phase === "arena" || this.state.phase === "portal_ready") {
+      this.state.runTimeSec = (this.state.runTimeSec || 0) + dt;
+      if (this.state.portalActive && this.state.portalCharge < this.state.portalTarget) {
+        this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + dt);
+        if (this.state.portalCharge >= this.state.portalTarget && this.state.phase === "arena") {
+          this.state.phase = "portal_ready";
+          this.broadcast("fx", { type: "portal_ready" });
+        }
+      }
       // Регенерация бюджета — волны и атаки не останавливаются, пока портал заряжен
       this.state.aiBudget = Math.min(AI_DIRECTOR.BUDGET_START,
         (this.state.aiBudget || 0) + AI_DIRECTOR.BUDGET_REGEN_PER_SEC * dt);
@@ -1456,6 +1482,7 @@ export class ArenaRoom extends Room {
     const size = Math.round(
       (AI_DIRECTOR.WAVE_MIN_SIZE + Math.floor(Math.random() * (AI_DIRECTOR.WAVE_MAX_SIZE - AI_DIRECTOR.WAVE_MIN_SIZE + 1)))
       * this.cardSpawnMul()
+      * Math.min(2.4, difficultyMul(this.state.runTimeSec))
     );
     // Группа спавнится вокруг общего угла (как в текущем коде)
     const frontAngle = this.getPlayerFrontAngle() + (Math.random() - 0.5) * 1.2;
