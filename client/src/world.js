@@ -1,6 +1,5 @@
-// Хаб — маленькая уютная стеклянная комната, парящая в космосе, с постаментами.
-// Арена — большая тёмная плита с скалами и туманом.
-// Разные локации, разделены телепортом (визуально в двух разных группах).
+// Лобби — стеклянная площадка в космосе: портал в центре (как на арене),
+// хранилище справа (витрины + ряд сундуков). Арена — отдельная группа.
 
 import * as THREE from "three";
 import { WORLD } from "@mhfps/shared";
@@ -8,27 +7,150 @@ import { getTexture } from "./assets.js";
 import { createFloatingLootCard } from "./pedestal.js";
 import { createNetherPortal, setNetherPortalState, isInsideNetherPortal, nearNetherPortal } from "./netherPortal.js";
 
-// ═══════════════════════════════════════════════════════════════════
-// ХАБ: комната в космосе
+function lobbyVaultLayout() {
+  const vx = WORLD.LOBBY_VAULT_X || 12;
+  return {
+    platformX: vx + 1.2,
+    platformZ: 0,
+    platformW: 11,
+    platformD: 22,
+    chestX: vx - 1.6,
+    chestZs: [-4.8, -1.6, 1.6, 4.8],
+    displayX0: vx + 1.4,
+    displayX1: vx + 3.7,
+  };
+}
+
+function addLobbyVault(group) {
+  const L = lobbyVaultLayout();
+  const stone = new THREE.MeshStandardMaterial({
+    color: 0x1a1628, roughness: 0.72, metalness: 0.18,
+    emissive: 0x12081c, emissiveIntensity: 0.35,
+  });
+  const gold = new THREE.MeshStandardMaterial({
+    color: 0xc9a24a, roughness: 0.4, metalness: 0.7,
+    emissive: 0x5a3a10, emissiveIntensity: 0.45,
+  });
+  const plat = new THREE.Mesh(
+    new THREE.BoxGeometry(L.platformW, 0.18, L.platformD),
+    stone
+  );
+  plat.position.set(L.platformX, 0.05, L.platformZ);
+  group.add(plat);
+  const rim = new THREE.Mesh(
+    new THREE.BoxGeometry(L.platformW + 0.35, 0.06, L.platformD + 0.35),
+    gold
+  );
+  rim.position.set(L.platformX, 0.01, L.platformZ);
+  group.add(rim);
+
+  for (const z of [-9.2, 0, 9.2]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 3.4, 8), gold);
+    pole.position.set(L.platformX + 4.6, 1.7, z);
+    group.add(pole);
+    const lamp = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffe0a0 })
+    );
+    lamp.position.set(L.platformX + 4.6, 3.55, z);
+    group.add(lamp);
+    const light = new THREE.PointLight(0xffcc88, 2.4, 16, 1.6);
+    light.position.copy(lamp.position);
+    group.add(light);
+  }
+
+  const label = makeLobbySign("ХРАНИЛИЩЕ");
+  label.position.set(L.platformX - 0.2, 3.1, 0);
+  label.rotation.y = -Math.PI / 2;
+  group.add(label);
+}
+
+function makeLobbySign(text) {
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 128;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = "rgba(12,8,22,0.55)";
+  ctx.fillRect(0, 0, 512, 128);
+  ctx.strokeStyle = "#d4b05a";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(10, 10, 492, 108);
+  ctx.fillStyle = "#f0d78a";
+  ctx.font = "bold 52px Georgia, serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 256, 68);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.6, 0.9),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
+  );
+  return mesh;
+}
+
+function addLobbyMotes(group) {
+  const n = 220;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(n * 3);
+  const vel = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = Math.sqrt(Math.random()) * 22;
+    pos[i * 3] = Math.cos(a) * r;
+    pos[i * 3 + 1] = 0.4 + Math.random() * 7;
+    pos[i * 3 + 2] = Math.sin(a) * r;
+    vel[i] = 0.18 + Math.random() * 0.35;
+  }
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(
+    geo,
+    new THREE.PointsMaterial({
+      color: 0xffe6a8, size: 0.09, transparent: true, opacity: 0.72,
+      depthWrite: false, blending: THREE.AdditiveBlending,
+    })
+  );
+  pts.userData.vel = vel;
+  pts.userData.isLobbyMotes = true;
+  group.add(pts);
+  group.userData.lobbyMotes = pts;
+}
+
+function tickLobbyMotes(group, tSec) {
+  const pts = group.userData.lobbyMotes;
+  if (!pts) return;
+  const pos = pts.geometry.attributes.position;
+  const vel = pts.userData.vel;
+  const dt = 0.033;
+  for (let i = 0; i < vel.length; i++) {
+    pos.array[i * 3 + 1] += vel[i] * dt;
+    pos.array[i * 3] += Math.sin(tSec * 0.4 + i) * 0.004;
+    if (pos.array[i * 3 + 1] > 8.2) {
+      pos.array[i * 3 + 1] = 0.25;
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * 22;
+      pos.array[i * 3] = Math.cos(a) * r;
+      pos.array[i * 3 + 2] = Math.sin(a) * r;
+    }
+  }
+  pos.needsUpdate = true;
+  pts.material.opacity = 0.55 + Math.sin(tSec * 1.4) * 0.12;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 export function setupHub(group) {
   const R = WORLD.HUB_RADIUS;
 
-  // ── Небо: равномерный тёмный купол + частицы-звёзды вокруг ──────────
-  // Никакого UV-шва — купол одноцветный, звёзды — точки.
   const skySphere = new THREE.Mesh(
     new THREE.SphereGeometry(300, 32, 16),
-    new THREE.MeshBasicMaterial({ color: 0x0a0820, side: THREE.BackSide, fog: false })
+    new THREE.MeshBasicMaterial({ color: 0x090818, side: THREE.BackSide, fog: false })
   );
   skySphere.renderOrder = -100;
   group.add(skySphere);
 
-  // Звёзды через Points (без шва, дешёво)
   const starCount = 2000;
   const starGeo = new THREE.BufferGeometry();
   const starPos = new Float32Array(starCount * 3);
   for (let i = 0; i < starCount; i++) {
-    // Равномерно на сфере R=180
     const theta = Math.acos(2 * Math.random() - 1);
     const phi = Math.random() * Math.PI * 2;
     starPos[i * 3    ] = 180 * Math.sin(theta) * Math.cos(phi);
@@ -36,13 +158,11 @@ export function setupHub(group) {
     starPos[i * 3 + 2] = 180 * Math.sin(theta) * Math.sin(phi);
   }
   starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
-  const stars = new THREE.Points(
+  group.add(new THREE.Points(
     starGeo,
     new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, sizeAttenuation: false })
-  );
-  group.add(stars);
+  ));
 
-  // Несколько ярких звёзд крупнее
   const bigStarGeo = new THREE.BufferGeometry();
   const bigStarPos = new Float32Array(60 * 3);
   for (let i = 0; i < 60; i++) {
@@ -53,63 +173,62 @@ export function setupHub(group) {
     bigStarPos[i * 3 + 2] = 175 * Math.sin(theta) * Math.sin(phi);
   }
   bigStarGeo.setAttribute("position", new THREE.BufferAttribute(bigStarPos, 3));
-  const bigStars = new THREE.Points(
+  group.add(new THREE.Points(
     bigStarGeo,
     new THREE.PointsMaterial({ color: 0xffddaa, size: 3, sizeAttenuation: false })
-  );
-  group.add(bigStars);
+  ));
 
-  // ── Пол: НЕВИДИМЫЙ (мы в космосе) ──────────────────
-  // Физика остаётся — игрок не провалится (гравитация останавливается в контроллере на y=1.6).
-  // Визуально пола нет — под ногами видны звёзды.
   const floor = new THREE.Mesh(
-    new THREE.CylinderGeometry(R, R * 1.05, 0.3, 48),
-    new THREE.MeshBasicMaterial({ visible: false })
+    new THREE.CylinderGeometry(R, R * 1.02, 0.28, 56),
+    new THREE.MeshStandardMaterial({
+      color: 0x14102a, roughness: 0.55, metalness: 0.22,
+      emissive: 0x0a0618, emissiveIntensity: 0.4,
+      transparent: true, opacity: 0.92,
+    })
   );
-  floor.position.y = -0.15;
-  floor.userData.isFloor = true; // оставляем для raycast/физики если понадобится
+  floor.position.y = -0.14;
+  floor.userData.isFloor = true;
   group.add(floor);
 
-  // АЛТАРЬ-ПЕРЕРАБОТЧИК в центре
-  const altar = createHubAltarMesh();
-  altar.position.set(0, 0, 0);
-  altar.userData.isHubAltar = true;
-  group.add(altar);
-  group.userData.hubAltar = altar;
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(R * 0.97, 0.08, 8, 64),
+    new THREE.MeshBasicMaterial({ color: 0xc9a24a, transparent: true, opacity: 0.55 })
+  );
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.03;
+  group.add(ring);
 
-  // ── ХАБ — КОСМИЧЕСКАЯ ПЛОЩАДКА (без пола, без стен) ───────
-  // (rim/skyDome убраны — мы в космосе, края нет, только звёзды вокруг)
+  const innerGlow = new THREE.Mesh(
+    new THREE.CircleGeometry(6.2, 40),
+    new THREE.MeshBasicMaterial({
+      color: 0x7a40c8, transparent: true, opacity: 0.16,
+      side: THREE.DoubleSide, depthWrite: false,
+    })
+  );
+  innerGlow.rotation.x = -Math.PI / 2;
+  innerGlow.position.y = 0.02;
+  group.add(innerGlow);
 
-
-  // ── ПОРТАЛ НА АРЕНУ: обод хаба, не на кольце постаментов ──
-  const hubPortal = createNetherPortal({ scale: 1.05, lit: true });
+  // Портал на арену — тот же масштаб и вид, что на арене, в центре лобби.
+  const hubPortal = createNetherPortal({ scale: 1.45, lit: true });
   hubPortal.userData.isHubPortal = true;
-  const hpR = WORLD.HUB_PORTAL_R || R * 0.90;
-  const hpA = WORLD.HUB_PORTAL_ANG != null ? WORLD.HUB_PORTAL_ANG : Math.PI / 20;
-  hubPortal.position.set(Math.cos(hpA) * hpR, 0, Math.sin(hpA) * hpR);
+  hubPortal.position.set(0, 0, 0);
   group.add(hubPortal);
-  if (hpR > 1) hubPortal.lookAt(0, 0, 0);
   group.userData.hubPortal = hubPortal;
 
-  // Светящаяся метка над порталом
-  const marker = new THREE.Mesh(
-    new THREE.SphereGeometry(0.18, 8, 6),
-    new THREE.MeshBasicMaterial({ color: 0xcc66ff })
-  );
-  marker.position.copy(hubPortal.position);
-  marker.position.y = 6.2;
-  marker.userData.isPortalMarker = true;
-  group.add(marker);
+  addLobbyVault(group);
+  addLobbyMotes(group);
 
-
-  // (стены/купол/освещение перенесены в новый блок с каменными стенами выше)
-  // Хабовое освещение
-  const hubAmbient = new THREE.AmbientLight(0xffe8c0, 1.0);
-  group.add(hubAmbient);
-  const hubHemi = new THREE.HemisphereLight(0xffddaa, 0x332222, 1.2);
-  hubHemi.position.set(0, 20, 0);
-  group.add(hubHemi);
-  // v0.0.3.11: кровать удалена из хаба
+  group.add(new THREE.AmbientLight(0xc8b8ff, 0.55));
+  const hemi = new THREE.HemisphereLight(0xffe8c8, 0x1a1028, 0.85);
+  hemi.position.set(0, 22, 0);
+  group.add(hemi);
+  const fill = new THREE.PointLight(0xb14cff, 3.2, 38, 1.5);
+  fill.position.set(0, 5.5, 0);
+  group.add(fill);
+  const warm = new THREE.PointLight(0xffcc88, 2.0, 28, 1.6);
+  warm.position.set(WORLD.LOBBY_VAULT_X || 12, 4.2, 0);
+  group.add(warm);
 }
 
 // v0.0.3.4: позиция кровати в хабе
@@ -559,8 +678,8 @@ export function playerNearPortal(group, x, z, range) {
 
 export function updateHubPortal(hubGroup, tSec) {
   const p = hubGroup.userData.hubPortal;
-  if (!p) return;
-  setNetherPortalState(p, "ready", 1, tSec);
+  if (p) setNetherPortalState(p, "ready", 1, tSec);
+  tickLobbyMotes(hubGroup, tSec);
 }
 
 // Пульсация опасных зон
@@ -710,31 +829,48 @@ function makeRuneTexture() {
 // Постамент-слот (пустой vs с содержимым)
 export function createHubSlotMesh() {
   const g = new THREE.Group();
-  // База (тёмный камень)
-  const base = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.55, 0.65, 0.9, 12),
-    new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: 0.85, flatShading: true })
-  );
-  base.position.y = 0.45;
-  g.add(base);
-  // Верхняя плита
-  const top = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.62, 0.55, 0.12, 12),
-    new THREE.MeshStandardMaterial({ color: 0x3a3540, roughness: 0.7, flatShading: true })
-  );
-  top.position.y = 0.96;
-  g.add(top);
-  // Подсветка "пусто" — тусклое кольцо снизу
+  const obsidian = new THREE.MeshStandardMaterial({
+    color: 0x1c1428, roughness: 0.62, metalness: 0.22,
+    emissive: 0x2a1450, emissiveIntensity: 0.28,
+  });
+  const gold = new THREE.MeshStandardMaterial({
+    color: 0xd4b05a, roughness: 0.38, metalness: 0.72,
+    emissive: 0x553308, emissiveIntensity: 0.4,
+  });
+  const glass = new THREE.MeshStandardMaterial({
+    color: 0x8866cc, roughness: 0.12, metalness: 0.15,
+    transparent: true, opacity: 0.22, emissive: 0x442288, emissiveIntensity: 0.35,
+  });
+
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.16, 1.05), obsidian);
+  plinth.position.y = 0.08;
+  g.add(plinth);
+  const rim = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.04, 1.12), gold);
+  rim.position.y = 0.17;
+  g.add(rim);
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.03, 0.92), glass);
+  plate.position.y = 0.2;
+  g.add(plate);
+
+  for (const [x, z] of [[-0.42, -0.42], [0.42, -0.42]]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.55, 0.06), gold);
+    post.position.set(x, 0.48, z);
+    g.add(post);
+  }
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.04, 0.05), gold);
+  rail.position.set(0, 0.74, -0.42);
+  g.add(rail);
+
   const emptyRing = new THREE.Mesh(
-    new THREE.RingGeometry(0.65, 0.85, 16),
-    new THREE.MeshBasicMaterial({ color: 0x3355aa, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false })
+    new THREE.RingGeometry(0.28, 0.4, 20),
+    new THREE.MeshBasicMaterial({ color: 0xa078ff, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false })
   );
   emptyRing.rotation.x = -Math.PI / 2;
-  emptyRing.position.y = 0.02;
+  emptyRing.position.y = 0.23;
   g.add(emptyRing);
-  // Слот для контента (создаётся/удаляется по мере надобности)
+
   g.userData.contentMount = new THREE.Group();
-  g.userData.contentMount.position.y = 1.35;
+  g.userData.contentMount.position.y = 0.62;
   g.add(g.userData.contentMount);
   g.userData.emptyRing = emptyRing;
   return g;

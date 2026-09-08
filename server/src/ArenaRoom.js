@@ -1,7 +1,7 @@
 import colyseus from "colyseus";
 import { GameState, Player, Enemy, Pickup, Vec3, HubSlot, HubChest } from "./schema.js";
 const { Room } = colyseus.default || colyseus;
-import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS } from "../../shared/index.js";
+import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions } from "../../shared/index.js";
 
 const TICK_MS = 1000 / NET.TICK_RATE;
 const ENEMY_GRACE_SEC = 2.0;   // 2 сек нельзя атаковать после спавна
@@ -548,9 +548,10 @@ export class ArenaRoom extends Room {
     p.name = (opts?.name || "sgustok").slice(0, 20);
     p.maxHp = COMBAT.PLAYER_MAX_HP;
     p.hp = p.maxHp;
-    p.pos.x = (Math.random() - 0.5) * 4;
-    p.pos.y = 1.6;
-    p.pos.z = (Math.random() - 0.5) * 4;
+    const spawn = this.hubSpawn();
+    p.pos.x = spawn.x;
+    p.pos.y = spawn.y;
+    p.pos.z = spawn.z;
     // v0.0.3.1: стартовый инвентарь — Звёздный Меч в руке, ANGER в первом слоте карт
     p.weaponSlot = "STAR_SWORD";
     p.daggerCount = 1;
@@ -750,28 +751,19 @@ export class ArenaRoom extends Room {
   }
 
   setupHubStorage() {
-    // Постаменты по дуге, с разрывом у портала — рамка не стоит на слоте.
-    const R = WORLD.HUB_RADIUS * 0.5;
-    const portalA = WORLD.HUB_PORTAL_ANG != null ? WORLD.HUB_PORTAL_ANG : Math.PI / 20;
-    const gap = 0.62; // ~35° с каждой стороны портала
-    const span = Math.PI * 2 - gap * 2;
-    for (let i = 0; i < 20; i++) {
-      const a = portalA + gap + ((i + 0.5) / 20) * span;
+    for (const p of lobbyDisplayPositions()) {
       const s = new HubSlot();
-      s.pos.x = Math.cos(a) * R;
-      s.pos.y = 1.0;
-      s.pos.z = Math.sin(a) * R;
+      s.pos.x = p.x;
+      s.pos.y = 0.7;
+      s.pos.z = p.z;
       s.empty = true;
       this.state.hubSlots.push(s);
     }
-    // 4 сундука ближе к стенам, но НЕ на портале
-    const CR = WORLD.HUB_RADIUS * 0.75;
-    const chestAngles = [Math.PI / 4, Math.PI * 3 / 4, Math.PI * 5 / 4, Math.PI * 7 / 4];
-    for (const a of chestAngles) {
+    for (const p of lobbyChestPositions()) {
       const c = new HubChest();
-      c.pos.x = Math.cos(a) * CR;
+      c.pos.x = p.x;
       c.pos.y = 0.6;
-      c.pos.z = Math.sin(a) * CR;
+      c.pos.z = p.z;
       this.state.hubChests.push(c);
     }
   }
@@ -887,7 +879,7 @@ export class ArenaRoom extends Room {
   }
 
   hubSpawn() {
-    return { x: 0, y: 1.6, z: WORLD.HUB_RADIUS * 0.25 };
+    return { x: 0, y: 1.6, z: WORLD.LOBBY_SPAWN_Z || 14 };
   }
 
   arenaSpawn() {
@@ -1163,7 +1155,7 @@ export class ArenaRoom extends Room {
   wipeToHub() {
     const prev = this.state.phase;
     if (prev === "hub") return;
-    this.broadcast("chat", { name: "система", text: "команда пала — возврат в хаб", id: "" });
+    this.broadcast("chat", { name: "система", text: "команда пала — возврат в лобби", id: "" });
     this.broadcast("fx", { type: "wipe_hub" });
     this.state.phase = "hub";
     this.state.wave = 0;

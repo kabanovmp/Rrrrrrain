@@ -11,10 +11,11 @@ export const NET = {
 export const WORLD = {
   ARENA_RADIUS: 600,             // 1200м диаметр по ТЗ v0.0.3.0
   ARENA_HEIGHT: 100,
-  HUB_RADIUS: 36,                // радиус хаба (слоты, сундуки, портал, край)
-  // Портал хаба — на ободе, МЕЖДУ постаментами (кольцо слотов = 0.5 R), не на луче слота.
-  HUB_PORTAL_R: 32.4,            // 0.90 * HUB_RADIUS
-  HUB_PORTAL_ANG: Math.PI / 20,  // 9° — середина между слотами 0 и 1, не на сундуках (45°)
+  HUB_RADIUS: 36,                // радиус лобби (край площадки)
+  HUB_PORTAL_R: 0,               // портал лобби в центре, как на арене
+  HUB_PORTAL_ANG: 0,
+  LOBBY_SPAWN_Z: 14,             // спавн лицом к порталу, не на площадке
+  LOBBY_VAULT_X: 12,             // хранилище справа от портала
   GRAVITY: 20,                   // руки-меч уже с гравитацией — не летаем
   BASE_MOVE_SPEED: 6,
   BASE_FLY_SPEED: 5,
@@ -30,6 +31,22 @@ export const WORLD = {
   PORTAL_DIST_MAX: 90,
   PORTAL_HOLD_S: 1.5,
 };
+
+export function lobbyDisplayPositions() {
+  const vx = WORLD.LOBBY_VAULT_X || 12;
+  const out = [];
+  for (let i = 0; i < 20; i++) {
+    const row = i < 10 ? 0 : 1;
+    const col = i % 10;
+    out.push({ x: vx + 1.4 + row * 2.3, z: -9 + col * 2 });
+  }
+  return out;
+}
+
+export function lobbyChestPositions() {
+  const vx = WORLD.LOBBY_VAULT_X || 12;
+  return [-4.8, -1.6, 1.6, 4.8].map(z => ({ x: vx - 1.6, z }));
+}
 
 // v0.0.3.0: HP=100 по ТЗ
 export const COMBAT = {

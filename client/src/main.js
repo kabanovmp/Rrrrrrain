@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
 import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS } from "@mhfps/shared";
-import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, updateHubAltar, setChestOpen, getHubBedPos } from "./world.js";
+import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, setChestOpen } from "./world.js";
 import { setupTerrainV3, terrainHeight } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
 
@@ -1080,6 +1080,7 @@ function ensureHubStorageInit() {
   slots.forEach((s, i) => {
     const g = createHubSlotMesh();
     g.position.set(s.pos.x, 0, s.pos.z);
+    if (s.pos.x || s.pos.z) g.rotation.y = Math.atan2(-s.pos.x, -s.pos.z);
     hubGroup.add(g);
     hubSlotMeshes[i] = g;
     refreshSlotContent(i, s);
@@ -1088,6 +1089,7 @@ function ensureHubStorageInit() {
   chests.forEach((c, i) => {
     const g = createHubChestMesh();
     g.position.set(c.pos.x, 0, c.pos.z);
+    if (c.pos.x || c.pos.z) g.rotation.y = Math.atan2(-c.pos.x, -c.pos.z);
     hubGroup.add(g);
     hubChestMeshes[i] = g;
     updateChestCount(g, c.contents.length);
@@ -1692,13 +1694,9 @@ function setupRoomHandlers() {
       portalGraceUntil = performance.now() + 2500;
     }
     if (toHub) {
-      const hz = WORLD.HUB_RADIUS * 0.25;
+      const hz = WORLD.LOBBY_SPAWN_Z || 14;
       controller.setPosition(0, 1.6, hz);
-      const hpR = WORLD.HUB_PORTAL_R || WORLD.HUB_RADIUS * 0.9;
-      const hpA = WORLD.HUB_PORTAL_ANG != null ? WORLD.HUB_PORTAL_ANG : Math.PI / 20;
-      const px = Math.cos(hpA) * hpR;
-      const pz = Math.sin(hpA) * hpR;
-      controller.yaw = Math.atan2(-px, -(pz - hz));
+      controller.yaw = Math.atan2(0, hz);
       if (!first) portalGraceUntil = performance.now() + 2500;
       deadHud.classList.remove("on");
       deathTimer = 0;
@@ -2610,7 +2608,7 @@ function animate() {
     const outside = distXZ > WORLD.HUB_RADIUS * 1.05;
     const belowDeath = p.y < -5;
     if (belowDeath || (outside && p.y < 0)) {
-      controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.3);
+      controller.setPosition(0, 2, WORLD.LOBBY_SPAWN_Z || 14);
       // Обнулить вертикальную скорость внутри контроллера
       if (controller.velocity) { controller.velocity.x = 0; controller.velocity.y = 0; controller.velocity.z = 0; }
       playSound("teleport");
@@ -2766,10 +2764,6 @@ function animate() {
       renderLoadoutPanel();
     }
   }
-    // Алтарь-переработчик
-    if (hubGroup.userData.hubAltar && room.state.hubReforgeSlots) {
-      updateHubAltar(hubGroup.userData.hubAltar, [...room.state.hubReforgeSlots], tSec);
-    }
     updateHubInteractionHint();
     handlePortalTriggers(dt);
   }
@@ -2926,7 +2920,7 @@ animate();
 // СТАТУС-ЛЕНТА
 // ═══════════════════════════════════════════════════════════════════
 function phaseLabelRu(ph) {
-  return ({ hub: "Хаб", arena: "Арена", portal_ready: "Портал готов", wipe_hub: "Возврат" })[ph] || ph;
+  return ({ hub: "Лобби", arena: "Арена", portal_ready: "Портал готов", wipe_hub: "Возврат" })[ph] || ph;
 }
 setInterval(() => {
   if (!room) return;
