@@ -27,8 +27,9 @@ const deadHud = document.getElementById("dead");
 const crosshair = document.getElementById("crosshair");
 
 const radar = document.createElement("canvas");
-radar.width = 400; radar.height = 60;
-radar.style.cssText = "position:fixed;top:8px;left:50%;transform:translateX(-50%);pointer-events:none;z-index:15;";
+radar.width = 240; radar.height = 44;
+radar.id = "radarHud";
+radar.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);pointer-events:none;z-index:15;opacity:0.85;display:none;";
 document.body.appendChild(radar);
 const rctx = radar.getContext("2d");
 
@@ -44,20 +45,20 @@ let dmgAngle = 0, dmgTimer = 0;
 const fpsHud = document.createElement("div");
 fpsHud.id = "fpsHud";
 fpsHud.style.cssText = [
-  "position:fixed", "left:52%", "bottom:0",
-  "transform:translateX(-50%)",
-  "width:min(72vmin, 760px)",
-  "height:min(48vmin, 560px)",
+  "position:fixed", "left:auto", "right:0", "bottom:0",
+  "transform:none",
+  "width:min(30vmin, 280px)",
+  "height:min(34vmin, 310px)",
   "overflow:visible",
   "pointer-events:none", "z-index:12",
-  "transform-origin:50% 100%",
+  "transform-origin:100% 100%",
 ].join(";");
 const handHud = document.createElement("img");
 const weaponHud = document.createElement("img");
 handHud.draggable = false;
 weaponHud.draggable = false;
-handHud.style.cssText = "position:absolute;left:54%;bottom:-6%;transform:translateX(-50%);height:108%;width:auto;max-width:none;object-fit:contain;user-select:none;image-rendering:pixelated;filter:drop-shadow(0 -10px 18px rgba(0,0,0,0.65));";
-weaponHud.style.cssText = "position:absolute;left:62%;bottom:2%;transform:translateX(-50%);height:72%;width:auto;max-width:none;object-fit:contain;user-select:none;filter:drop-shadow(0 -8px 14px rgba(0,0,0,0.45));";
+handHud.style.cssText = "position:absolute;left:50%;bottom:-4%;transform:translateX(-50%);height:108%;width:auto;max-width:none;object-fit:contain;user-select:none;image-rendering:pixelated;filter:drop-shadow(0 -8px 14px rgba(0,0,0,0.65));";
+weaponHud.style.cssText = "position:absolute;left:58%;bottom:6%;transform:translateX(-50%);height:58%;width:auto;max-width:none;object-fit:contain;user-select:none;filter:drop-shadow(0 -6px 10px rgba(0,0,0,0.4));";
 handHud.src = HAND_SPRITE;
 weaponHud.src = hudSprite("sword");
 fpsHud.appendChild(handHud);
@@ -68,10 +69,11 @@ let localBlockHp = 0, shieldGraceUntil = 0;
 function triggerSwordSwing() { viewKick = 1; }
 
 const wpnCdHud = document.createElement("div");
-wpnCdHud.style.cssText = "position:fixed;left:50%;bottom:min(50vmin, 580px);transform:translateX(-50%);display:flex;gap:10px;pointer-events:none;z-index:14;font-family:sans-serif;";
+wpnCdHud.id = "wpnCdHud";
+wpnCdHud.style.cssText = "position:fixed;left:16px;bottom:42px;transform:none;display:flex;flex-direction:row;gap:8px;pointer-events:none;z-index:21;font-family:'Trebuchet MS',sans-serif;";
 function makeCdChip(label) {
   const d = document.createElement("div");
-  d.style.cssText = "position:relative;min-width:110px;padding:7px 12px 9px;border-radius:8px;background:rgba(0,0,0,0.72);border:1px solid #886;color:#eee;font-size:13px;text-align:center;letter-spacing:0.4px;overflow:hidden;";
+  d.style.cssText = "position:relative;min-width:92px;padding:5px 9px 8px;border-radius:7px;background:rgba(8,6,4,0.72);border:1px solid rgba(200,140,80,0.35);color:#f2e6d4;font-size:12px;text-align:center;letter-spacing:0.3px;overflow:hidden;";
   d.innerHTML = `<div style="opacity:.75;font-size:11px;font-weight:700;">${label}</div><div class="cdv">готово</div><div class="cdbar" style="position:absolute;left:0;bottom:0;height:3px;width:0;background:#ffcc66;"></div>`;
   return d;
 }
@@ -88,24 +90,24 @@ let lmbHeld = false;
 // v0.0.3.1: HUD звёздного блока (абсорб — в центре экрана)
 const blockHud = document.createElement("div");
 blockHud.id = "blockHud";
-blockHud.style.cssText = "position:fixed;left:50%;top:58%;transform:translateX(-50%);width:260px;height:16px;border:2px solid #ff40a0;background:rgba(0,0,0,0.55);border-radius:7px;overflow:hidden;pointer-events:none;z-index:14;opacity:0;box-shadow:0 0 12px rgba(255,64,160,0.7);";
+blockHud.style.cssText = "position:fixed;left:16px;bottom:16px;transform:none;width:min(280px,38vw);height:18px;margin-bottom:0;border:1px solid #ff40a0;background:rgba(0,0,0,0.45);border-radius:6px;overflow:hidden;pointer-events:none;z-index:21;opacity:0;box-shadow:0 0 10px rgba(255,64,160,0.45);";
 const blockHudFill = document.createElement("div");
 blockHudFill.style.cssText = "width:100%;height:100%;background:linear-gradient(90deg,#ff8ac8,#ff40a0);transition:width .1s;";
 blockHud.appendChild(blockHudFill);
 const blockHudLabel = document.createElement("div");
-blockHudLabel.style.cssText = "position:absolute;left:0;top:14px;width:100%;text-align:center;color:#ffcce6;font-family:sans-serif;font-size:11px;letter-spacing:1px;text-shadow:0 0 4px #000;";
+blockHudLabel.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#ffcce6;font-family:inherit;font-size:10px;letter-spacing:0.8px;text-shadow:0 0 4px #000;";
 blockHud.appendChild(blockHudLabel);
 document.body.appendChild(blockHud);
 
 // v0.0.3.1: HUD-кулдаун звёздного блока (в нижнем-левом)
 const blockCdHud = document.createElement("div");
-blockCdHud.style.cssText = "position:fixed;left:20px;bottom:80px;width:60px;height:60px;border:2px solid #ff40a0;border-radius:50%;background:rgba(0,0,0,0.6);color:#ffcce6;font-family:sans-serif;font-size:14px;display:flex;align-items:center;justify-content:center;pointer-events:none;z-index:14;text-shadow:0 0 4px #000;box-shadow:0 0 8px rgba(255,64,160,0.5);";
+blockCdHud.style.display = "none";
 blockCdHud.textContent = "☆";
 document.body.appendChild(blockCdHud);
 
 // HUD-подсказка (центр экрана)
 const hintText = document.createElement("div");
-hintText.style.cssText = "position:fixed;top:35%;left:50%;transform:translateX(-50%);color:#fff;text-shadow:0 0 8px #000;font-family:sans-serif;font-size:20px;padding:12px 18px;background:rgba(0,0,0,0.6);border-radius:8px;pointer-events:none;z-index:16;opacity:0;transition:opacity .3s;";
+hintText.style.cssText = "position:fixed;top:18%;left:50%;transform:translateX(-50%);color:#f6ead8;text-shadow:0 0 8px #000;font-family:'Trebuchet MS',sans-serif;font-size:15px;padding:8px 14px;background:rgba(8,6,4,0.72);border:1px solid rgba(200,140,80,0.35);border-radius:8px;pointer-events:none;z-index:16;opacity:0;transition:opacity .25s;";
 document.body.appendChild(hintText);
 let hintTimer = 0;
 const tpFlash = document.createElement("div");
@@ -202,7 +204,7 @@ loadoutPanel.innerHTML = V31_MODE ? `
         <div id="lpCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;"></div>
       </div>
       <div style="margin-top:auto;font-size:11px;color:#8a7050;text-align:center;line-height:1.4;padding-top:8px;border-top:1px solid #6a4a2833;">
-        ЛКМ — Звёздопад<br>ПКМ — Звёздный Блок
+        ЛКМ / ПКМ — умения оружия
       </div>
     </div>
     <!-- ПРАВАЯ КОЛОНКА: РЮКЗАК -->
@@ -243,7 +245,7 @@ function hideLoadoutPanel() {
 
 const cardHud = document.createElement("div");
 cardHud.id = "cardHud";
-cardHud.style.cssText = "position:fixed;left:calc(50% + 180px);bottom:16px;display:flex;gap:8px;z-index:16;pointer-events:auto;";
+cardHud.style.cssText = "position:fixed;left:16px;bottom:92px;display:flex;gap:8px;z-index:16;pointer-events:auto;";
 document.body.appendChild(cardHud);
 function renderCardHud() {
   if (!myPlayer) { cardHud.innerHTML = ""; return; }
@@ -929,18 +931,17 @@ window.__setRenderFar = (v) => {
 
 function layoutHudScale() {
   const vv = window.visualViewport;
-  const w = (vv && vv.width) || window.innerWidth;
-  const h = (vv && vv.height) || window.innerHeight;
-  const short = Math.min(w, h);
-  // На 13" Mac ~1280×800 при 100% zoom рука должна быть видна, но не перекрывать кадр.
-  // 50% zoom у друга увеличивает CSS-пиксели — vmin сам уменьшает физический размер.
-  const hudH = Math.round(Math.min(560, Math.max(320, short * 0.50, h * 0.46)));
-  const hudW = Math.round(hudH * 1.35);
-  fpsHud.style.width = hudW + "px";
-  fpsHud.style.height = hudH + "px";
   const insetBottom = vv ? Math.max(0, window.innerHeight - vv.offsetTop - vv.height) : 0;
+  fpsHud.style.left = "auto";
+  fpsHud.style.right = "0";
   fpsHud.style.bottom = insetBottom + "px";
-  wpnCdHud.style.bottom = (hudH + 10 + insetBottom) + "px";
+  fpsHud.style.width = "min(30vmin, 280px)";
+  fpsHud.style.height = "min(34vmin, 310px)";
+  fpsHud.style.transformOrigin = "100% 100%";
+  wpnCdHud.style.left = "16px";
+  wpnCdHud.style.bottom = (42 + insetBottom) + "px";
+  cardHud.style.left = "16px";
+  cardHud.style.bottom = (92 + insetBottom) + "px";
 }
 
 function fitToViewport() {
@@ -1455,6 +1456,9 @@ let footstepTimer = 0;
 // Сохранённый ник
 const savedName = localStorage.getItem("rrrrrrain_name");
 if (savedName) document.getElementById("name").value = savedName;
+if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+  document.getElementById("server").value = "ws://127.0.0.1:2567";
+}
 
 document.getElementById("play").addEventListener("click", async () => {
   const name = document.getElementById("name").value.trim() || "sgustok";
@@ -1474,7 +1478,9 @@ document.getElementById("play").addEventListener("click", async () => {
     room.onStateChange((state) => { if (!debugOpen) syncDebugPanelFromState(state); });
     selfId = room.sessionId;
     menu.style.display = "none";
+    document.body.classList.add("in-game");
     crosshair.style.display = "block";
+    radar.style.display = "block";
     controller.enable();
     setupRoomHandlers();
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
@@ -2775,7 +2781,7 @@ function animate() {
     const bobY = Math.sin(swordBob) * (moved ? 5 : 1.5);
     const bobX = Math.cos(swordBob * 0.5) * (moved ? 3 : 1);
     const kick = viewKick * viewKick; // быстрый возврат, без накрутки угла
-    fpsHud.style.transform = `translateX(-50%) translate(${bobX}px, ${bobY + kick * 16}px) rotate(${kick * 5}deg)`;
+    fpsHud.style.transform = `translate(${bobX}px, ${bobY + kick * 16}px) rotate(${kick * 5}deg)`;
     weaponHud.style.transform = `translateX(-50%) translate(${kick * 6}px, ${kick * 10}px)`;
   }
   if (starShieldGroup) {
@@ -2834,26 +2840,22 @@ animate();
 // ═══════════════════════════════════════════════════════════════════
 // СТАТУС-ЛЕНТА
 // ═══════════════════════════════════════════════════════════════════
+function phaseLabelRu(ph) {
+  return ({ hub: "Хаб", arena: "Арена", portal_ready: "Портал готов", wipe_hub: "Возврат" })[ph] || ph;
+}
 setInterval(() => {
   if (!room) return;
   const ph = room.state.phase;
-  const wv = room.state.wave;
-  let portalStr;
-  if (ph === "arena" && !room.state.portalActive) {
-    portalStr = "найди и [F]";
-  } else if (ph === "arena" && room.state.portalActive) {
-    portalStr = `${Math.floor(room.state.portalCharge)}/${Math.floor(room.state.portalTarget)} (бей врагов)`;
+  const bits = [phaseLabelRu(ph)];
+  if (ph === "arena") bits.push("волна " + room.state.wave);
+  if (ph === "arena" && room.state.portalActive) {
+    bits.push(`портал ${Math.floor(room.state.portalCharge)}/${Math.floor(room.state.portalTarget)}`);
   } else if (ph === "portal_ready") {
-    portalStr = "ГОТОВ";
-  } else {
-    portalStr = "—";
+    bits.push("войди в портал");
+  } else if (ph === "hub") {
+    bits.push("удержи портал");
   }
-  const pl = room.state.players.size;
-  const hp = myPlayer ? `HP:${myPlayer.hp}/${myPlayer.maxHp || 3}` : "";
-  const dt = deathTimer > 0 ? `  RESPAWN in ${deathTimer.toFixed(1)}s (или R)` : "";
-  // Диагностика Mac: PL/yaw/pitch
-  const pls = document.pointerLockElement === canvas ? "ON" : "OFF";
-  const yaw = (controller.yaw || 0).toFixed(2);
-  const pit = (controller.pitch || 0).toFixed(2);
-  status.textContent = `${hp}  фаза:${ph}  волна:${wv}  портал:${portalStr}  игроки:${pl}  PL:${pls} y:${yaw} p:${pit}${dt}`;
+  const n = room.state.players.size;
+  if (n > 1) bits.push(n + " игрока");
+  status.textContent = bits.join(" · ");
 }, 250);
