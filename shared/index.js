@@ -1,6 +1,6 @@
 // Shared constants and item catalog for client + server.
 // Keep this file plain JS so both browser and Node import cleanly.
-// v0.0.8.2: named exports used by the client HUD/controller (sumItemStat).
+// v0.0.9.0: named exports used by the client HUD/controller (sumItemStat).
 
 export const NET = {
   TICK_RATE: 20,                 // server broadcast Hz
@@ -49,6 +49,9 @@ export const RUN = {
   EQUIP_HEAL: 30,
   EQUIP_CD_S: 15,
   PORTAL_DEFEND_S: 90,
+  LUNAR_DROP: 0.04,
+  ELITE_CHANCE: 0.08,
+  FORK_INDEX: 4,
   DIFFICULTY_STEPS: [
     { t: 0, ru: "Easy" },
     { t: 60, ru: "Medium" },
@@ -274,6 +277,12 @@ export const ITEMS = [
   { id: "SCRAP_WHITE", rarity: "white", name: "Лом",            effect: "материал для принтера", color: 0xb8b8b8, glyph: "▣", scrap: true },
   { id: "SCRAP_GREEN", rarity: "green", name: "Лом+",           effect: "материал для принтера", color: 0x66dd88, glyph: "▣", scrap: true },
   { id: "SCRAP_RED",   rarity: "red",   name: "Лом++",          effect: "материал для принтера", color: 0xee5555, glyph: "▣", scrap: true },
+  { id: "CRITLENS",    rarity: "white", name: "Линза ливня",    effect: "+8% крит / стак", color: 0xe8e8e8, glyph: "◎", crit: 0.08 },
+  { id: "BONEPLATE",   rarity: "green", name: "Костяная пластина", effect: "+12 броня / стак", color: 0x44cc66, glyph: "▣", armor: 12 },
+  { id: "MOSQUITO",    rarity: "green", name: "Москит",         effect: "+0.8 реген / стак", color: 0x44cc66, glyph: "✧", regen: 0.8 },
+  { id: "STEALTHKIT",  rarity: "green", name: "Стелскит",       effect: "невидимость 1.5с при ударе", color: 0x44cc66, glyph: "◌", stealth: 1 },
+  { id: "DIO",         rarity: "red",   name: "Дио",            effect: "один раз воскрешает", color: 0xee3030, glyph: "✝", extraLife: 1 },
+  { id: "LUNAR_GLASS", rarity: "blue",  name: "Лунное стекло",  effect: "+40% урон, −25 макс HP", color: 0x6688ff, glyph: "☽", dmg: 0.4, hp: -25, lunar: true },
 ];
 export const ITEMS_BY_ID = Object.fromEntries(ITEMS.map(i => [i.id, i]));
 
@@ -312,14 +321,32 @@ export function stackedPassives(p) {
 }
 
 // Этапы круга: магический ливень, не sci-fi планеты.
+export const EQUIPMENT = {
+  HEAL:    { id: "HEAL",    name: "аптечка",     cd: 15, heal: 30 },
+  MISSILE: { id: "MISSILE", name: "залп ракет",  cd: 12, damage: 48, radius: 7 },
+  PHASE:   { id: "PHASE",   name: "сдвиг фазы",  cd: 18, duration: 2.2 },
+};
+export const EQUIPMENT_IDS = Object.keys(EQUIPMENT);
+
 export const LEVELS = [
   { id: "L1", label: "Морось на костях",     skyColor: 0x1a1220, floorColor: 0x3a322c, portalCharge: 90 },
   { id: "L2", label: "Ливень пепла",         skyColor: 0x2a1018, floorColor: 0x4a2418, portalCharge: 90 },
   { id: "L3", label: "Стеклянный град",      skyColor: 0x102028, floorColor: 0x2a4050, portalCharge: 90 },
   { id: "L4", label: "Золотая жила ливня",   skyColor: 0x241808, floorColor: 0x4a3a18, portalCharge: 90 },
-  { id: "L5", label: "Фиолетовая бездна",    skyColor: 0x160428, floorColor: 0x2a1840, portalCharge: 90 },
-  { id: "BOSS", label: "Хозяин Ливня",        skyColor: 0x1a0008, floorColor: 0x2a0808, portalCharge: 90, boss: true },
+  { id: "L5", label: "Фиолетовая бездна",    skyColor: 0x160428, floorColor: 0x2a1840, portalCharge: 90, fork: true },
+  { id: "BOSS", label: "Митрикс",             skyColor: 0x1a0008, floorColor: 0x2a0808, portalCharge: 90, boss: true },
 ];
+
+export function stageKind(levelIndex) {
+  const L = LEVELS[levelIndex] || LEVELS[0];
+  if (L.boss) return "boss";
+  if (L.fork) return "fork";
+  return "stage";
+}
+
+export function lootPool(rarity) {
+  return ITEMS.filter(it => !it.scrap && it.rarity === rarity);
+}
 
 export function pickRandom(arr, rng = Math.random) {
   return arr[Math.floor(rng() * arr.length)];

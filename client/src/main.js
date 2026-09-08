@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
-import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS, difficultyLabel, LEVELS, stackedPassives, sumItemStat, xpToNextLevel, RUN } from "@mhfps/shared";
+import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS, difficultyLabel, LEVELS, stackedPassives, sumItemStat, xpToNextLevel, RUN, EQUIPMENT, stageKind } from "@mhfps/shared";
 import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, setChestOpen } from "./world.js";
 import { setupTerrainV3, terrainHeight, applyArenaTheme } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
@@ -1104,8 +1104,17 @@ function makePickupMesh(pk) {
     SHRINE_BLOOD: [0xff2244, 0x880011],
     SHRINE_CHANCE: [0x44eebb, 0x116644],
     SHRINE_COMBAT: [0xffaa22, 0x884400],
+    SHRINE_NEWT: [0x6688ff, 0x2233aa],
     SCRAPPER: [0x99aacc, 0x223344],
     PRINTER: [0x66ccff, 0x114466],
+    DRONE: [0xdddd88, 0x555522],
+    EQUIP: [0xff88cc, 0x662244],
+    BLUE_PORTAL: [0x4466ff, 0x112288],
+    RETURN_PORTAL: [0xaa88ff, 0x442266],
+    BAZAAR_ITEM: [0x6688ff, 0x223388],
+    BAZAAR_SKIP: [0x88aaff, 0x224466],
+    CHEST_LARGE: [0xffcc44, 0x664400],
+    CHEST_TRIPLE: [0x88ffaa, 0x226644],
   };
   if (shrineTint[pk.kind]) {
     const ped = createPedestalMesh("ACCESSORY", "bone");
@@ -1115,7 +1124,7 @@ function makePickupMesh(pk) {
       ped.userData.crystal.material.color.setHex(col);
       ped.userData.crystal.material.emissive.setHex(em);
     }
-    if (pk.kind === "PRINTER" && pk.itemId) {
+    if ((pk.kind === "PRINTER" || pk.kind === "EQUIP" || pk.kind === "BAZAAR_ITEM") && pk.itemId) {
       const loot = createFloatingLootCard("ITEM:" + pk.itemId);
       loot.position.y = 2.22;
       ped.add(loot);
@@ -1124,9 +1133,9 @@ function makePickupMesh(pk) {
     }
     return ped;
   }
-  const isChest = pk.kind === "CHEST" || (pk.goldCost || 0) > 0;
+  const isChest = pk.kind === "CHEST" || pk.kind === "CHEST_LARGE" || pk.kind === "CHEST_TRIPLE" || (pk.goldCost || 0) > 0;
   const lootKey = isChest
-    ? ("ITEM:" + (pk.itemId || pk.handType || ""))
+    ? ("ITEM:" + String(pk.itemId || pk.handType || "").split("|")[0])
     : (pk.kind + ":" + (pk.handType || pk.itemId || ""));
   const ped = createPedestalMesh(isChest ? "ACCESSORY" : "HAND", "bone");
   if (ped.userData.crystal) ped.userData.crystal.visible = false;
@@ -1541,9 +1550,9 @@ function syncLocalHero(dt) {
   }
   localHero.position.set(controller.position.x, controller.position.y - 1.6, controller.position.z);
   localHero.scale.y = controller.crouching ? 0.72 : 1;
-  localHero.rotation.y = controller.yaw + Math.PI;
+  localHero.userData.facingYaw = controller.yaw + Math.PI;
   const moving = Math.hypot(controller.vel.x, controller.vel.z) > 0.35;
-  animateOtherPlayer(localHero, dt, moving);
+  animateOtherPlayer(localHero, dt, moving, camera);
 }
 
 // Надёжный выход из Pointer Lock — чтобы курсор не пропадал во всём браузере
@@ -1704,6 +1713,15 @@ function setupRoomHandlers() {
     const yOff = 0;
     m.userData.yOff = yOff;
     m.position.set(e.pos.x, e.pos.y - yOff, e.pos.z);
+    if (e.elite) {
+      const tint = e.elite === "fire" ? 0xff5533 : e.elite === "ice" ? 0x66ccff : 0xffee55;
+      m.traverse((ch) => {
+        if (ch.material && ch.material.color) {
+          ch.material = ch.material.clone();
+          ch.material.color.lerp(new THREE.Color(tint), 0.45);
+        }
+      });
+    }
     scene.add(m);
     const entry = {
       mesh: m, targetX: e.pos.x, targetY: e.pos.y - yOff, targetZ: e.pos.z,
@@ -1784,8 +1802,11 @@ function setupRoomHandlers() {
       flashTeleport();
     }
     const toHub = v === "hub" && (force || prev !== "hub");
-    const toArena = v === "arena" && (force || prev === "hub" || prev == null);
-    if (toArena) {
+    const toArena = (v === "arena" || v === "bazaar") && (force || prev === "hub" || prev == null);
+    if (v === "bazaar") {
+      controller.setPosition(0, 1.6, 4);
+      portalGraceUntil = performance.now() + 2500;
+    } else if (toArena) {
       controller.setPosition(0, 1.6, 0);
       portalGraceUntil = performance.now() + 2500;
     }
@@ -1936,13 +1957,29 @@ function setupRoomHandlers() {
       spawnDeathBurst(msg.x, msg.y, msg.z, msg.kind);
       playSound("enemy_death");
     }
-    else if (msg.type === "equip_heal") {
+    else if (msg.type === "equip_heal" || msg.type === "equip_missile" || msg.type === "equip_phase" || msg.type === "equip_swap") {
       playSound("pickup");
       if (msg.target === selfId) {
-        hintText.textContent = "аптечка +" + (msg.heal || 30);
+        hintText.textContent = msg.type === "equip_missile" ? "залп ракет"
+          : (msg.type === "equip_phase" ? "сдвиг фазы"
+            : (msg.type === "equip_swap" ? ("снаряжение: " + (EQUIPMENT[msg.equipmentId]?.name || msg.equipmentId))
+              : ("аптечка +" + (msg.heal || 30))));
         hintText.style.opacity = 1;
         hintTimer = 1.1;
       }
+      if (msg.type === "equip_missile") spawnWaveFx(msg.x, msg.y, msg.z, msg.r || 7);
+    }
+    else if (msg.type === "drone_shot") {
+      spawnHitscanFx(msg.x, msg.y, msg.z, msg.tx, msg.ty, msg.tz, 0xffee88);
+    }
+    else if (msg.type === "dio" && msg.target === selfId) {
+      hintText.textContent = "Дио — вторая жизнь";
+      hintText.style.opacity = 1;
+      hintTimer = 1.6;
+    }
+    else if (msg.type === "newt" || msg.type === "bazaar" || msg.type === "bazaar_buy") {
+      spawnWaveFx(msg.x || 0, msg.y || 1, msg.z || 0, 4);
+      playSound("teleport");
     }
     else if (msg.type === "shrine_combat" || msg.type === "printer" || msg.type === "scrapper") {
       spawnWaveFx(msg.x, msg.y, msg.z, 3);
@@ -2160,7 +2197,7 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.code === "KeyL") {
-    if (room && room.state.phase === "portal_ready") {
+    if (room && room.state.phase === "portal_ready" && stageKind(room.state.levelIndex || 0) === "fork") {
       flashTeleport();
       playSound("teleport");
       room.send("loop_run");
@@ -2169,6 +2206,16 @@ document.addEventListener("keydown", (ev) => {
       portalGraceUntil = performance.now() + 2500;
     }
     return;
+  }
+  if (ev.code === "Digit1" || ev.code === "Digit2" || ev.code === "Digit3") {
+    const pid = window.__nearPickupId;
+    const pk = pid && room ? room.state.pickups.get(pid) : null;
+    if (pk && pk.kind === "CHEST_TRIPLE" && !pk.taken) {
+      const choice = Number(ev.code.slice(-1)) - 1;
+      room.send("pickup", { id: pid, choice });
+      playSound("pickup");
+      return;
+    }
   }
   if (ev.code === "KeyE") {
     // 1) На арене или в хабе — пикапы приоритетнее
@@ -2180,6 +2227,8 @@ document.addEventListener("keydown", (ev) => {
       if (d < 3 && d < bestD) { bestD = d; bestId = id; }
     });
     if (bestId) {
+      const pk = room.state.pickups.get(bestId);
+      if (pk && pk.kind === "CHEST_TRIPLE") return;
       room.send("pickup", { id: bestId });
       playSound("pickup");
       return;
@@ -2322,6 +2371,9 @@ function sendPortalPhase(phase) {
   } else if (phase === "next") {
     room.send("next_stage");
     portalPendingPhase = "__stage";
+  } else if (phase === "bazaar_leave") {
+    room.send("leave_bazaar");
+    portalPendingPhase = "__stage";
   } else {
     room.send("phase", { phase });
     portalPendingPhase = phase;
@@ -2338,7 +2390,7 @@ function handlePortalTriggers(dt) {
   }
   if (portalPendingPhase) {
     const arrived = portalPendingPhase === "__stage"
-      ? (cur === "arena" || cur === "hub")
+      ? (cur === "arena" || cur === "hub" || cur === "bazaar")
       : (cur === portalPendingPhase);
     if (arrived || performance.now() - portalPendingAt > PORTAL_PENDING_MS) {
       portalPendingPhase = null;
@@ -2364,12 +2416,15 @@ function handlePortalTriggers(dt) {
     near = playerNearPortal(arenaP, p.x, p.z, 6);
     if (inside || near) target = "arena";
     if ((inside || near) && cur === "portal_ready") { ready = true; goPhase = "next"; }
+    if (cur === "bazaar" && (inside || near)) { ready = true; goPhase = "bazaar_leave"; }
   }
   if (ready) {
     if (lastPortalKind !== target) { portalHoldTime = 0; lastPortalKind = target; }
     portalHoldTime += dt;
     const pct = Math.min(100, Math.round(portalHoldTime / PORTAL_HOLD_S * 100));
-    hintText.textContent = (goPhase === "next" ? `следующий этап… ${pct}%` : `вход в портал… ${pct}%`);
+    hintText.textContent = (goPhase === "next"
+      ? `следующий этап… ${pct}%`
+      : (goPhase === "bazaar_leave" ? `вернуться с Базара… ${pct}%` : `вход в портал… ${pct}%`));
     hintText.style.opacity = 1;
     hintTimer = 0.3;
     if (mesh) updateArenaPortal({ userData: { portal: mesh } }, "hold", performance.now() * 0.001, pct / 100);
@@ -2391,10 +2446,14 @@ function handlePortalTriggers(dt) {
     } else if (cur === "arena" && room.state.portalActive && cur !== "portal_ready") {
       const cur2 = Math.floor(room.state.portalCharge);
       const tot = Math.floor(room.state.portalTarget);
-      hintText.textContent = inside ? `портал копится: ${cur2}/${tot}` : `рамка Незера · кровь ${cur2}/${tot}`;
+      hintText.textContent = inside ? `оборона: ${cur2}/${tot} с` : `держите зону телепорта · ${cur2}/${tot} с`;
     } else if (cur === "portal_ready") {
-      hintText.textContent = "удержи — следующий этап · [L] Loop · [G] лобби";
-    } else if (cur === "hub") {
+      const kind = stageKind(room.state.levelIndex || 0);
+      if (kind === "fork") hintText.textContent = "удержи — босс Митрикс · [L] Loop · [G] лобби";
+      else if (kind === "boss") hintText.textContent = "удержи — эвакуация после Митрикса · [G] лобби";
+      else hintText.textContent = "удержи — следующий этап · [G] лобби";
+    } else if (cur === "bazaar") {
+      hintText.textContent = "Базар Ньюта · удержи портал чтобы вернуться";
       hintText.textContent = inside ? "стой в портале — переход на арену" : "войди в фиолетовую рамку";
     } else {
       hintText.textContent = "портал ещё не заряжен";
@@ -2411,13 +2470,14 @@ function handlePortalTriggers(dt) {
 function updateArenaLootHint() {
   if (!room || !myPlayer) return;
   if (room.state.phase === "hub") return;
-  let best = null, bestD = 3;
+  let best = null, bestD = 3, bestId = null;
   pickupMeshes.forEach((m, id) => {
     const pk = room.state.pickups.get(id);
     if (!pk || pk.taken) return;
     const d = m.position.distanceTo(controller.position);
-    if (d < bestD) { bestD = d; best = pk; }
+    if (d < bestD) { bestD = d; best = pk; bestId = id; }
   });
+  window.__nearPickupId = bestId;
   if (!best) return;
   if (best.kind === "SHRINE_BLOOD") {
     hintText.textContent = "[E] алтарь крови · 20% HP → золото";
@@ -2428,6 +2488,29 @@ function updateArenaLootHint() {
   } else if (best.kind === "PRINTER") {
     const it = ITEMS.find(x => x.id === best.itemId);
     hintText.textContent = `[E] принтер · ${it?.name || best.itemId} за лом/предмет той же редкости`;
+  } else if (best.kind === "SHRINE_NEWT") {
+    hintText.textContent = "[E] алтарь Ньюта · синий портал на Базар";
+  } else if (best.kind === "BLUE_PORTAL") {
+    hintText.textContent = "[E] синий портал · Базар между мирами";
+  } else if (best.kind === "RETURN_PORTAL") {
+    hintText.textContent = "[E] вернуться с Базара";
+  } else if (best.kind === "BAZAAR_ITEM") {
+    const it = ITEMS.find(x => x.id === best.itemId);
+    hintText.textContent = `[E] ${it?.name || best.itemId} · ${best.goldCost || 1} лунных`;
+  } else if (best.kind === "BAZAAR_SKIP") {
+    hintText.textContent = "[E] сменить следующий этап · 1 лунная";
+  } else if (best.kind === "DRONE") {
+    hintText.textContent = `[E] починить дрона · ${best.goldCost || 0} золота`;
+  } else if (best.kind === "EQUIP") {
+    const eq = EQUIPMENT[best.itemId] || EQUIPMENT.HEAL;
+    hintText.textContent = `[E] снаряжение: ${eq.name} · ${best.goldCost || 0} золота`;
+  } else if (best.kind === "CHEST_TRIPLE") {
+    const opts = String(best.itemId || "").split("|");
+    const names = opts.map(id => ITEMS.find(x => x.id === id)?.name || id).join(" / ");
+    hintText.textContent = `[1/2/3] трипл-сундук · ${names} · ${best.goldCost || 0} золота`;
+  } else if (best.kind === "CHEST_LARGE") {
+    const it = ITEMS.find(x => x.id === best.itemId);
+    hintText.textContent = `[E] большой сундук · ${it?.name || "лут"} · ${best.goldCost || 0} золота`;
   } else if (best.kind === "SCRAPPER") {
     hintText.textContent = "[E] утильщик · предмет → лом";
   } else {
@@ -2761,7 +2844,7 @@ function animate() {
   syncLocalHero(dt);
 
   // v0.0.3.1: ПАДЕНИЕ С КРАЯ НА АРЕНЕ → сервер возвращает игрока на край с 5% HP
-  if (room && myPlayer && room.state.phase === "arena") {
+  if (room && myPlayer && (room.state.phase === "arena" || room.state.phase === "portal_ready" || room.state.phase === "bazaar")) {
     const p = controller.position;
     if (p.y < -5 && !myPlayer.isGhost) {
       // send once every 2s
@@ -2815,7 +2898,8 @@ function animate() {
       : (myPlayer.weaponSlot === "DAGGERS" ? `${myPlayer.daggerCount || 1}/10` : "рывок");
     specChip.querySelector(".cdv").textContent = "—";
     const eqLeft = Math.max(0, (myPlayer.equipCdUntil || 0) - nowS);
-    eqChip.querySelector(".cdv").textContent = eqLeft > 0.05 ? ("КД " + eqLeft.toFixed(1) + "с") : "аптечка";
+    const eqDef = EQUIPMENT[myPlayer.equipmentId || "HEAL"] || EQUIPMENT.HEAL;
+    eqChip.querySelector(".cdv").textContent = eqLeft > 0.05 ? ("КД " + eqLeft.toFixed(1) + "с") : (eqDef.name || "Q");
     eqChip.style.borderColor = eqLeft > 0.05 ? "#a64" : "#6c6";
     blockCdHud.style.display = "none";
   }
@@ -2909,18 +2993,10 @@ function animate() {
     m.position.x += (entry.targetX - m.position.x) * a;
     m.position.y += (entry.targetY - m.position.y) * a;
     m.position.z += (entry.targetZ - m.position.z) * a;
-    // Поворот на yaw (лицом куда смотрит).
-    // Модель otherplayer.js: лицо/глаза смотрят в +Z, а игровой forward — в −Z.
-    // Смещаем поворот на π.
-    const target = entry.targetYaw + Math.PI;
-    let diff = target - m.rotation.y;
-    while (diff > Math.PI) diff -= 2 * Math.PI;
-    while (diff < -Math.PI) diff += 2 * Math.PI;
-    m.rotation.y += diff * Math.min(1, dt * 20); // быстрая коррекция yaw — модель всегда смотрит куда стреляет
-
     const moved = Math.hypot(m.position.x - entry.prevX, m.position.z - entry.prevZ) > 0.005;
     entry.prevX = m.position.x; entry.prevZ = m.position.z;
-    animateOtherPlayer(m, dt, moved);
+    m.userData.facingYaw = (entry.targetYaw || 0) + Math.PI;
+    animateOtherPlayer(m, dt, moved, camera);
 
     // Табличка с именем всегда смотрит на камеру (билборд)
     if (m.userData.nameSprite) {
@@ -3112,7 +3188,7 @@ animate();
 // СТАТУС-ЛЕНТА
 // ═══════════════════════════════════════════════════════════════════
 function phaseLabelRu(ph) {
-  return ({ hub: "Лобби", arena: "Арена", portal_ready: "Портал готов", wipe_hub: "Возврат" })[ph] || ph;
+  return ({ hub: "Лобби", arena: "Арена", portal_ready: "Портал готов", bazaar: "Базар", wipe_hub: "Возврат" })[ph] || ph;
 }
 setInterval(() => {
   if (!room) return;
@@ -3122,12 +3198,16 @@ setInterval(() => {
   if (ph === "arena" && room.state.portalActive) {
     bits.push(`портал ${Math.floor(room.state.portalCharge)}/${Math.floor(room.state.portalTarget)}`);
   } else if (ph === "portal_ready") {
-    bits.push("следующий этап / [G] лобби");
+    const kind = stageKind(room.state.levelIndex || 0);
+    bits.push(kind === "fork" ? "Митрикс / [L] Loop" : (kind === "boss" ? "эвакуация" : "следующий этап"));
+  } else if (ph === "bazaar") {
+    bits.push("лунный магазин");
   } else if (ph === "hub") {
     bits.push("удержи портал");
   }
   const L = LEVELS[room.state.levelIndex || 0];
   if (ph !== "hub" && L) bits.push(L.label);
+  if ((room.state.loopCount || 0) > 0) bits.push("Loop " + room.state.loopCount);
   const n = room.state.players.size;
   if (n > 1) bits.push(n + " игрока");
   if (myPlayer && (myPlayer.lunarShards || 0) > 0) bits.push("лунные " + myPlayer.lunarShards);

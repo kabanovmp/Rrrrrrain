@@ -1,7 +1,7 @@
 import colyseus from "colyseus";
 import { GameState, Player, Enemy, Pickup, Vec3, HubSlot, HubChest } from "./schema.js";
 const { Room } = colyseus.default || colyseus;
-import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, ITEMS_BY_ID, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions, RUN, difficultyMul, chestGoldCost, xpToNextLevel, sumItemStat, scrapIdForRarity } from "../../shared/index.js";
+import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, ITEMS_BY_ID, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions, RUN, difficultyMul, chestGoldCost, xpToNextLevel, sumItemStat, scrapIdForRarity, EQUIPMENT, stageKind, lootPool } from "../../shared/index.js";
 
 const TICK_MS = 1000 / NET.TICK_RATE;
 const ENEMY_GRACE_SEC = 2.0;   // 2 сек нельзя атаковать после спавна
@@ -61,7 +61,8 @@ export class ArenaRoom extends Room {
       const cdField = isRmb ? "rmbCdUntil" : "lmbCdUntil";
       if (now < (p[cdField] || 0) && !spell.isDaggerCharge) return;
 
-      const dmgMult = (p.isGhost ? COMBAT.GHOST_STAT_MULT : 1) * this.playerDamageMult(p);
+      let dmgMult = (p.isGhost ? COMBAT.GHOST_STAT_MULT : 1) * this.playerDamageMult(p);
+      if (Math.random() < Math.min(0.75, sumItemStat(p, "crit"))) dmgMult *= 2;
       const origin = {
         x: typeof msg.ox === "number" ? msg.ox : p.pos.x,
         y: typeof msg.oy === "number" ? msg.oy : p.pos.y,
@@ -195,6 +196,97 @@ export class ArenaRoom extends Room {
         this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} активировал алтарь боя`, id: "" });
         return;
       }
+      if (item.kind === "SHRINE_NEWT") {
+        item.taken = true;
+        this.state.bluePortal = true;
+        this.state.bluePortalX = item.pos.x;
+        this.state.bluePortalZ = item.pos.z;
+        this.addPickup({
+          kind: "BLUE_PORTAL", itemId: "", handType: "", goldCost: 0,
+          x: item.pos.x, y: 1.2, z: item.pos.z + 3,
+        });
+        this.broadcast("fx", { type: "newt", x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} открыл синий портал на Базар`, id: "" });
+        return;
+      }
+      if (item.kind === "BLUE_PORTAL") {
+        this.enterBazaar();
+        return;
+      }
+      if (item.kind === "RETURN_PORTAL") {
+        this.leaveBazaar();
+        return;
+      }
+      if (item.kind === "BAZAAR_ITEM") {
+        const price = item.goldCost || 1;
+        if ((p.lunarShards || 0) < price) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: нужно ${price} лунных монет`, id: "" });
+          return;
+        }
+        p.lunarShards -= price;
+        item.taken = true;
+        this.grantToPlayer(p, "ITEM", "", item.itemId || "LUNAR_GLASS");
+        this.broadcast("fx", { type: "bazaar_buy", target: client.sessionId, item: item.itemId, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
+      if (item.kind === "BAZAAR_SKIP") {
+        const price = item.goldCost || 1;
+        if ((p.lunarShards || 0) < price) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: нужно ${price} лунных монет`, id: "" });
+          return;
+        }
+        p.lunarShards -= price;
+        item.taken = true;
+        const idx = this.state.levelIndex || 0;
+        if (stageKind(idx) !== "boss") {
+          this._bazaarSkipStage = true;
+        }
+        this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} сменил следующий этап`, id: "" });
+        return;
+      }
+      if (item.kind === "DRONE") {
+        const cost = item.goldCost || chestGoldCost(this.state.runTimeSec);
+        if ((p.gold || 0) < cost) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: не хватает золота на дрона (${cost})`, id: "" });
+          return;
+        }
+        p.gold -= cost;
+        item.taken = true;
+        p.droneCount = (p.droneCount || 0) + 1;
+        this.broadcast("fx", { type: "drone", target: client.sessionId, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
+      if (item.kind === "EQUIP") {
+        const cost = item.goldCost || chestGoldCost(this.state.runTimeSec);
+        if ((p.gold || 0) < cost) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: не хватает золота на снаряжение (${cost})`, id: "" });
+          return;
+        }
+        p.gold -= cost;
+        item.taken = true;
+        p.equipmentId = item.itemId || "HEAL";
+        p.equipCdUntil = 0;
+        this.broadcast("fx", { type: "equip_swap", target: client.sessionId, equipmentId: p.equipmentId, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
+      if (item.kind === "CHEST_TRIPLE") {
+        const cost = item.goldCost || 0;
+        if (cost > 0 && (p.gold || 0) < cost) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: не хватает золота (${cost})`, id: "" });
+          return;
+        }
+        const opts = String(item.itemId || "").split("|").filter(Boolean);
+        const choice = Math.max(0, Math.min(opts.length - 1, msg.choice | 0));
+        if (!opts[choice]) {
+          this.broadcast("chat", { name: "система", text: "трипл-сундук: выбери 1 / 2 / 3", id: "" });
+          return;
+        }
+        if (cost > 0) p.gold -= cost;
+        item.taken = true;
+        this.grantToPlayer(p, "ITEM", "", opts[choice]);
+        this.broadcast("fx", { type: "chest_triple", target: client.sessionId, item: opts[choice], x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
       if (item.kind === "PRINTER") {
         const printed = item.itemId || "BLOODSTONE";
         const rarity = (ITEMS_BY_ID[printed] && ITEMS_BY_ID[printed].rarity) || "white";
@@ -229,7 +321,7 @@ export class ArenaRoom extends Room {
         this.grantToPlayer(p, "CARD", item.handType || item.itemId, "");
       } else if (item.kind === "WEAPON") {
         this.grantToPlayer(p, "WEAPON", item.handType || item.itemId, "");
-      } else if (item.kind === "ITEM" || item.kind === "CHEST") {
+      } else if (item.kind === "ITEM" || item.kind === "CHEST" || item.kind === "CHEST_LARGE") {
         this.grantToPlayer(p, "ITEM", "", item.itemId || item.handType);
       }
     });
@@ -470,9 +562,11 @@ export class ArenaRoom extends Room {
       if (dx * dx + dz * dz > PORTAL_INTERACT_RANGE * PORTAL_INTERACT_RANGE) return;
       this.state.portalActive = true;
       this.state.portalCharge = 0;
-      // v0.0.3.1: при активации портала подливаем crawler'ов
-      this.spawnWaveOfType("GROUND_CRAWLER", 4);
+      this.spawnWaveOfType("GROUND_CRAWLER", 6);
+      this.spawnWaveOfType("CACO", 3);
+      this.spawnColossus();
       this.broadcast("fx", { type: "portal_activated", x: this.state.portalX, y: 0, z: this.state.portalZ });
+      this.broadcast("chat", { name: "система", text: "телепорт зажжён — держите зону 90 секунд, босс телепорта уже здесь", id: "" });
     });
 
     this.onMessage("hub_take", (client, msg) => {
@@ -585,15 +679,34 @@ export class ArenaRoom extends Room {
     this.onMessage("enter_arena", () => this.enterArena());
     this.onMessage("next_stage", () => this.nextStage());
     this.onMessage("loop_run", () => this.loopRun());
+    this.onMessage("leave_bazaar", () => this.leaveBazaar());
     this.onMessage("equipment", (client) => {
       const p = this.state.players.get(client.sessionId);
       if (!p || p.isGhost || p.hp <= 0) return;
       if (this.state.phase === "hub") return;
       const now = Date.now() / 1000;
       if (now < (p.equipCdUntil || 0)) return;
-      const heal = RUN.EQUIP_HEAL || 30;
+      const eqId = p.equipmentId || "HEAL";
+      const eq = EQUIPMENT[eqId] || EQUIPMENT.HEAL;
+      p.equipCdUntil = now + (eq.cd || RUN.EQUIP_CD_S || 15);
+      if (eqId === "MISSILE") {
+        const dmg = (eq.damage || 48) * this.playerDamageMult(p);
+        const r = eq.radius || 7;
+        this.state.enemies.forEach((e) => {
+          if (!e.alive) return;
+          const dx = e.pos.x - p.pos.x, dy = e.pos.y - p.pos.y, dz = e.pos.z - p.pos.z;
+          if (dx * dx + dy * dy + dz * dz <= r * r) this.damageEnemy(e, dmg);
+        });
+        this.broadcast("fx", { type: "equip_missile", target: client.sessionId, x: p.pos.x, y: p.pos.y, z: p.pos.z, r });
+        return;
+      }
+      if (eqId === "PHASE") {
+        p._phaseUntil = now + (eq.duration || 2.2);
+        this.broadcast("fx", { type: "equip_phase", target: client.sessionId, x: p.pos.x, y: p.pos.y, z: p.pos.z, duration: eq.duration || 2.2 });
+        return;
+      }
+      const heal = eq.heal || RUN.EQUIP_HEAL || 30;
       p.hp = Math.min(p.maxHp, p.hp + heal);
-      p.equipCdUntil = now + (RUN.EQUIP_CD_S || 15);
       this.broadcast("fx", { type: "equip_heal", target: client.sessionId, x: p.pos.x, y: p.pos.y, z: p.pos.z, heal });
     });
     this.onMessage("ping", (client, msg) => {
@@ -627,6 +740,8 @@ export class ArenaRoom extends Room {
     p.xp = 0;
     p.survivorLevel = 1;
     p.lunarShards = 0;
+    p.equipmentId = "HEAL";
+    p.droneCount = 0;
     this.state.players.set(client.sessionId, p);
     console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
   }
@@ -943,48 +1058,52 @@ export class ArenaRoom extends Room {
   }
 
   spawnArenaPickups() {
-    const R = WORLD.PICKUP_RING || 32;
     const cost = chestGoldCost(this.state.runTimeSec);
-    const chests = 5;
-    for (let i = 0; i < chests; i++) {
-      const a = (i / chests) * Math.PI * 2;
-      const item = pickRandom(ITEMS.filter(x => !x.scrap));
+    const whites = lootPool("white");
+    const greens = lootPool("green");
+    const reds = lootPool("red");
+    const anyLoot = ITEMS.filter(x => !x.scrap);
+    const scatter = () => {
+      const R = WORLD.PICKUP_RING || 32;
+      const a = Math.random() * Math.PI * 2;
+      const r = 12 + Math.random() * (R - 10);
+      return { x: Math.cos(a) * r, y: 1.2, z: Math.sin(a) * r };
+    };
+    const nChests = 4 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < nChests; i++) {
+      const item = pickRandom(whites.length ? whites : anyLoot);
+      const p = scatter();
+      this.addPickup({ kind: "CHEST", itemId: item.id, handType: "", goldCost: cost, ...p });
+    }
+    {
+      const pool = [...greens, ...reds];
+      const item = pickRandom(pool.length ? pool : anyLoot);
+      this.addPickup({ kind: "CHEST_LARGE", itemId: item.id, handType: "", goldCost: Math.round(cost * 1.8), ...scatter() });
+    }
+    {
+      const pick3 = () => pickRandom(anyLoot).id;
       this.addPickup({
-        kind: "CHEST", itemId: item.id, handType: "",
-        goldCost: cost,
-        x: Math.cos(a) * R, y: 1.2, z: Math.sin(a) * R,
+        kind: "CHEST_TRIPLE",
+        itemId: `${pick3()}|${pick3()}|${pick3()}`,
+        handType: "",
+        goldCost: Math.round(cost * 1.4),
+        ...scatter(),
       });
     }
+    this.addPickup({ kind: "SHRINE_BLOOD", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "SHRINE_CHANCE", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "SHRINE_COMBAT", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "SHRINE_NEWT", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    const printed = pickRandom(anyLoot);
+    this.addPickup({ kind: "PRINTER", itemId: printed.id, handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "SCRAPPER", itemId: "", handType: "", goldCost: 0, ...scatter() });
+    this.addPickup({ kind: "DRONE", itemId: "", handType: "", goldCost: Math.round(cost * 1.6), ...scatter() });
+    const eqId = pickRandom(Object.keys(EQUIPMENT));
+    this.addPickup({ kind: "EQUIP", itemId: eqId, handType: "", goldCost: Math.round(cost * 1.3), ...scatter() });
     const cards = ["ANGER", "FRENZY", "RAIN"];
     for (let i = 0; i < cards.length; i++) {
-      const a = ((i + 0.5) / cards.length) * Math.PI * 2;
-      this.addPickup({
-        kind: "CARD", itemId: "", handType: cards[i], goldCost: 0,
-        x: Math.cos(a) * (R * 0.55), y: 1.2, z: Math.sin(a) * (R * 0.55),
-      });
+      this.addPickup({ kind: "CARD", itemId: "", handType: cards[i], goldCost: 0, ...scatter() });
     }
-    this.addPickup({
-      kind: "SHRINE_BLOOD", itemId: "", handType: "", goldCost: 0,
-      x: 18, y: 1.2, z: 10,
-    });
-    this.addPickup({
-      kind: "SHRINE_CHANCE", itemId: "", handType: "", goldCost: 0,
-      x: -18, y: 1.2, z: 10,
-    });
-    this.addPickup({
-      kind: "SHRINE_COMBAT", itemId: "", handType: "", goldCost: 0,
-      x: 12, y: 1.2, z: -12,
-    });
-    const printables = ITEMS.filter(it => !it.scrap);
-    const printed = pickRandom(printables);
-    this.addPickup({
-      kind: "PRINTER", itemId: printed.id, handType: "", goldCost: 0,
-      x: 0, y: 1.2, z: 18,
-    });
-    this.addPickup({
-      kind: "SCRAPPER", itemId: "", handType: "", goldCost: 0,
-      x: 0, y: 1.2, z: -18,
-    });
   }
 
   addPickup({ kind, itemId, handType, x, y, z, goldCost = 0 }) {
@@ -1061,6 +1180,8 @@ export class ArenaRoom extends Room {
     if (this.state.phase === "arena" || this.state.phase === "portal_ready") return;
     this.state.phase = "arena";
     this.state.levelIndex = 0;
+    this.state.loopCount = 0;
+    this.state.bluePortal = false;
     this.clearRunEconomy();
     this.startArena();
     const s = this.arenaSpawn();
@@ -1070,15 +1191,22 @@ export class ArenaRoom extends Room {
   nextStage() {
     if (this.state.phase !== "portal_ready") return;
     const idx = this.state.levelIndex || 0;
-    const cur = LEVELS[idx] || LEVELS[0];
-    if (cur && cur.boss) {
+    const kind = stageKind(idx);
+    if (kind === "boss") {
       const shards = RUN.LUNAR_SHARDS_BOSS || 1;
       this.state.players.forEach((p) => { p.lunarShards = (p.lunarShards || 0) + shards; });
-      this.broadcast("chat", { name: "система", text: "финальный босс пал — лунные монеты в карман, возврат в лобби", id: "" });
+      this.broadcast("chat", { name: "система", text: "Митрикс пал — лунные монеты в карман, возврат в лобби", id: "" });
       this.returnToHub();
       return;
     }
-    this.state.levelIndex = Math.min(LEVELS.length - 1, idx + 1);
+    let next = idx + 1;
+    if (this._bazaarSkipStage) {
+      this._bazaarSkipStage = false;
+      next = Math.min(LEVELS.length - 1, idx + 2);
+    }
+    if (kind === "fork") next = LEVELS.findIndex(L => L.boss);
+    if (next < 0) next = LEVELS.length - 1;
+    this.state.levelIndex = Math.min(LEVELS.length - 1, next);
     this.state.players.forEach((p) => {
       p.gold = 0;
       if (p.isGhost || p.hp <= 0) {
@@ -1098,6 +1226,11 @@ export class ArenaRoom extends Room {
 
   loopRun() {
     if (this.state.phase !== "portal_ready") return;
+    if (stageKind(this.state.levelIndex || 0) !== "fork") {
+      this.broadcast("chat", { name: "система", text: "Loop доступен только на развилке 5-го этапа", id: "" });
+      return;
+    }
+    this.state.loopCount = (this.state.loopCount || 0) + 1;
     this.state.levelIndex = 0;
     this.state.players.forEach((p) => {
       p.gold = 0;
@@ -1111,7 +1244,7 @@ export class ArenaRoom extends Room {
     this.startArena();
     const s = this.arenaSpawn();
     this.teleportAllPlayers(s.x, s.y, s.z);
-    this.broadcast("chat", { name: "система", text: "Loop — круг сначала, билд и таймер остаются", id: "" });
+    this.broadcast("chat", { name: "система", text: `Loop ${this.state.loopCount} — круг сначала, билд и таймер остаются`, id: "" });
     this.broadcast("fx", { type: "next_stage", levelIndex: 0 });
   }
 
@@ -1127,6 +1260,9 @@ export class ArenaRoom extends Room {
     const ang = Math.random() * Math.PI * 2;
     this.state.portalX = Math.sin(ang) * dist;
     this.state.portalZ = Math.cos(ang) * dist;
+    this.state.bluePortal = false;
+    this.state.bluePortalX = 0;
+    this.state.bluePortalZ = 0;
     this.waveTimer = 0;
     // Очистить старые пикапы арены
     this.state.pickups.clear();
@@ -1138,6 +1274,52 @@ export class ArenaRoom extends Room {
     this.spawnWaveOfType("GROUND_CRAWLER", 3);
     this.spawnWaveOfType("CACO", 2);
     if (L && L.boss) this.spawnColossus();
+  }
+
+  enterBazaar() {
+    if (this.state.phase === "hub") return;
+    if (this.state.phase === "bazaar") return;
+    this._preBazaarPhase = this.state.phase;
+    this.state.phase = "bazaar";
+    this.state.pickups.clear();
+    this.addPickup({ kind: "RETURN_PORTAL", itemId: "", handType: "", goldCost: 0, x: 0, y: 1.2, z: -10 });
+    const lunar = lootPool("blue");
+    const shop = lunar.length ? lunar : ITEMS.filter(x => x.lunar);
+    for (let i = 0; i < 3; i++) {
+      const it = pickRandom(shop.length ? shop : ITEMS.filter(x => !x.scrap));
+      this.addPickup({
+        kind: "BAZAAR_ITEM", itemId: it.id, handType: "", goldCost: 1,
+        x: -8 + i * 8, y: 1.2, z: 8,
+      });
+    }
+    this.addPickup({ kind: "BAZAAR_SKIP", itemId: "", handType: "", goldCost: 1, x: 0, y: 1.2, z: 14 });
+    this.teleportAllPlayers(0, 1.6, 4);
+    this.broadcast("chat", { name: "система", text: "Базар между мирами — Ньют молчит. Лунные монеты.", id: "" });
+    this.broadcast("fx", { type: "bazaar", phase: "bazaar" });
+  }
+
+  leaveBazaar() {
+    if (this.state.phase !== "bazaar") return;
+    const back = this._preBazaarPhase || "arena";
+    this.state.phase = back;
+    this.state.pickups.clear();
+    if (back === "arena" || back === "portal_ready") this.spawnArenaPickups();
+    const s = this.arenaSpawn();
+    this.teleportAllPlayers(s.x, s.y, s.z);
+    this.broadcast("fx", { type: "bazaar", phase: back });
+  }
+
+  applyElite(e, typeId) {
+    const t = ENEMY_TYPES[typeId];
+    if (!e || !t || t.boss) return;
+    const chance = (RUN.ELITE_CHANCE || 0.08) * Math.min(2.5, this.dmul());
+    if (Math.random() > chance) {
+      e.elite = "";
+      return;
+    }
+    e.elite = pickRandom(["fire", "ice", "lightning"]);
+    e.hp = Math.max(1, Math.round(e.hp * 2.2));
+    e.maxHp = e.hp;
   }
 
   resetArena() {
@@ -1251,7 +1433,8 @@ export class ArenaRoom extends Room {
     const id = `e${++this.enemySeq}`;
     this.state.enemies.set(id, e);
     e._grace = ENEMY_GRACE_SEC;
-    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant });
+    this.applyElite(e, typeId);
+    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant, elite: e.elite });
     return id;
   }
 
@@ -1284,7 +1467,8 @@ export class ArenaRoom extends Room {
     const id = `e${++this.enemySeq}`;
     this.state.enemies.set(id, e);
     e._grace = ENEMY_GRACE_SEC;
-    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant });
+    this.applyElite(e, typeId);
+    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant, elite: e.elite });
     return id;
   }
 
@@ -1302,44 +1486,43 @@ export class ArenaRoom extends Room {
     if (!e.alive) return;
     const actualDmg = dmg * (this.state.dbgDamageMul || 1);
     e.hp -= actualDmg;
-    // ПОРТАЛ ОТ КРОВИ: если активен — каждая 1 ед урона даёт +0.15с зарядки
-    if (this.state.portalActive && this.state.portalCharge < this.state.portalTarget) {
-      this.state.portalCharge = Math.min(
-        this.state.portalTarget,
-        this.state.portalCharge + actualDmg * 0.15
-      );
-      if (this.state.portalCharge >= this.state.portalTarget && this.state.phase === "arena") {
-        this.state.phase = "portal_ready";
-        this.broadcast("fx", { type: "portal_ready" });
-      }
-    }
-    // Звук попадания
     this.broadcast("fx", { type: "hit_enemy", x: e.pos.x, y: e.pos.y, z: e.pos.z, dmg: actualDmg });
     if (e.hp <= 0) {
       e.alive = false;
-      this.broadcast("fx", { type: "enemy_die", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: e.enemyType });
-      // Бонус за убийство: +2 сек зарядки
-      if (this.state.portalActive && this.state.portalCharge < this.state.portalTarget) {
-        this.state.portalCharge = Math.min(this.state.portalTarget, this.state.portalCharge + 2);
-        if (this.state.portalCharge >= this.state.portalTarget && this.state.phase === "arena") {
-          this.state.phase = "portal_ready";
-          this.broadcast("fx", { type: "portal_ready" });
-        }
-      }
-      // v0.0.3.1: труп лежит CORPSE_LINGER_S сек (сносится в tick по corpseUntil)
+      this.broadcast("fx", { type: "enemy_die", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: e.enemyType, elite: e.elite });
       e.state = "dying";
       e.corpseUntil = Date.now() / 1000 + AI_DIRECTOR.CORPSE_LINGER_S;
       this.grantKillRewards();
+      if (Math.random() < (RUN.LUNAR_DROP || 0)) {
+        this.state.players.forEach((p) => {
+          if (p.isGhost || p.hp <= 0) return;
+          p.lunarShards = (p.lunarShards || 0) + 1;
+        });
+        this.broadcast("chat", { name: "система", text: "редкий дроп — лунная монета", id: "" });
+      }
     }
+  }
+
+  consumeExtraLife(p) {
+    if (!p || !p.itemsInBody) return false;
+    const arr = [...p.itemsInBody];
+    const idx = arr.findIndex((id) => ITEMS_BY_ID[id] && ITEMS_BY_ID[id].extraLife);
+    if (idx < 0) return false;
+    p.itemsInBody.splice(idx, 1);
+    p.passiveItemId = p.itemsInBody[0] || "";
+    this.refreshItemHp(p);
+    p.hp = p.maxHp;
+    p.isGhost = false;
+    return true;
   }
 
   damagePlayer(p, dmg, sessionId, fromX = 0, fromZ = 0) {
     if (p.hp <= 0 || p.isGhost) return;
     if (this.state.dbgGodMode) return;
-    // В хабе урона нет (мобы не атакуют)
     if (this.state.phase !== "arena" && this.state.phase !== "portal_ready") return;
-    // v0.0.3.1: Звёздный Блок — поглощает урон пока активен
     const nowSec = Date.now() / 1000;
+    if ((p._phaseUntil || 0) > nowSec) return;
+    if ((p._stealthUntil || 0) > nowSec) return;
     if ((p.blockAbsorbLeft || 0) > 0) {
       const absorb = Math.min(p.blockAbsorbLeft, dmg);
       p.blockAbsorbLeft -= absorb;
@@ -1348,9 +1531,20 @@ export class ArenaRoom extends Room {
       if (p.blockAbsorbLeft <= 0) { p.blockActiveUntil = 0; p.blockAbsorbLeft = 0; }
       if (dmg <= 0) return;
     }
+    const armor = Math.max(0, sumItemStat(p, "armor"));
+    if (armor > 0) dmg *= 100 / (100 + armor);
     p.hp -= dmg;
-    p._lastDmgAt = Date.now(); // для HP-регенерации вне боя
+    p._lastDmgAt = Date.now();
+    if (sumItemStat(p, "stealth") > 0) {
+      p._stealthUntil = nowSec + 1.5;
+      this.broadcast("fx", { type: "stealth", target: sessionId });
+    }
     if (p.hp < 1) {
+      if (this.consumeExtraLife(p)) {
+        this.broadcast("fx", { type: "dio", target: sessionId });
+        this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} воскрес (Дио)`, id: "" });
+        return;
+      }
       p.hp = 0;
       let alive = 0;
       this.state.players.forEach((pl) => {
@@ -1403,11 +1597,13 @@ export class ArenaRoom extends Room {
     this.state.players.forEach(p => {
       if (p.isGhost || p.hp <= 0 || p.hp >= p.maxHp) return;
       const last = p._lastDmgAt || 0;
-      if (nowMs - last < 5000) return;
+      if (nowMs - last < (COMBAT.REGEN_DELAY_S || 3) * 1000) return;
       p._regenAcc = (p._regenAcc || 0) + dt;
       if (p._regenAcc >= 1.0) {
         p._regenAcc -= 1.0;
-        p.hp = Math.min(p.maxHp, p.hp + 1);
+        const lv = Math.max(1, p.survivorLevel || 1);
+        const regen = (COMBAT.REGEN_PER_S || 5) * 0.2 + (lv - 1) * 0.12 + sumItemStat(p, "regen");
+        p.hp = Math.min(p.maxHp, p.hp + Math.max(0.2, regen));
       }
     });
     // Снаряды игрока бьют врагов. Огненные шары мобов — только игроков (иначе стрелок убивает себя в момент выстрела).
@@ -1650,6 +1846,7 @@ export class ArenaRoom extends Room {
 
     // Карта RAIN — метеоритный дождь в радиусе видимости носителя
     this.tickMeteorRain(dt);
+    this.tickDrones(dt);
 
     // ── v0.0.3.1: AI Director — бюджет-based спавн волнами ───────────
     if (this.state.phase === "arena" || this.state.phase === "portal_ready") {
@@ -1703,6 +1900,26 @@ export class ArenaRoom extends Room {
       const spread = (Math.random() - 0.5) * (Math.PI * 2 / 3);
       this.addEnemyAt(chosen, frontAngle + spread);
     }
+  }
+
+  tickDrones(dt) {
+    if (this.state.phase !== "arena" && this.state.phase !== "portal_ready") return;
+    this.state.players.forEach((p, sid) => {
+      const n = p.droneCount || 0;
+      if (n <= 0 || p.isGhost || p.hp <= 0) return;
+      p._droneAcc = (p._droneAcc || 0) + dt;
+      const interval = Math.max(0.28, 0.85 / n);
+      if (p._droneAcc < interval) return;
+      p._droneAcc = 0;
+      const hit = this.nearestEnemy(p.pos, 32);
+      if (!hit) return;
+      this.damageEnemy(hit.e, 7 * this.playerDamageMult(p));
+      this.broadcast("fx", {
+        type: "drone_shot", target: sid,
+        x: p.pos.x, y: (p.pos.y || 1.6) + 1.4, z: p.pos.z,
+        tx: hit.e.pos.x, ty: hit.e.pos.y, tz: hit.e.pos.z,
+      });
+    });
   }
 
   tickMeteorRain(dt) {
