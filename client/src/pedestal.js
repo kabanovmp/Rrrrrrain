@@ -218,7 +218,9 @@ function lootTexture(src) {
   return tex;
 }
 
-/** Большая карточка, парящая над постаментом — карта или оружие. */
+/** Большая карточка, парящая над постаментом — карта или оружие.
+ *  Центр плоскости смещён вверх: низ карточки = origin группы,
+ *  чтобы она не тонула в камне колонны. */
 export function createFloatingLootCard(raw) {
   const key = String(raw || "");
   const src = LOOT_TEX_SRC[key]
@@ -230,6 +232,7 @@ export function createFloatingLootCard(raw) {
     map: tex, side: THREE.DoubleSide, transparent: true, toneMapped: false,
   });
   const card = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+  card.position.y = h * 0.5;
   const glow = new THREE.Mesh(
     new THREE.PlaneGeometry(w + 0.22, h + 0.22),
     new THREE.MeshBasicMaterial({
@@ -241,7 +244,7 @@ export function createFloatingLootCard(raw) {
   card.add(glow);
   group.add(card);
   group.userData.floatCard = card;
-  group.userData.floatBaseY = 0;
+  group.userData.floatBaseY = h * 0.5;
   group.userData.billboard = true;
   return group;
 }
@@ -250,8 +253,11 @@ export function animateFloatingLoot(root, camera, tSec) {
   if (!root) return;
   const card = root.userData.floatCard;
   if (!card) return;
-  const base = root.userData.floatBaseY ?? 0;
-  card.position.y = base + Math.sin(tSec * 2.15) * 0.16;
+  const holder = card.parent;
+  const base = (holder && holder.userData.floatBaseY != null)
+    ? holder.userData.floatBaseY
+    : (root.userData.floatBaseY ?? 1.075);
+  card.position.y = base + Math.sin(tSec * 2.15) * 0.18;
   card.getWorldPosition(_lootWorld);
   _lootLook.set(camera.position.x, _lootWorld.y, camera.position.z);
   card.lookAt(_lootLook);
