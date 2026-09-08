@@ -75,7 +75,7 @@ function makeLobbySign(text) {
   ctx.lineWidth = 6;
   ctx.strokeRect(10, 10, 492, 108);
   ctx.fillStyle = "#f0d78a";
-  ctx.font = "bold 52px Georgia, serif";
+  ctx.font = "bold 48px 'Trebuchet MS', 'Segoe UI', sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text, 256, 68);
