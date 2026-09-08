@@ -83,14 +83,15 @@
     #wpnCdHud { left: 16px !important; bottom: 42px !important; }
     #wpnCdHud, #fpsHud, #weaponHud { pointer-events: none; }
     #fpsHud {
-      left: 50% !important; right: auto !important; bottom: -4% !important;
-      width: min(46vw, 420px) !important; height: min(34vh, 300px) !important;
-      transform: translateX(-50%);
-      perspective: 720px;
+      left: 50% !important; right: auto !important; bottom: -8% !important;
+      width: min(34vw, 300px) !important; height: min(22vh, 190px) !important;
+      transform: translateX(-50%) rotateX(-50deg);
+      transform-origin: 50% 100%;
+      perspective: 560px;
     }
     #weaponHud {
-      right: 2.2vw !important; bottom: 1.6vh !important; left: auto !important;
-      height: min(32vh, 280px) !important; max-width: min(28vw, 240px);
+      right: 1.6vw !important; bottom: 1.2vh !important; left: auto !important;
+      height: min(36vh, 320px) !important; max-width: min(30vw, 260px);
     }
     #loadoutPanel { width: min(960px, 94vw) !important; height: min(640px, 88vh) !important; overflow: auto; }
     #chestPanel { width: min(900px, 94vw) !important; max-height: min(640px, 88vh) !important; overflow: auto; }

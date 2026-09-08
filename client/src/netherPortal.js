@@ -257,9 +257,9 @@ export function isInsideNetherPortal(group, x, y, z) {
   _local.set(x, y, z);
   group.worldToLocal(_local);
   const bs = group.userData.bs || 1;
-  return Math.abs(_local.x) < bs * 1.12
-    && _local.y > bs * 0.25 && _local.y < bs * 4.2
-    && Math.abs(_local.z) < 1.25;
+  return Math.abs(_local.x) < bs * 1.35
+    && _local.y > -0.2 && _local.y < bs * 4.4
+    && Math.abs(_local.z) < 2.4;
 }
 
 const _nearWorld = new THREE.Vector3();

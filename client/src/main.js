@@ -43,13 +43,13 @@ let dmgAngle = 0, dmgTimer = 0;
 const fpsHud = document.createElement("div");
 fpsHud.id = "fpsHud";
 fpsHud.style.cssText = [
-  "position:fixed", "left:50%", "right:auto", "bottom:-4%",
-  "transform:translateX(-50%)",
-  "width:min(46vw, 420px)",
-  "height:min(34vh, 300px)",
+  "position:fixed", "left:50%", "right:auto", "bottom:-8%",
+  "transform:translateX(-50%) rotateX(-50deg)",
+  "width:min(34vw, 300px)",
+  "height:min(22vh, 190px)",
   "overflow:visible",
   "pointer-events:none", "z-index:12",
-  "perspective:720px",
+  "perspective:560px",
   "transform-origin:50% 100%",
 ].join(";");
 const handHud = document.createElement("img");
@@ -57,22 +57,23 @@ const weaponHud = document.createElement("img");
 handHud.draggable = false;
 weaponHud.draggable = false;
 handHud.style.cssText = [
-  "position:absolute", "left:50%", "bottom:-6%",
-  "transform:translateX(-50%) rotateX(-34deg)",
+  "position:absolute", "left:50%", "bottom:-4%",
+  "transform:translateX(-50%)",
   "transform-origin:50% 100%",
-  "height:118%", "width:auto", "max-width:none",
+  "height:112%", "width:auto", "max-width:none",
   "object-fit:contain", "object-position:center bottom",
   "user-select:none", "image-rendering:pixelated",
-  "filter:drop-shadow(0 -10px 16px rgba(0,0,0,0.7))",
+  "filter:drop-shadow(0 -8px 12px rgba(0,0,0,0.7))",
 ].join(";");
 weaponHud.id = "weaponHud";
 weaponHud.style.cssText = [
-  "position:fixed", "right:2.2vw", "bottom:1.6vh", "left:auto",
+  "position:fixed", "right:1.6vw", "bottom:1.2vh", "left:auto",
   "transform:none",
-  "height:min(32vh, 280px)", "width:auto", "max-width:min(28vw, 240px)",
-  "object-fit:contain", "user-select:none",
+  "height:min(36vh, 320px)", "width:auto", "max-width:min(30vw, 260px)",
+  "object-fit:contain", "object-position:right bottom",
+  "user-select:none", "image-rendering:auto",
   "pointer-events:none", "z-index:13",
-  "filter:drop-shadow(0 6px 14px rgba(0,0,0,0.55))",
+  "filter:drop-shadow(0 8px 16px rgba(0,0,0,0.6))",
 ].join(";");
 handHud.src = HAND_SPRITE;
 weaponHud.src = hudSprite("sword");
@@ -952,14 +953,14 @@ function layoutHudScale() {
   const insetBottom = vv ? Math.max(0, window.innerHeight - vv.offsetTop - vv.height) : 0;
   fpsHud.style.left = "50%";
   fpsHud.style.right = "auto";
-  fpsHud.style.bottom = `calc(-4% + ${insetBottom}px)`;
-  fpsHud.style.width = "min(46vw, 420px)";
-  fpsHud.style.height = "min(34vh, 300px)";
+  fpsHud.style.bottom = `calc(-8% + ${insetBottom}px)`;
+  fpsHud.style.width = "min(34vw, 300px)";
+  fpsHud.style.height = "min(22vh, 190px)";
   fpsHud.style.transformOrigin = "50% 100%";
-  fpsHud.style.transform = "translateX(-50%)";
-  fpsHud.style.perspective = "720px";
-  weaponHud.style.right = "2.2vw";
-  weaponHud.style.bottom = `calc(1.6vh + ${insetBottom}px)`;
+  fpsHud.style.transform = "translateX(-50%) rotateX(-50deg)";
+  fpsHud.style.perspective = "560px";
+  weaponHud.style.right = "1.6vw";
+  weaponHud.style.bottom = `calc(1.2vh + ${insetBottom}px)`;
   weaponHud.style.left = "auto";
   wpnCdHud.style.left = "16px";
   wpnCdHud.style.bottom = (42 + insetBottom) + "px";
@@ -2160,9 +2161,9 @@ function handlePortalTriggers(dt) {
     inside = playerInsidePortal(arenaP, p.x, p.y, p.z);
     near = playerNearPortal(arenaP, p.x, p.z, 6);
     if (inside || near) target = "arena";
-    if (inside && cur === "portal_ready") { ready = true; goHub = true; }
+    if ((inside || near) && cur === "portal_ready") { ready = true; goHub = true; }
   }
-  if (inside && ready) {
+  if (ready) {
     if (lastPortalKind !== target) { portalHoldTime = 0; lastPortalKind = target; }
     portalHoldTime += dt;
     const pct = Math.min(100, Math.round(portalHoldTime / PORTAL_HOLD_S * 100));
@@ -2848,8 +2849,9 @@ function animate() {
     const bobY = (1 - Math.cos(swordBob * 2)) * 10 * walkAmp;
     const plant = 4;
     const strafe = ((controller.keys.KeyA ? 1 : 0) - (controller.keys.KeyD ? 1 : 0)) * (moved ? 10 : 0);
-    fpsHud.style.transform = "translateX(-50%)";
-    handHud.style.transform = `translateX(calc(-50% + ${bobX + strafe}px)) translateY(${plant - bobY}px) rotateX(-34deg)`;
+    fpsHud.style.transform = "translateX(-50%) rotateX(-50deg)";
+    fpsHud.style.transformOrigin = "50% 100%";
+    handHud.style.transform = `translateX(calc(-50% + ${bobX + strafe}px)) translateY(${plant - bobY}px)`;
     weaponHud.style.transform = `translate(${bobX * 0.25 + kick * 4}px, ${-bobY * 0.35 - kick * 10}px)`;
   }
   if (starShieldGroup) {
