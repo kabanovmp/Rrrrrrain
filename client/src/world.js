@@ -7,7 +7,6 @@ import { WORLD } from "@mhfps/shared";
 import { getTexture } from "./assets.js";
 import { createFloatingLootCard } from "./pedestal.js";
 import { createNetherPortal, setNetherPortalState, isInsideNetherPortal, nearNetherPortal } from "./netherPortal.js";
-import { terrainHeight } from "./worldV3.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // ХАБ: комната в космосе
@@ -232,7 +231,7 @@ export function setupArena(group) {
 
   // ── Освещение арены ──────────────────────────────────
   // Портал возврата — рамка Незера (позицию задаёт сервер)
-  const portal = createNetherPortal({ scale: 1.2, lit: false });
+  const portal = createNetherPortal({ scale: 1.45, lit: true });
   portal.position.set(WORLD.PORTAL_DIST || 34, 0, 0);
   group.add(portal);
   group.userData.portal = portal;
@@ -527,10 +526,13 @@ export function updateArenaPortal(arenaGroup, state, tSec, chargeRatio = 0) {
 export function setArenaPortalPosition(arenaGroup, x, z) {
   const p = arenaGroup.userData.portal;
   if (!p) return;
-  p.position.x = x;
-  p.position.z = z;
-  p.position.y = Math.max(0, terrainHeight(x, z));
-  p.lookAt(0, p.position.y, 0);
+  const px = Number(x) || 0;
+  const pz = Number(z) || 0;
+  p.position.x = px;
+  p.position.z = pz;
+  // Арена V3 — плоский пол. Не поднимать портал на старую heightmap (±14м в небо).
+  p.position.y = 0;
+  if (px * px + pz * pz > 1) p.lookAt(0, 0, 0);
 }
 
 export function getArenaPortalPos(arenaGroup) {

@@ -101,11 +101,11 @@ export function createNetherPortal({ scale = 1, lit = true, idle = false } = {})
       const tint = 0.82 + Math.random() * 0.22;
       const mat = new THREE.MeshStandardMaterial({
         map: obsTex,
-        color: new THREE.Color(tint * 0.55, tint * 0.5, tint * 0.62),
-        roughness: 0.97,
-        metalness: 0.02,
-        emissive: new THREE.Color(0x140818),
-        emissiveIntensity: lit ? 0.22 : 0.06,
+        color: new THREE.Color(0.22 + tint * 0.12, 0.10, 0.28 + tint * 0.1),
+        roughness: 0.88,
+        metalness: 0.08,
+        emissive: new THREE.Color(0x3a1460),
+        emissiveIntensity: lit ? 0.55 : 0.32,
       });
       const b = new THREE.Mesh(new THREE.BoxGeometry(BS, BS, BS * 0.92), mat);
       b.position.set((x - (W - 1) / 2) * BS, y * BS + BS * 0.5, 0);
@@ -119,20 +119,20 @@ export function createNetherPortal({ scale = 1, lit = true, idle = false } = {})
   tex.needsUpdate = true;
   const pw = 2 * BS * 0.98, ph = 3 * BS * 0.98;
   const waterMat = new THREE.MeshBasicMaterial({
-    map: tex, color: 0xffffff, transparent: true, opacity: lit ? 1 : 0,
+    map: tex, color: 0xffffff, transparent: true, opacity: lit ? 1 : 0.55,
     side: THREE.DoubleSide, depthWrite: false,
   });
   const water = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), waterMat);
   water.position.y = 2.5 * BS;
   water.position.z = 0.02;
-  water.visible = lit;
+  water.visible = true;
   water.renderOrder = 2;
   group.add(water);
 
   const glow = new THREE.Mesh(
     new THREE.PlaneGeometry(pw * 1.08, ph * 1.08),
     new THREE.MeshBasicMaterial({
-      color: 0xaa44ff, transparent: true, opacity: lit ? 0.18 : 0,
+      color: 0xaa44ff, transparent: true, opacity: lit ? 0.22 : 0.12,
       side: THREE.DoubleSide, depthWrite: false,
     })
   );
@@ -141,14 +141,35 @@ export function createNetherPortal({ scale = 1, lit = true, idle = false } = {})
   glow.renderOrder = 1;
   group.add(glow);
 
-  const light = new THREE.PointLight(0xb14cff, lit ? 4.2 : 0.15, 18, 1.6);
+  const light = new THREE.PointLight(0xb14cff, lit ? 5.5 : 2.2, 28, 1.4);
   light.position.set(0, 2.5 * BS, 0.4);
   group.add(light);
 
   const sparks = makeSparks(BS);
   sparks.position.y = 0;
-  sparks.visible = lit;
+  sparks.visible = true;
   group.add(sparks);
+
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.35, 1.1, 42, 10, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xcc66ff, transparent: true, opacity: 0.22,
+      side: THREE.DoubleSide, depthWrite: false,
+    })
+  );
+  beam.position.y = 22;
+  group.add(beam);
+
+  const pad = new THREE.Mesh(
+    new THREE.CircleGeometry(2.6 * scale, 28),
+    new THREE.MeshBasicMaterial({
+      color: 0x9a40ff, transparent: true, opacity: 0.45,
+      side: THREE.DoubleSide, depthWrite: false,
+    })
+  );
+  pad.rotation.x = -Math.PI / 2;
+  pad.position.y = 0.04;
+  group.add(pad);
 
   group.userData.isPortal = true;
   group.userData.bs = BS;
@@ -157,6 +178,8 @@ export function createNetherPortal({ scale = 1, lit = true, idle = false } = {})
   group.userData.glow = glow;
   group.userData.light = light;
   group.userData.sparks = sparks;
+  group.userData.beam = beam;
+  group.userData.pad = pad;
   group.userData.portalCanvas = canvas;
   group.userData.portalTex = tex;
   group.userData.obsMat = blocks[0]?.material;
@@ -193,41 +216,37 @@ export function tickNetherPortal(group, tSec) {
 
 export function setNetherPortalState(group, state, chargeRatio = 0, tSec = 0) {
   if (!group?.userData?.water) return;
-  const { water, glow, light, sparks, blocks } = group.userData;
+  const { water, glow, light, sparks, blocks, beam, pad } = group.userData;
   const cr = Math.max(0, Math.min(1, chargeRatio));
   const pulse = 0.85 + Math.sin(tSec * 5.2) * 0.15;
-  let lit = 1, intensity = 4.2, glowOp = 0.2, waterOp = 1, em = 0.28;
+  let intensity = 4.2, glowOp = 0.2, waterOp = 1, em = 0.4, beamOp = 0.2, padOp = 0.4;
   if (state === "idle") {
-    lit = 0; intensity = 0.12; glowOp = 0; waterOp = 0; em = 0.05;
+    intensity = 2.4; glowOp = 0.14; waterOp = 0.62; em = 0.35; beamOp = 0.18; padOp = 0.4;
   } else if (state === "charging") {
-    lit = 1; intensity = 1.2 + 5 * cr; glowOp = 0.08 + 0.22 * cr;
-    waterOp = 0.35 + 0.65 * cr; em = 0.12 + 0.55 * cr;
+    intensity = 2.2 + 5 * cr; glowOp = 0.12 + 0.22 * cr;
+    waterOp = 0.7 + 0.3 * cr; em = 0.4 + 0.45 * cr; beamOp = 0.22 + 0.28 * cr; padOp = 0.45 + 0.3 * cr;
   } else if (state === "ready") {
-    lit = 1; intensity = 6.5 * pulse; glowOp = 0.28 * pulse;
-    waterOp = 1; em = 0.45 + 0.35 * pulse;
+    intensity = 7 * pulse; glowOp = 0.3 * pulse;
+    waterOp = 1; em = 0.55 + 0.35 * pulse; beamOp = 0.42 * pulse; padOp = 0.7;
   } else if (state === "hold") {
-    lit = 1; intensity = 8; glowOp = 0.4; waterOp = 1; em = 0.7;
+    intensity = 9; glowOp = 0.45; waterOp = 1; em = 0.85; beamOp = 0.55; padOp = 0.85;
   }
-  water.visible = lit > 0 && waterOp > 0.02;
-  sparks.visible = water.visible;
-  glow.visible = water.visible;
+  water.visible = true;
+  sparks.visible = true;
+  glow.visible = true;
   water.material.opacity = waterOp;
   glow.material.opacity = glowOp;
   light.intensity = intensity;
-  if (state === "charging") {
-    water.scale.set(1, Math.max(0.12, cr), 1);
-    water.position.y = group.userData.bs * (1 + 1.5 * Math.max(0.12, cr));
-  } else {
-    water.scale.set(1, 1, 1);
-    water.position.y = 2.5 * group.userData.bs;
-  }
+  if (beam?.material) beam.material.opacity = beamOp * pulse;
+  if (pad?.material) pad.material.opacity = padOp;
+  water.scale.set(1, 1, 1);
+  water.position.y = 2.5 * group.userData.bs;
   glow.position.y = water.position.y;
-  glow.scale.copy(water.scale);
+  glow.scale.set(1, 1, 1);
   for (const b of blocks) {
     if (!b.material) continue;
     b.material.emissiveIntensity = em;
-    if (state === "idle") b.material.emissive.setHex(0x0a060c);
-    else b.material.emissive.setHex(0x4a1480);
+    b.material.emissive.setHex(state === "idle" ? 0x4a1878 : 0x7a28c8);
   }
   tickNetherPortal(group, tSec);
 }
