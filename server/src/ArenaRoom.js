@@ -646,9 +646,11 @@ export class ArenaRoom extends Room {
       vx: vx * sp, vy: vy * sp, vz: vz * sp,
       life: spell.life || 4, damage, radius: spell.radius || 0.5, color: spell.color,
     });
+    const kind = spell.isDaggerThrow ? "dagger" : "star";
     this.broadcast("fx", {
       type: "homing", x: origin.x, y: origin.y, z: origin.z,
-      color: spell.color, dx: vx, dy: vy, dz: vz, star: true,
+      color: spell.color, dx: vx, dy: vy, dz: vz,
+      kind, star: kind === "star",
       targetId: tgt ? tgt.id : "",
     });
   }
@@ -1100,22 +1102,17 @@ export class ArenaRoom extends Room {
     }
     p.hp -= dmg;
     p._lastDmgAt = Date.now(); // для HP-регенерации вне боя
-    if (p.hp <= 0) {
+    if (p.hp < 1) {
       p.hp = 0;
-      // Считаем других ЖИВЫХ игроков на арене (не призраков, с HP > 0), кроме меня
-      let otherAlive = 0;
-      this.state.players.forEach((pl, sid) => {
-        if (sid === sessionId) return;
-        if (!pl.isGhost && pl.hp > 0) otherAlive++;
+      let alive = 0;
+      this.state.players.forEach((pl) => {
+        if (!pl.isGhost && pl.hp >= 1) alive++;
       });
-      if (otherAlive > 0) {
-        // Есть живой союзник — становимся призраком-помощником
+      if (alive > 0) {
         p.isGhost = true;
         this.broadcast("fx", { type: "death", target: sessionId });
       } else {
-        // Один или все умерли — wipe: возврат в хаб, прогресс арены обнулён
         this.broadcast("fx", { type: "death", target: sessionId });
-        this.broadcast("chat", { name: "система", text: "команда пала — возврат в хаб", id: "" });
         this.wipeToHub();
       }
     } else {
@@ -1126,6 +1123,9 @@ export class ArenaRoom extends Room {
   // ПОЛНЫЙ СБРОС АРЕНЫ в хаб: все волны, враги, снаряды, портал скидываются, игроки воскресают в центре хаба
   wipeToHub() {
     const prev = this.state.phase;
+    if (prev === "hub") return;
+    this.broadcast("chat", { name: "система", text: "команда пала — возврат в хаб", id: "" });
+    this.broadcast("fx", { type: "wipe_hub" });
     this.state.phase = "hub";
     this.state.wave = 0;
     this.state.waveTimer = 0;
@@ -1134,7 +1134,6 @@ export class ArenaRoom extends Room {
     this.state.enemies.clear();
     this.projectiles.length = 0;
     this.state.pickups.clear();
-    // Снимаем всё, что подобрали на арене — в слоты/сундуки хаба
     if (prev !== "hub") this.autoDepositPlayerInventory();
     this.state.players.forEach((pl, sid) => {
       pl.isGhost = false;

@@ -14,7 +14,7 @@ import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
 import { createPedestalMesh, animatePedestal, createFloatingLootCard, animateFloatingLoot } from "./pedestal.js";
 import { FpsController } from "./controller.js";
 import { initAudio, playSound, playSoundLoop, stopSoundLoop, setMasterVolume, getMasterVolume } from "./assets.js";
-import { hudSprite, lootIconDataUrl } from "./weaponHud.js";
+import { hudSprite, lootIconDataUrl, HAND_SPRITE } from "./weaponHud.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // DOM
@@ -44,30 +44,31 @@ let dmgAngle = 0, dmgTimer = 0;
 const fpsHud = document.createElement("div");
 fpsHud.id = "fpsHud";
 fpsHud.style.cssText = [
-  "position:fixed", "left:50%", "bottom:0",
+  "position:fixed", "left:52%", "bottom:0",
   "transform:translateX(-50%)",
-  "width:min(42vmin, 360px)",
-  "height:min(24vmin, 200px)",
+  "width:min(72vmin, 760px)",
+  "height:min(48vmin, 560px)",
+  "overflow:visible",
   "pointer-events:none", "z-index:12",
   "transform-origin:50% 100%",
 ].join(";");
 const handHud = document.createElement("img");
 const weaponHud = document.createElement("img");
-for (const im of [handHud, weaponHud]) {
-  im.draggable = false;
-  im.style.cssText = "position:absolute;left:50%;bottom:0;transform:translateX(-50%);height:100%;width:auto;max-width:100%;object-fit:contain;image-rendering:auto;user-select:none;filter:drop-shadow(0 -6px 14px rgba(0,0,0,0.45));";
-}
-handHud.src = hudSprite("hand");
+handHud.draggable = false;
+weaponHud.draggable = false;
+handHud.style.cssText = "position:absolute;left:54%;bottom:-6%;transform:translateX(-50%);height:108%;width:auto;max-width:none;object-fit:contain;user-select:none;image-rendering:pixelated;filter:drop-shadow(0 -10px 18px rgba(0,0,0,0.65));";
+weaponHud.style.cssText = "position:absolute;left:62%;bottom:2%;transform:translateX(-50%);height:72%;width:auto;max-width:none;object-fit:contain;user-select:none;filter:drop-shadow(0 -8px 14px rgba(0,0,0,0.45));";
+handHud.src = HAND_SPRITE;
 weaponHud.src = hudSprite("sword");
 fpsHud.appendChild(handHud);
 fpsHud.appendChild(weaponHud);
 document.body.appendChild(fpsHud);
-let swordBob = 0, swordSwing = 0, swordSwingV = 0, weaponKick = 0;
+let swordBob = 0, viewKick = 0;
 let localBlockHp = 0, shieldGraceUntil = 0;
-function triggerSwordSwing() { swordSwingV = 14; weaponKick = 1; }
+function triggerSwordSwing() { viewKick = 1; }
 
 const wpnCdHud = document.createElement("div");
-wpnCdHud.style.cssText = "position:fixed;left:50%;bottom:min(26vmin, 214px);transform:translateX(-50%);display:flex;gap:10px;pointer-events:none;z-index:14;font-family:sans-serif;";
+wpnCdHud.style.cssText = "position:fixed;left:50%;bottom:min(50vmin, 580px);transform:translateX(-50%);display:flex;gap:10px;pointer-events:none;z-index:14;font-family:sans-serif;";
 function makeCdChip(label) {
   const d = document.createElement("div");
   d.style.cssText = "position:relative;min-width:110px;padding:7px 12px 9px;border-radius:8px;background:rgba(0,0,0,0.72);border:1px solid #886;color:#eee;font-size:13px;text-align:center;letter-spacing:0.4px;overflow:hidden;";
@@ -933,8 +934,8 @@ function layoutHudScale() {
   const short = Math.min(w, h);
   // На 13" Mac ~1280×800 при 100% zoom рука должна быть видна, но не перекрывать кадр.
   // 50% zoom у друга увеличивает CSS-пиксели — vmin сам уменьшает физический размер.
-  const hudH = Math.round(Math.min(200, short * 0.24, h * 0.26));
-  const hudW = Math.round(hudH * 1.6);
+  const hudH = Math.round(Math.min(560, Math.max(320, short * 0.50, h * 0.46)));
+  const hudW = Math.round(hudH * 1.35);
   fpsHud.style.width = hudW + "px";
   fpsHud.style.height = hudH + "px";
   const insetBottom = vv ? Math.max(0, window.innerHeight - vv.offsetTop - vv.height) : 0;
@@ -1112,8 +1113,11 @@ const FX_GEOM = {
   ringWave:    new THREE.RingGeometry(0.2, 1.0, 20),
   // Кристаллический ледяной шип (ICE)
   iceShard:    new THREE.OctahedronGeometry(0.45, 0),
-  // Наконечник костяной молнии (BONE) — маленькая головка
+  starCore:    new THREE.OctahedronGeometry(0.38, 0),
   boneHead:    new THREE.ConeGeometry(0.25, 0.6, 6),
+  daggerBlade: new THREE.ConeGeometry(0.11, 0.95, 5),
+  daggerGuard: new THREE.BoxGeometry(0.32, 0.06, 0.08),
+  daggerHilt:  new THREE.CylinderGeometry(0.045, 0.05, 0.28, 6),
 };
 const FX_MAT_TPL = {
   basic:  new THREE.MeshBasicMaterial({ color: 0xffffff }),
@@ -1225,19 +1229,49 @@ function spawnSmokeFx(x, y, z, blow) {
 }
 
 function spawnStarBoltFx(x, y, z, dx, dy, dz, speed = 34, homeId = "") {
+  const g = new THREE.Group();
   const mat = FX_MAT_TPL.basic.clone(); mat.color.setHex(0xff66cc);
-  const m = new THREE.Mesh(FX_GEOM.iceShard, mat);
-  m.position.set(x, y, z);
-  m.scale.setScalar(0.7);
-  const haloMat = FX_MAT_TPL.halo.clone(); haloMat.color.setHex(0xff40a0); haloMat.opacity = 0.55;
+  const core = new THREE.Mesh(FX_GEOM.starCore, mat);
+  const spike = new THREE.Mesh(FX_GEOM.starCore, mat.clone());
+  spike.rotation.z = Math.PI / 2;
+  spike.scale.set(0.45, 1.7, 0.45);
+  core.scale.set(1.1, 0.55, 1.1);
+  g.add(core, spike);
+  const haloMat = FX_MAT_TPL.halo.clone(); haloMat.color.setHex(0xff40a0); haloMat.opacity = 0.7;
   const halo = new THREE.Mesh(FX_GEOM.sphereHalo, haloMat);
-  m.add(halo);
-  scene.add(m);
+  halo.scale.setScalar(0.85);
+  g.add(halo);
+  g.position.set(x, y, z);
+  scene.add(g);
   const L = Math.hypot(dx, dy, dz) || 1;
   pushShot({
-    mesh: m, ttl: 2.6, maxTtl: 2.6,
+    mesh: g, ttl: 2.6, maxTtl: 2.6,
     vx: dx / L * speed, vy: dy / L * speed, vz: dz / L * speed,
-    spin: 14, homeId: homeId || "",
+    spin: 10, homeId: homeId || "",
+  });
+}
+
+function spawnDaggerFx(x, y, z, dx, dy, dz, speed = 38, homeId = "") {
+  const g = new THREE.Group();
+  const bladeMat = FX_MAT_TPL.basic.clone(); bladeMat.color.setHex(0xd8e4ee);
+  const guardMat = FX_MAT_TPL.basic.clone(); guardMat.color.setHex(0x6a4428);
+  const blade = new THREE.Mesh(FX_GEOM.daggerBlade, bladeMat);
+  blade.rotation.x = Math.PI / 2;
+  blade.position.z = 0.28;
+  const guard = new THREE.Mesh(FX_GEOM.daggerGuard, guardMat);
+  const hilt = new THREE.Mesh(FX_GEOM.daggerHilt, guardMat);
+  hilt.rotation.x = Math.PI / 2;
+  hilt.position.z = -0.22;
+  g.add(blade, guard, hilt);
+  g.position.set(x, y, z);
+  const L = Math.hypot(dx, dy, dz) || 1;
+  const ux = dx / L, uy = dy / L, uz = dz / L;
+  g.lookAt(x + ux, y + uy, z + uz);
+  scene.add(g);
+  pushShot({
+    mesh: g, ttl: 3.2, maxTtl: 3.2,
+    vx: ux * speed, vy: uy * speed, vz: uz * speed,
+    spin: 18, homeId: homeId || "", align: true,
   });
 }
 
@@ -1605,22 +1639,31 @@ function setupRoomHandlers() {
 
 
   // ── Фаза (хаб/арена) ──────────────────────────────────────
-  room.state.listen("phase", (v) => {
+  let appliedPhase = null;
+  function applyPhase(v, force = false) {
+    if (!v) return;
+    if (!force && v === appliedPhase) return;
+    const first = appliedPhase == null;
+    appliedPhase = v;
     hubGroup.visible = v === "hub";
     arenaGroup.visible = v !== "hub";
-    // v0.0.3.6: туман — только на арене, в хабе выключаем
-    if (V3_MODE) {
-      scene.fog = (v === "hub") ? null : (window.__ARENA_FOG || null);
-    }
-    // Амбиентный шум отключён (мешал, будет заменён нормальным саунд-дизайном)
+    if (V3_MODE) scene.fog = (v === "hub") ? null : (window.__ARENA_FOG || null);
     stopSoundLoop(ambientLoop);
     ambientLoop = null;
-    // Звук телепорта
-    playSound("teleport");
-    flashTeleport();
-    if (v === "arena" && myPlayer) controller.setPosition(0, 2, 0);
-    if (v === "hub" && myPlayer) controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.25);
-  });
+    if (!first) {
+      playSound("teleport");
+      flashTeleport();
+    }
+    if (v === "arena") controller.setPosition(0, 2, 0);
+    if (v === "hub") {
+      controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.25);
+      deadHud.classList.remove("on");
+      deathTimer = 0;
+    }
+  }
+  room.state.listen("phase", (v) => applyPhase(v));
+  applyPhase(room.state.phase);
+  room.onStateChange(() => applyPhase(room.state.phase));
 
   // ── FX ────────────────────────────────────────────────────
   room.onMessage("chat", (msg) => {
@@ -1644,7 +1687,11 @@ function setupRoomHandlers() {
       playSound("fireball_impact", { volume: 0.35 });
     }
     else if (msg.type === "homing") {
-      spawnStarBoltFx(msg.x, msg.y, msg.z, msg.dx || 0, msg.dy || 0, msg.dz || 0, 34, msg.targetId || "");
+      if (msg.kind === "dagger") {
+        spawnDaggerFx(msg.x, msg.y, msg.z, msg.dx || 0, msg.dy || 0, msg.dz || 0, 38, msg.targetId || "");
+      } else {
+        spawnStarBoltFx(msg.x, msg.y, msg.z, msg.dx || 0, msg.dy || 0, msg.dz || 0, 34, msg.targetId || "");
+      }
       playSound("fireball_cast", { volume: 0.35 });
     }
     else if (msg.type === "hitscan") {
@@ -1749,6 +1796,9 @@ function setupRoomHandlers() {
     else if (msg.type === "enemy_die") {
       spawnDeathBurst(msg.x, msg.y, msg.z, msg.kind);
       playSound("enemy_death");
+    }
+    else if (msg.type === "wipe_hub") {
+      applyPhase("hub", true);
     }
     else if (msg.type === "death" && msg.target === selfId) {
       deadHud.classList.add("on");
@@ -2706,9 +2756,10 @@ function animate() {
     fpsHud.style.display = inGame ? "block" : "none";
     wpnCdHud.style.display = inGame ? "flex" : "none";
     const wdef = WEAPONS[myPlayer?.weaponSlot];
-    const palmUp = !!(wdef && wdef.palmUp);
-    const wantHand = hudSprite(palmUp ? "handUp" : "hand");
-    if (handHud.src !== wantHand) handHud.src = wantHand;
+    if (handHud.dataset.src !== HAND_SPRITE) {
+      handHud.src = HAND_SPRITE;
+      handHud.dataset.src = HAND_SPRITE;
+    }
     if (!wdef) weaponHud.style.opacity = "0";
     else {
       weaponHud.style.opacity = "1";
@@ -2720,16 +2771,12 @@ function animate() {
   }
   if (V3_MODE && fpsHud.style.display !== "none") {
     swordBob += dt * (moved ? 8 : 2);
-    swordSwing += swordSwingV * dt;
-    swordSwingV -= 32 * dt;
-    if (swordSwing < 0) { swordSwing = 0; swordSwingV = 0; }
-    weaponKick = Math.max(0, weaponKick - dt * 4);
-    const bobY = Math.sin(swordBob) * (moved ? 6 : 2);
+    viewKick = Math.max(0, viewKick - dt * 7);
+    const bobY = Math.sin(swordBob) * (moved ? 5 : 1.5);
     const bobX = Math.cos(swordBob * 0.5) * (moved ? 3 : 1);
-    const rot = -swordSwing * 32;
-    const recoil = weaponKick * 28;
-    fpsHud.style.transform = `translateX(-50%) translate(${bobX}px, ${bobY - swordSwing * 36}px) rotate(${rot}deg)`;
-    weaponHud.style.transform = `translateX(-50%) translateY(${-recoil}px) rotate(${-weaponKick * 18}deg)`;
+    const kick = viewKick * viewKick; // быстрый возврат, без накрутки угла
+    fpsHud.style.transform = `translateX(-50%) translate(${bobX}px, ${bobY + kick * 16}px) rotate(${kick * 5}deg)`;
+    weaponHud.style.transform = `translateX(-50%) translate(${kick * 6}px, ${kick * 10}px)`;
   }
   if (starShieldGroup) {
     const on = !!(myPlayer && (myPlayer.blockAbsorbLeft || 0) > 0);
