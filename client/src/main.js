@@ -1098,6 +1098,17 @@ let colorIdxCounter = 0;
 // Пикапы = пьедесталы
 const pickupMeshes = new Map();
 function makePickupMesh(pk) {
+  const isShrine = pk.kind === "SHRINE_BLOOD" || pk.kind === "SHRINE_CHANCE";
+  if (isShrine) {
+    const ped = createPedestalMesh("ACCESSORY", "bone");
+    const blood = pk.kind === "SHRINE_BLOOD";
+    if (ped.userData.crystal) {
+      ped.userData.crystal.material = ped.userData.crystal.material.clone();
+      ped.userData.crystal.material.color.setHex(blood ? 0xff2244 : 0x44eebb);
+      ped.userData.crystal.material.emissive.setHex(blood ? 0x880011 : 0x116644);
+    }
+    return ped;
+  }
   const isChest = pk.kind === "CHEST" || (pk.goldCost || 0) > 0;
   const lootKey = isChest
     ? ("ITEM:" + (pk.itemId || pk.handType || ""))
@@ -1514,6 +1525,7 @@ function syncLocalHero(dt) {
     scene.add(localHero);
   }
   localHero.position.set(controller.position.x, controller.position.y - 1.6, controller.position.z);
+  localHero.scale.y = controller.crouching ? 0.72 : 1;
   localHero.rotation.y = controller.yaw + Math.PI;
   const moving = Math.hypot(controller.vel.x, controller.vel.z) > 0.35;
   animateOtherPlayer(localHero, dt, moving);
@@ -1820,7 +1832,7 @@ function setupRoomHandlers() {
     }
     else if (msg.type === "fall_respawn" && msg.target === selfId) {
       fellFlashUntil = performance.now() + 400;
-      hintText.textContent = "Ты упал — возврат к краю (–гора HP)";
+      hintText.textContent = "Ты упал — возврат к краю (без урона)";
       hintText.style.opacity = 1;
       setTimeout(() => { hintText.style.opacity = 0; }, 1800);
       if (msg.x != null && msg.z != null) controller.setPosition(msg.x, 2, msg.z);
@@ -1906,6 +1918,17 @@ function setupRoomHandlers() {
         hintText.textContent = "аптечка +" + (msg.heal || 30);
         hintText.style.opacity = 1;
         hintTimer = 1.1;
+      }
+    }
+    else if (msg.type === "shrine_blood" || msg.type === "shrine_chance") {
+      spawnWaveFx(msg.x, msg.y, msg.z, 3);
+      playSound("pickup");
+      if (msg.target === selfId) {
+        hintText.textContent = msg.type === "shrine_blood"
+          ? ("алтарь крови · +" + (msg.gold || 0) + " золота")
+          : (msg.win ? ("алтарь шанса · " + (msg.item || "предмет")) : "алтарь шанса · пусто");
+        hintText.style.opacity = 1;
+        hintTimer = 1.4;
       }
     }
     else if (msg.type === "ping") {
@@ -2094,6 +2117,17 @@ document.addEventListener("keydown", (ev) => {
       flashTeleport();
       playSound("teleport");
       sendPortalPhase("hub");
+      portalGraceUntil = performance.now() + 2500;
+    }
+    return;
+  }
+  if (ev.code === "KeyL") {
+    if (room && room.state.phase === "portal_ready") {
+      flashTeleport();
+      playSound("teleport");
+      room.send("loop_run");
+      portalPendingPhase = "__stage";
+      portalPendingAt = performance.now();
       portalGraceUntil = performance.now() + 2500;
     }
     return;
@@ -2321,7 +2355,7 @@ function handlePortalTriggers(dt) {
       const tot = Math.floor(room.state.portalTarget);
       hintText.textContent = inside ? `портал копится: ${cur2}/${tot}` : `рамка Незера · кровь ${cur2}/${tot}`;
     } else if (cur === "portal_ready") {
-      hintText.textContent = "удержи — следующий этап · [G] в лобби";
+      hintText.textContent = "удержи — следующий этап · [L] Loop · [G] лобби";
     } else if (cur === "hub") {
       hintText.textContent = inside ? "стой в портале — переход на арену" : "войди в фиолетовую рамку";
     } else {
@@ -2347,10 +2381,16 @@ function updateArenaLootHint() {
     if (d < bestD) { bestD = d; best = pk; }
   });
   if (!best) return;
-  const it = ITEMS.find(x => x.id === (best.itemId || best.handType));
-  const name = it?.name || best.handType || best.itemId || "лут";
-  const cost = best.goldCost || 0;
-  hintText.textContent = cost > 0 ? `[E] ${name} · ${cost} золота` : `[E] взять ${name}`;
+  if (best.kind === "SHRINE_BLOOD") {
+    hintText.textContent = "[E] алтарь крови · 20% HP → золото";
+  } else if (best.kind === "SHRINE_CHANCE") {
+    hintText.textContent = "[E] алтарь шанса · золото, 50% предмет";
+  } else {
+    const it = ITEMS.find(x => x.id === (best.itemId || best.handType));
+    const name = it?.name || best.handType || best.itemId || "лут";
+    const cost = best.goldCost || 0;
+    hintText.textContent = cost > 0 ? `[E] ${name} · ${cost} золота` : `[E] взять ${name}`;
+  }
   hintText.style.opacity = 1;
   hintTimer = 0.25;
 }

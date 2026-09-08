@@ -155,6 +155,38 @@ export class ArenaRoom extends Room {
       if (!p || !item || item.taken) return;
       const dx = item.pos.x - p.pos.x, dy = item.pos.y - p.pos.y, dz = item.pos.z - p.pos.z;
       if (dx*dx+dy*dy+dz*dz > 9) return;
+      if (item.kind === "SHRINE_BLOOD") {
+        const tax = Math.max(1, Math.round((p.maxHp || 1) * 0.2));
+        if ((p.hp || 0) <= tax) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: мало HP для алтаря крови`, id: "" });
+          return;
+        }
+        p.hp -= tax;
+        const pay = Math.round(chestGoldCost(this.state.runTimeSec) * 2.2);
+        p.gold = (p.gold || 0) + pay;
+        item.taken = true;
+        this.broadcast("fx", { type: "shrine_blood", target: client.sessionId, gold: pay, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
+      if (item.kind === "SHRINE_CHANCE") {
+        const cost = chestGoldCost(this.state.runTimeSec);
+        if ((p.gold || 0) < cost) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: не хватает золота на алтарь шанса (${cost})`, id: "" });
+          return;
+        }
+        p.gold -= cost;
+        item.taken = true;
+        if (Math.random() < 0.5) {
+          const it = pickRandom(ITEMS);
+          this.grantToPlayer(p, "ITEM", "", it.id);
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} выиграл ${it.name}`, id: "" });
+          this.broadcast("fx", { type: "shrine_chance", target: client.sessionId, win: true, item: it.name, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        } else {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} проиграл алтарь шанса`, id: "" });
+          this.broadcast("fx", { type: "shrine_chance", target: client.sessionId, win: false, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        }
+        return;
+      }
       const cost = item.goldCost || 0;
       if (cost > 0 && (p.gold || 0) < cost) {
         this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: не хватает золота (${cost})`, id: "" });
@@ -171,7 +203,7 @@ export class ArenaRoom extends Room {
       }
     });
 
-    // v0.0.3.1: Клиент сообщает что упал в дыру — респаун на краю с 5% HP
+    // Падение в дыру: респаун на краю арены, без урона (concept2)
     this.onMessage("fall", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
@@ -183,7 +215,6 @@ export class ArenaRoom extends Room {
       p.pos.x = Math.sin(ang) * R;
       p.pos.z = Math.cos(ang) * R;
       p.pos.y = 3;
-      p.hp = Math.max(1, Math.floor(p.maxHp * COMBAT.FALL_RESPAWN_HP_PCT));
       this.broadcast("fx", { type: "fall_respawn", target: client.sessionId, x: p.pos.x, z: p.pos.z });
     });
 
@@ -522,6 +553,7 @@ export class ArenaRoom extends Room {
     this.onMessage("return_hub", () => this.returnToHub());
     this.onMessage("enter_arena", () => this.enterArena());
     this.onMessage("next_stage", () => this.nextStage());
+    this.onMessage("loop_run", () => this.loopRun());
     this.onMessage("equipment", (client) => {
       const p = this.state.players.get(client.sessionId);
       if (!p || p.isGhost || p.hp <= 0) return;
@@ -869,6 +901,14 @@ export class ArenaRoom extends Room {
         x: Math.cos(a) * (R * 0.55), y: 1.2, z: Math.sin(a) * (R * 0.55),
       });
     }
+    this.addPickup({
+      kind: "SHRINE_BLOOD", itemId: "", handType: "", goldCost: 0,
+      x: 18, y: 1.2, z: 10,
+    });
+    this.addPickup({
+      kind: "SHRINE_CHANCE", itemId: "", handType: "", goldCost: 0,
+      x: -18, y: 1.2, z: 10,
+    });
   }
 
   addPickup({ kind, itemId, handType, x, y, z, goldCost = 0 }) {
@@ -978,6 +1018,25 @@ export class ArenaRoom extends Room {
     const L = LEVELS[this.state.levelIndex] || LEVELS[0];
     this.broadcast("chat", { name: "система", text: `следующий этап: ${L.label}`, id: "" });
     this.broadcast("fx", { type: "next_stage", levelIndex: this.state.levelIndex });
+  }
+
+  loopRun() {
+    if (this.state.phase !== "portal_ready") return;
+    this.state.levelIndex = 0;
+    this.state.players.forEach((p) => {
+      p.gold = 0;
+      if (p.isGhost || p.hp <= 0) {
+        p.isGhost = false;
+        p.maxHp = this.playerMaxHp(p);
+        p.hp = p.maxHp;
+      }
+    });
+    this.state.phase = "arena";
+    this.startArena();
+    const s = this.arenaSpawn();
+    this.teleportAllPlayers(s.x, s.y, s.z);
+    this.broadcast("chat", { name: "система", text: "Loop — круг сначала, билд и таймер остаются", id: "" });
+    this.broadcast("fx", { type: "next_stage", levelIndex: 0 });
   }
 
   startArena() {
