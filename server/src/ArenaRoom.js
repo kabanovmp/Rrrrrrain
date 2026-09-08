@@ -1411,6 +1411,7 @@ export class ArenaRoom extends Room {
     // Снаряды игрока бьют врагов. Огненные шары мобов — только игроков (иначе стрелок убивает себя в момент выстрела).
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
+      if (!pr) { this.projectiles.splice(i, 1); continue; }
       if (pr.homing && !pr.enemyProjectile) {
         let te = pr.targetId ? this.state.enemies.get(pr.targetId) : null;
         if (!te || !te.alive) {
@@ -1622,7 +1623,7 @@ export class ArenaRoom extends Room {
     // v0.0.3.1: вражеские снаряды бьют игроков (код выше только по врагам) — работаем в том же tick
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const pr = this.projectiles[i];
-      if (!pr.enemyProjectile) continue;
+      if (!pr || !pr.enemyProjectile) continue;
       let hitAny = false;
       this.state.players.forEach((pl, sid) => {
         if (hitAny || pl.isGhost || pl.hp <= 0) return;
