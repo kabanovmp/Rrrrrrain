@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
-import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS, difficultyLabel } from "@mhfps/shared";
+import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS, difficultyLabel, LEVELS, stackedPassives, sumItemStat, xpToNextLevel } from "@mhfps/shared";
 import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, setChestOpen } from "./world.js";
-import { setupTerrainV3, terrainHeight } from "./worldV3.js";
+import { setupTerrainV3, terrainHeight, applyArenaTheme } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
 
 // v0.0.3.1 — Звёздный Блок (ПКМ) + AI Director + Flying Shooter + карты/инвентарь
@@ -219,6 +219,10 @@ loadoutPanel.innerHTML = V31_MODE ? `
         <div style="font-size:11px;color:#8a7050;letter-spacing:1px;text-align:center;">КАРТЫ (10 слотов)</div>
         <div id="lpCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;"></div>
       </div>
+      <div style="margin-top:8px;">
+        <div style="font-size:11px;color:#8a7050;letter-spacing:1px;text-align:center;">ПАССИВКИ (стаки)</div>
+        <div id="lpPassivesV31" style="max-height:120px;overflow:auto;font-size:12px;color:#c0a070;margin-top:6px;line-height:1.45;"></div>
+      </div>
       <div style="margin-top:auto;font-size:11px;color:#8a7050;text-align:center;line-height:1.4;padding-top:8px;border-top:1px solid #6a4a2833;">
         ЛКМ / ПКМ — умения оружия
       </div>
@@ -262,7 +266,18 @@ function hideLoadoutPanel() {
   }
 }
 
-const cardHud = document.createElement("div");
+const passivesHud = document.createElement("div");
+passivesHud.id = "passivesHud";
+passivesHud.style.cssText = "position:fixed;left:50%;top:58px;transform:translateX(-50%);z-index:16;pointer-events:none;font-size:12px;color:#e6d9c2;text-shadow:0 1px 3px #000;letter-spacing:0.4px;text-align:center;max-width:70vw;";
+document.body.appendChild(passivesHud);
+function renderPassivesHud() {
+  if (!myPlayer || !room || room.state.phase === "hub") {
+    passivesHud.textContent = "";
+    return;
+  }
+  const stacks = stackedPassives(myPlayer);
+  passivesHud.textContent = stacks.map(s => `${s.glyph || "•"}${s.n > 1 ? "×" + s.n : ""}`).join("  ");
+}
 cardHud.id = "cardHud";
 cardHud.style.cssText = "position:fixed;left:16px;bottom:92px;display:flex;gap:8px;z-index:16;pointer-events:auto;";
 document.body.appendChild(cardHud);
@@ -590,29 +605,24 @@ function renderLoadoutPanel() {
       if (bpCount) bpCount.textContent = bp.length === 1 ? "1 предмет" : (bp.length + " предметов");
     }
     v31InstallBackpackDrop(); // можно кидать в пустое место рюкзака
+    const ps = document.getElementById("lpPassivesV31");
+    if (ps) {
+      const stacks = stackedPassives(myPlayer);
+      if (!stacks.length) ps.textContent = "пусто — сундуки за золото на арене";
+      else ps.innerHTML = stacks.map(s => `${s.glyph || "•"} ${s.name || s.id} ×${s.n}`).join("<br>");
+    }
     renderCardHud();
     return;
   }
   const hands = document.getElementById("lpHands");
-  const legHtml = `<div style="background:linear-gradient(180deg,#1a0f08,#0a0503);border:2px solid #3a2818;border-radius:8px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:center;${myPlayer.hasLegs>0?"box-shadow:inset 0 0 10px #66ff9933;":"opacity:0.55;"}">
-    <div style="width:44px;height:44px;border-radius:6px;background:#0a1a10;border:1px solid #66ff99;color:#66ff99;display:flex;align-items:center;justify-content:center;font-size:22px;">⚚</div>
-    <div style="flex:1;"><div style="font-size:11px;color:#8a7050;letter-spacing:1px;">НОГИ</div>
-      <div style="font-size:16px;color:${myPlayer.hasLegs>0?"#66ff99":"#666"};font-weight:bold;">${myPlayer.hasLegs}/2</div>
-      <div style="font-size:12px;color:#c0a070;">Скорость бега</div></div>
-  </div>`;
-  hands.innerHTML =
-    handSlotHtml("ЛЕВАЯ РУКА", myPlayer.hasLeftHand ? myPlayer.leftHandType : "") +
-    handSlotHtml("ПРАВАЯ РУКА", myPlayer.hasRightHand ? myPlayer.rightHandType : "") +
-    legHtml;
+  if (hands) hands.innerHTML = "<div style='font-size:13px;color:#8a7050;'>оружие и карты — режим сетки TAB</div>";
   const passives = document.getElementById("lpPassives");
-  let html = passiveSlotHtml(myPlayer.passiveItemId || "");
-  const spares = [...(myPlayer.itemsInBody || [])];
-  if (spares.length === 0) {
-    html += passiveSlotHtml("", true);
-  } else {
-    spares.forEach(id => { html += passiveSlotHtml(id, true); });
+  if (passives) {
+    const stacks = stackedPassives(myPlayer);
+    passives.innerHTML = stacks.length
+      ? stacks.map(s => passiveSlotHtml(s.id)).join("")
+      : passiveSlotHtml("");
   }
-  passives.innerHTML = html;
 }
 
 // Чат (внизу слева)
@@ -995,7 +1005,7 @@ scene.add(hubGroup, arenaGroup);
 if (V3_MODE) {
   // v0.0.3.4 — включаем ХАБ (старт в нём) + арена (V3 террайн)
   setupHub(hubGroup);
-  setupTerrainV3(arenaGroup, 1);
+  setupTerrainV3(arenaGroup, 0);
   hubGroup.visible = true;      // виден в phase==="hub"
   arenaGroup.visible = false;    // показывается когда игрок перейдёт на арену
   // v0.0.3.6: туман только на арене. В хабе его нет — всё ясно видно.
@@ -1055,14 +1065,18 @@ let colorIdxCounter = 0;
 // Пикапы = пьедесталы
 const pickupMeshes = new Map();
 function makePickupMesh(pk) {
-  const raw = pk.kind + ":" + (pk.handType || pk.itemId || "");
-  const ped = createPedestalMesh("HAND", "bone");
+  const isChest = pk.kind === "CHEST" || (pk.goldCost || 0) > 0;
+  const lootKey = isChest
+    ? ("ITEM:" + (pk.itemId || pk.handType || ""))
+    : (pk.kind + ":" + (pk.handType || pk.itemId || ""));
+  const ped = createPedestalMesh(isChest ? "ACCESSORY" : "HAND", "bone");
   if (ped.userData.crystal) ped.userData.crystal.visible = false;
-  const loot = createFloatingLootCard(raw);
+  const loot = createFloatingLootCard(lootKey);
   loot.position.y = 2.22;
   ped.add(loot);
   ped.userData.floatCard = loot.userData.floatCard;
   ped.userData.floatBaseY = loot.userData.floatBaseY;
+  ped.userData.goldCost = pk.goldCost || 0;
   return ped;
 }
 
@@ -1520,6 +1534,7 @@ function setupRoomHandlers() {
   room.state.players.onAdd((p, id) => {
     if (id === selfId) {
       myPlayer = p;
+      window.myPlayer = p;
     } else {
       // Другой игрок — создаём модель.
       // Сервер шлёт pos.y = 1.6 (центр камеры), а модель рисуется от ног (Y=0).
@@ -1703,7 +1718,9 @@ function setupRoomHandlers() {
     }
   }
   room.state.listen("phase", (v) => applyPhase(v));
+  room.state.listen("levelIndex", (v) => applyArenaTheme(arenaGroup, v || 0));
   applyPhase(room.state.phase);
+  applyArenaTheme(arenaGroup, room.state.levelIndex || 0);
   room.onStateChange(() => applyPhase(room.state.phase));
 
   // ── FX ────────────────────────────────────────────────────
@@ -1840,6 +1857,9 @@ function setupRoomHandlers() {
     }
     else if (msg.type === "wipe_hub") {
       applyPhase("hub", true);
+    }
+    else if (msg.type === "next_stage") {
+      applyArenaTheme(arenaGroup, msg.levelIndex || 0);
     }
     else if (msg.type === "phase_teleport") {
       if (msg.x != null && msg.z != null) {
@@ -2001,6 +2021,15 @@ document.addEventListener("keydown", (ev) => {
     return;
   }
   // R-респ убран — теперь в дебаг-панели
+  if (ev.code === "KeyG") {
+    if (room && room.state.phase === "portal_ready") {
+      flashTeleport();
+      playSound("teleport");
+      sendPortalPhase("hub");
+      portalGraceUntil = performance.now() + 2500;
+    }
+    return;
+  }
   if (ev.code === "KeyF") {
     // 1) На арене или в хабе — пикапы приоритетнее
     let bestId = null, bestD = Infinity;
@@ -2142,10 +2171,21 @@ const PORTAL_HOLD_S = WORLD.PORTAL_HOLD_S || 1.5;
 const PORTAL_PENDING_MS = 5000;
 function sendPortalPhase(phase) {
   if (!phase) return;
-  room.send("phase", { phase });
-  if (phase === "arena") room.send("enter_arena");
-  else if (phase === "hub") room.send("return_hub");
-  portalPendingPhase = phase;
+  if (phase === "arena") {
+    room.send("phase", { phase });
+    room.send("enter_arena");
+    portalPendingPhase = "arena";
+  } else if (phase === "hub") {
+    room.send("phase", { phase });
+    room.send("return_hub");
+    portalPendingPhase = "hub";
+  } else if (phase === "next") {
+    room.send("next_stage");
+    portalPendingPhase = "__stage";
+  } else {
+    room.send("phase", { phase });
+    portalPendingPhase = phase;
+  }
   portalPendingAt = performance.now();
 }
 function handlePortalTriggers(dt) {
@@ -2157,7 +2197,10 @@ function handlePortalTriggers(dt) {
     return;
   }
   if (portalPendingPhase) {
-    if (cur === portalPendingPhase || performance.now() - portalPendingAt > PORTAL_PENDING_MS) {
+    const arrived = portalPendingPhase === "__stage"
+      ? (cur === "arena" || cur === "hub")
+      : (cur === portalPendingPhase);
+    if (arrived || performance.now() - portalPendingAt > PORTAL_PENDING_MS) {
       portalPendingPhase = null;
       portalHoldTime = 0;
     }
@@ -2180,13 +2223,13 @@ function handlePortalTriggers(dt) {
     inside = playerInsidePortal(arenaP, p.x, p.y, p.z);
     near = playerNearPortal(arenaP, p.x, p.z, 6);
     if (inside || near) target = "arena";
-    if ((inside || near) && cur === "portal_ready") { ready = true; goPhase = "hub"; }
+    if ((inside || near) && cur === "portal_ready") { ready = true; goPhase = "next"; }
   }
   if (ready) {
     if (lastPortalKind !== target) { portalHoldTime = 0; lastPortalKind = target; }
     portalHoldTime += dt;
     const pct = Math.min(100, Math.round(portalHoldTime / PORTAL_HOLD_S * 100));
-    hintText.textContent = `вход в портал… ${pct}%`;
+    hintText.textContent = (goPhase === "next" ? `следующий этап… ${pct}%` : `вход в портал… ${pct}%`);
     hintText.style.opacity = 1;
     hintTimer = 0.3;
     if (mesh) updateArenaPortal({ userData: { portal: mesh } }, "hold", performance.now() * 0.001, pct / 100);
@@ -2210,7 +2253,7 @@ function handlePortalTriggers(dt) {
       const tot = Math.floor(room.state.portalTarget);
       hintText.textContent = inside ? `портал копится: ${cur2}/${tot}` : `рамка Незера · кровь ${cur2}/${tot}`;
     } else if (cur === "portal_ready") {
-      hintText.textContent = inside ? "стой в фиолетовой воде — телепорт" : "войди в проём портала";
+      hintText.textContent = "удержи — следующий этап · [G] в лобби";
     } else if (cur === "hub") {
       hintText.textContent = inside ? "стой в портале — переход на арену" : "войди в фиолетовую рамку";
     } else {
@@ -2224,6 +2267,25 @@ function handlePortalTriggers(dt) {
   }
 }
 
+
+function updateArenaLootHint() {
+  if (!room || !myPlayer) return;
+  if (room.state.phase === "hub") return;
+  let best = null, bestD = 3;
+  pickupMeshes.forEach((m, id) => {
+    const pk = room.state.pickups.get(id);
+    if (!pk || pk.taken) return;
+    const d = m.position.distanceTo(controller.position);
+    if (d < bestD) { bestD = d; best = pk; }
+  });
+  if (!best) return;
+  const it = ITEMS.find(x => x.id === (best.itemId || best.handType));
+  const name = it?.name || best.handType || best.itemId || "лут";
+  const cost = best.goldCost || 0;
+  hintText.textContent = cost > 0 ? `[F] ${name} · ${cost} золота` : `[F] взять ${name}`;
+  hintText.style.opacity = 1;
+  hintTimer = 0.25;
+}
 
 // Подсказка о взаимодействии с хаб-объектами
 function updateHubInteractionHint() {
@@ -2764,6 +2826,7 @@ function animate() {
       renderLoadoutPanel();
     }
   }
+    updateArenaLootHint();
     updateHubInteractionHint();
     handlePortalTriggers(dt);
   }
@@ -2930,13 +2993,17 @@ setInterval(() => {
   if (ph === "arena" && room.state.portalActive) {
     bits.push(`портал ${Math.floor(room.state.portalCharge)}/${Math.floor(room.state.portalTarget)}`);
   } else if (ph === "portal_ready") {
-    bits.push("войди в портал");
+    bits.push("следующий этап / [G] лобби");
   } else if (ph === "hub") {
     bits.push("удержи портал");
   }
+  const L = LEVELS[room.state.levelIndex || 0];
+  if (ph !== "hub" && L) bits.push(L.label);
   const n = room.state.players.size;
   if (n > 1) bits.push(n + " игрока");
+  if (myPlayer && (myPlayer.lunarShards || 0) > 0) bits.push("осколки " + myPlayer.lunarShards);
   status.textContent = bits.join(" · ");
+  renderPassivesHud();
   const runHud = document.getElementById("runHud");
   if (runHud) {
     if (ph === "hub") {
@@ -2946,7 +3013,10 @@ setInterval(() => {
       const mm = String(Math.floor(t / 60)).padStart(2, "0");
       const ss = String(t % 60).padStart(2, "0");
       const gold = myPlayer && myPlayer.gold != null ? Math.floor(myPlayer.gold) : 0;
-      runHud.innerHTML = `${difficultyLabel(t)} · ${mm}:${ss}<br>золото ${gold}`;
+      const lv = myPlayer && myPlayer.survivorLevel ? myPlayer.survivorLevel : 1;
+      const xp = myPlayer && myPlayer.xp != null ? Math.floor(myPlayer.xp) : 0;
+      const need = xpToNextLevel(lv);
+      runHud.innerHTML = `${difficultyLabel(t)} · ${mm}:${ss}<br>золото ${gold}<br>ур. ${lv} · ${xp}/${need} XP`;
     }
   }
 }, 250);

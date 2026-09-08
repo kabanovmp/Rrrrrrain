@@ -33,6 +33,9 @@ export class Player extends Schema {
     this.rmbCdUntil = 0;
     this.daggerCount = 1;
     this.gold = 0;
+    this.xp = 0;
+    this.survivorLevel = 1;
+    this.lunarShards = 0;
   }
 }
 type(Vec3)(Player.prototype, "pos");
@@ -60,6 +63,9 @@ type("number")(Player.prototype, "lmbCdUntil");
 type("number")(Player.prototype, "rmbCdUntil");
 type("number")(Player.prototype, "daggerCount");
 type("number")(Player.prototype, "gold");
+type("number")(Player.prototype, "xp");
+type("number")(Player.prototype, "survivorLevel");
+type("number")(Player.prototype, "lunarShards");
 
 export class Enemy extends Schema {
   constructor() {
@@ -98,6 +104,7 @@ export class Pickup extends Schema {
     this.itemId = "";
     this.handType = "";
     this.taken = false;
+    this.goldCost = 0;
   }
 }
 type(Vec3)(Pickup.prototype, "pos");
@@ -105,6 +112,7 @@ type("string")(Pickup.prototype, "kind");
 type("string")(Pickup.prototype, "itemId");
 type("string")(Pickup.prototype, "handType");
 type("boolean")(Pickup.prototype, "taken");
+type("number")(Pickup.prototype, "goldCost");
 
 export class HubSlot extends Schema {
   constructor() {

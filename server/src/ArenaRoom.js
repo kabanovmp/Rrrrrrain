@@ -1,7 +1,7 @@
 import colyseus from "colyseus";
 import { GameState, Player, Enemy, Pickup, Vec3, HubSlot, HubChest } from "./schema.js";
 const { Room } = colyseus.default || colyseus;
-import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, HAND_TYPES, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions, RUN, difficultyMul } from "../../shared/index.js";
+import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, ITEMS_BY_ID, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions, RUN, difficultyMul, chestGoldCost, xpToNextLevel, sumItemStat } from "../../shared/index.js";
 
 const TICK_MS = 1000 / NET.TICK_RATE;
 const ENEMY_GRACE_SEC = 2.0;   // 2 сек нельзя атаковать после спавна
@@ -155,11 +155,19 @@ export class ArenaRoom extends Room {
       if (!p || !item || item.taken) return;
       const dx = item.pos.x - p.pos.x, dy = item.pos.y - p.pos.y, dz = item.pos.z - p.pos.z;
       if (dx*dx+dy*dy+dz*dz > 9) return;
+      const cost = item.goldCost || 0;
+      if (cost > 0 && (p.gold || 0) < cost) {
+        this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: не хватает золота (${cost})`, id: "" });
+        return;
+      }
+      if (cost > 0) p.gold -= cost;
       item.taken = true;
       if (item.kind === "CARD") {
         this.grantToPlayer(p, "CARD", item.handType || item.itemId, "");
       } else if (item.kind === "WEAPON") {
         this.grantToPlayer(p, "WEAPON", item.handType || item.itemId, "");
+      } else if (item.kind === "ITEM" || item.kind === "CHEST") {
+        this.grantToPlayer(p, "ITEM", "", item.itemId || item.handType);
       }
     });
 
@@ -366,20 +374,24 @@ export class ArenaRoom extends Room {
       if (msg.action === "resetRun") {
         this.state.phase = "hub";
         this.state.wave = 0;
+        this.state.levelIndex = 0;
         this.state.portalCharge = 0;
         this.state.portalActive = false;
         this.state.enemies.clear();
         this.projectiles.length = 0;
-        // Игрокам сбросить руки/ноги/предметы, но хаб (hubSlots, hubChests) не трогаем
         this.state.players.forEach(pl => {
           pl.hasLeftHand = false; pl.leftHandType = "";
           pl.hasRightHand = false; pl.rightHandType = "";
           pl.hasLegs = 0;
           pl.itemsInBody.clear();
           pl.passiveItemId = "";
-          pl.maxHp = COMBAT.PLAYER_MAX_HP;
+          pl.xp = 0;
+          pl.survivorLevel = 1;
+          pl.gold = 0;
+          pl.maxHp = this.playerMaxHp(pl);
           pl.hp = pl.maxHp; pl.isGhost = false;
         });
+        this.clearRunEconomy();
       }
       if (msg.action === "tpHub") this.returnToHub();
       if (msg.action === "tpArena") this.enterArena();
@@ -408,7 +420,7 @@ export class ArenaRoom extends Room {
       if (msg.source === "slot") {
         const slot = this.state.hubSlots[msg.index];
         if (!slot || slot.empty) return;
-        if (slot.kind !== "WEAPON" && slot.kind !== "CARD") {
+        if (slot.kind !== "WEAPON" && slot.kind !== "CARD" && slot.kind !== "ITEM") {
           slot.kind = ""; slot.handType = ""; slot.itemId = ""; slot.empty = true;
           return;
         }
@@ -421,9 +433,9 @@ export class ArenaRoom extends Room {
         const raw = chest.contents[idx];
         const [kind, val] = String(raw).split(":");
         // v0.0.3.8: проверяем что grantToPlayer поддерживает kind — иначе не сплайсим (предмет не исчезнет).
-        const supported = kind === "WEAPON" || kind === "CARD";
+        const supported = kind === "WEAPON" || kind === "CARD" || kind === "ITEM";
         if (!supported) return;
-        this.grantToPlayer(p, kind, val || "", "");
+        this.grantToPlayer(p, kind, kind === "ITEM" ? "" : (val || ""), kind === "ITEM" ? (val || "") : "");
         chest.contents.splice(idx, 1);
       }
     });
@@ -492,39 +504,7 @@ export class ArenaRoom extends Room {
       }
     });
 
-    // ── HUB: reforge (положить/забрать/скрафтить) ────────────
-    this.onMessage("hub_reforge", (client, msg) => {
-      const p = this.state.players.get(client.sessionId);
-      if (!p) return;
-      if (this.state.phase !== "hub") return;
-      const list = this.state.hubReforgeSlots;
-      if (msg.op === "put_hand") {
-        // положить руку из руки (левой если есть, иначе правой)
-        if (list.length >= 3) return;
-        let ht = "";
-        if (p.hasLeftHand) { ht = p.leftHandType; p.hasLeftHand = false; p.leftHandType = ""; }
-        else if (p.hasRightHand) { ht = p.rightHandType; p.hasRightHand = false; p.rightHandType = ""; }
-        else return;
-        list.push("HAND:" + ht);
-      } else if (msg.op === "take") {
-        if (list.length === 0) return;
-        const raw = list.pop();
-        const [kind, val] = String(raw).split(":");
-        this.grantToPlayer(p, kind, kind === "HAND" ? val : "", kind === "ITEM" ? val : "");
-      } else if (msg.op === "craft") {
-        // 3 одинаковые руки → редкая (по правилу: FIRE+FIRE+FIRE → ICE, ICE×3 → BONE, BONE×3 → FIRE)
-        if (list.length < 3) return;
-        const parts = list.map(x => String(x).split(":"));
-        if (!parts.every(([k]) => k === "HAND")) return;
-        const type = parts[0][1];
-        if (!parts.every(([, t]) => t === type)) return;
-        const rotate = { "FIRE": "ICE", "ICE": "BONE", "BONE": "FIRE" };
-        const upgraded = rotate[type] || "FIRE";
-        list.clear();
-        // Кладём результат в первый свободный слот хаба или в сундук 0
-        this.depositToHub("HAND", upgraded, "");
-      }
-    });
+    this.onMessage("hub_reforge", () => {});
 
     // ── DEBUG: сброс забегов (не трогает хаб) ────────────────
     this.onMessage("chat", (client, msg) => {
@@ -541,6 +521,7 @@ export class ArenaRoom extends Room {
     });
     this.onMessage("return_hub", () => this.returnToHub());
     this.onMessage("enter_arena", () => this.enterArena());
+    this.onMessage("next_stage", () => this.nextStage());
   }
 
   onJoin(client, opts) {
@@ -560,8 +541,10 @@ export class ArenaRoom extends Room {
     p.backpack.push("CARD:RAIN");
     p.backpack.push("WEAPON:LIGHTNING_STAFF");
     p.backpack.push("WEAPON:DAGGERS");
-    p.backpack.push("WEAPON:CIGARETTE");
     p.gold = 0;
+    p.xp = 0;
+    p.survivorLevel = 1;
+    p.lunarShards = 0;
     this.state.players.set(client.sessionId, p);
     console.log(`[room] join ${client.sessionId} (${p.name}). total=${this.state.players.size}`);
   }
@@ -583,16 +566,28 @@ export class ArenaRoom extends Room {
     return this.anyPlayerHasCard("FRENZY") ? (CARDS.FRENZY.spawnMul || 3) : 1;
   }
 
-  // Расчёт maxHp с учётом надетой пассивки
-  playerMaxHp(p) {
-    let hp = COMBAT.PLAYER_MAX_HP;
-    if (p.passiveItemId === "BLOODSTONE") hp += 2;
-    return hp;
+  combatPlayerCount() {
+    let n = 0;
+    this.state.players.forEach((p) => { if (!p.isGhost && p.hp > 0) n++; });
+    return Math.max(1, n);
   }
-  // Множитель урона (заклинаний) с учётом пассивки
+
+  dmul() {
+    return difficultyMul(this.state.runTimeSec, this.combatPlayerCount());
+  }
+
+  playerMaxHp(p) {
+    const lv = Math.max(1, p.survivorLevel || 1);
+    return Math.max(1, Math.round(
+      COMBAT.PLAYER_MAX_HP
+      + (lv - 1) * (RUN.HP_PER_LEVEL || 5)
+      + sumItemStat(p, "hp")
+    ));
+  }
+
   playerDamageMult(p) {
-    if (p.passiveItemId === "EMBER_SIGIL") return 1.5;
-    return 1;
+    const lv = Math.max(1, p.survivorLevel || 1);
+    return 1 + (lv - 1) * (RUN.DMG_PER_LEVEL || 0.02) + sumItemStat(p, "dmg");
   }
 
   nearestEnemy(origin, maxR, dir = null, minDot = null) {
@@ -734,16 +729,13 @@ export class ArenaRoom extends Room {
     }
     this.broadcast("fx", { type: "chain", color: spell.color, points: chain });
   }
-  // Надеть пассивку: первый надевается, последующие идут в itemsInBody (запас)
   equipItem(p, itemId) {
-    if (!itemId) return;
-    if (!p.passiveItemId) {
-      p.passiveItemId = itemId;
-      p.maxHp = this.playerMaxHp(p);
-      p.hp = Math.min(p.maxHp, p.hp + (itemId === "BLOODSTONE" ? 2 : 0));
-    } else {
-      p.itemsInBody.push(itemId);
-    }
+    if (!itemId || !ITEMS_BY_ID[itemId]) return;
+    p.itemsInBody.push(itemId);
+    p.passiveItemId = p.itemsInBody[0] || itemId;
+    const prevMax = p.maxHp || COMBAT.PLAYER_MAX_HP;
+    p.maxHp = this.playerMaxHp(p);
+    p.hp = Math.min(p.maxHp, p.hp + Math.max(0, p.maxHp - prevMax));
   }
 
   onLeave(client) {
@@ -798,28 +790,14 @@ export class ArenaRoom extends Room {
   // и раскладываем в слоты/сундуки. Пассивку и HP сбрасываем; в хабе игрок голый и живой.
   autoDepositPlayerInventory() {
     this.state.players.forEach(p => {
-      if (p.hasLeftHand) {
-        this.depositToHub("HAND", p.leftHandType, "");
-        p.hasLeftHand = false; p.leftHandType = "";
-      }
-      if (p.hasRightHand) {
-        this.depositToHub("HAND", p.rightHandType, "");
-        p.hasRightHand = false; p.rightHandType = "";
-      }
-      while (p.hasLegs > 0) {
-        this.depositToHub("LEG", "", "");
-        p.hasLegs--;
-      }
       while (p.itemsInBody.length > 0) {
         const it = p.itemsInBody.pop();
         this.depositToHub("ITEM", "", it);
       }
-      if (p.passiveItemId) {
-        this.depositToHub("ITEM", "", p.passiveItemId);
-        p.passiveItemId = "";
-      }
-      // Оружие и карты остаются на игроке — это весь билд
-      p.maxHp = COMBAT.PLAYER_MAX_HP;
+      p.passiveItemId = "";
+      p.xp = 0;
+      p.survivorLevel = 1;
+      p.maxHp = this.playerMaxHp(p);
       p.hp = p.maxHp;
       p.isGhost = false;
     });
@@ -841,6 +819,8 @@ export class ArenaRoom extends Room {
       let placed = false;
       for (let i = 0; i < 10; i++) { if (!p.cards[i]) { p.cards[i] = cid; placed = true; break; } }
       if (!placed) p.backpack.push("CARD:" + cid);
+    } else if (kind === "ITEM") {
+      this.equipItem(p, itemId || handType);
     }
   }
 
@@ -849,31 +829,34 @@ export class ArenaRoom extends Room {
     // руки/предметы попадают в них только через забеги в арене.
   }
 
-  // Стартовые пикапы для АРЕНЫ: всегда минимум 1 HAND на команду
   spawnArenaPickups() {
     const R = WORLD.PICKUP_RING || 32;
-    const kinds = [
-      { kind: "CARD", handType: "ANGER" },
-      { kind: "CARD", handType: "FRENZY" },
-      { kind: "CARD", handType: "RAIN" },
-      { kind: "WEAPON", handType: "LIGHTNING_STAFF" },
-      { kind: "WEAPON", handType: "DAGGERS" },
-      { kind: "WEAPON", handType: "CIGARETTE" },
-    ];
-    for (let i = 0; i < kinds.length; i++) {
-      const a = (i / kinds.length) * Math.PI * 2;
-      const k = kinds[i];
+    const cost = chestGoldCost(this.state.runTimeSec);
+    const chests = 5;
+    for (let i = 0; i < chests; i++) {
+      const a = (i / chests) * Math.PI * 2;
+      const item = pickRandom(ITEMS);
       this.addPickup({
-        kind: k.kind, itemId: "", handType: k.handType,
+        kind: "CHEST", itemId: item.id, handType: "",
+        goldCost: cost,
         x: Math.cos(a) * R, y: 1.2, z: Math.sin(a) * R,
+      });
+    }
+    const cards = ["ANGER", "FRENZY", "RAIN"];
+    for (let i = 0; i < cards.length; i++) {
+      const a = ((i + 0.5) / cards.length) * Math.PI * 2;
+      this.addPickup({
+        kind: "CARD", itemId: "", handType: cards[i], goldCost: 0,
+        x: Math.cos(a) * (R * 0.55), y: 1.2, z: Math.sin(a) * (R * 0.55),
       });
     }
   }
 
-  addPickup({ kind, itemId, handType, x, y, z }) {
+  addPickup({ kind, itemId, handType, x, y, z, goldCost = 0 }) {
     const id = `p${++this.pickupSeq}`;
     const pk = new Pickup();
-    pk.kind = kind; pk.itemId = itemId; pk.handType = handType;
+    pk.kind = kind; pk.itemId = itemId || ""; pk.handType = handType || "";
+    pk.goldCost = goldCost || 0;
     pk.pos.x = x; pk.pos.y = y; pk.pos.z = z;
     this.state.pickups.set(id, pk);
     return id;
@@ -901,6 +884,7 @@ export class ArenaRoom extends Room {
   returnToHub() {
     const prev = this.state.phase;
     this.state.phase = "hub";
+    this.state.levelIndex = 0;
     this.resetArena();
     if (prev !== "hub") this.autoDepositPlayerInventory();
     this.clearRunEconomy();
@@ -913,27 +897,69 @@ export class ArenaRoom extends Room {
     this.state.players.forEach((p) => { p.gold = 0; });
   }
 
-  grantKillGold() {
-    const n = RUN.GOLD_PER_KILL || 8;
+  grantKillRewards() {
+    const gold = RUN.GOLD_PER_KILL || 8;
+    const xpGain = RUN.XP_PER_KILL || 12;
     this.state.players.forEach((p) => {
       if (p.isGhost || p.hp <= 0) return;
-      p.gold = (p.gold || 0) + n;
+      p.gold = (p.gold || 0) + gold;
+      this.grantXp(p, xpGain);
     });
+  }
+
+  grantXp(p, amount) {
+    if (!p || p.isGhost) return;
+    p.xp = (p.xp || 0) + amount;
+    const cap = RUN.LEVEL_CAP || 94;
+    while ((p.survivorLevel || 1) < cap) {
+      const need = xpToNextLevel(p.survivorLevel || 1);
+      if ((p.xp || 0) < need) break;
+      p.xp -= need;
+      p.survivorLevel = (p.survivorLevel || 1) + 1;
+      const prevMax = p.maxHp;
+      p.maxHp = this.playerMaxHp(p);
+      p.hp = Math.min(p.maxHp, (p.hp || 0) + Math.max(0, p.maxHp - prevMax));
+    }
   }
 
   enterArena() {
     if (this.state.phase === "arena" || this.state.phase === "portal_ready") return;
     this.state.phase = "arena";
+    this.state.levelIndex = 0;
+    this.clearRunEconomy();
     this.startArena();
     const s = this.arenaSpawn();
     this.teleportAllPlayers(s.x, s.y, s.z);
+  }
+
+  nextStage() {
+    if (this.state.phase !== "portal_ready") return;
+    const idx = this.state.levelIndex || 0;
+    const cur = LEVELS[idx] || LEVELS[0];
+    if (cur && cur.boss) {
+      const shards = RUN.LUNAR_SHARDS_BOSS || 1;
+      this.state.players.forEach((p) => { p.lunarShards = (p.lunarShards || 0) + shards; });
+      this.broadcast("chat", { name: "система", text: "Хозяин Ливня пал — лунный осколок в карман, возврат в лобби", id: "" });
+      this.returnToHub();
+      return;
+    }
+    this.state.levelIndex = Math.min(LEVELS.length - 1, idx + 1);
+    this.state.players.forEach((p) => { p.gold = 0; });
+    this.state.phase = "arena";
+    this.startArena();
+    const s = this.arenaSpawn();
+    this.teleportAllPlayers(s.x, s.y, s.z);
+    const L = LEVELS[this.state.levelIndex] || LEVELS[0];
+    this.broadcast("chat", { name: "система", text: `следующий этап: ${L.label}`, id: "" });
+    this.broadcast("fx", { type: "next_stage", levelIndex: this.state.levelIndex });
   }
 
   startArena() {
     this.state.wave = 1;
     this.state.portalCharge = 0;
     this.state.portalActive = false;
-    this.state.portalTarget = RUN.PORTAL_DEFEND_S || 90;
+    const L = LEVELS[this.state.levelIndex || 0];
+    this.state.portalTarget = (L && L.portalCharge) || RUN.PORTAL_DEFEND_S || 90;
     const minD = WORLD.PORTAL_DIST_MIN || 74;
     const maxD = WORLD.PORTAL_DIST_MAX || 90;
     const dist = minD + Math.random() * (maxD - minD);
@@ -950,6 +976,7 @@ export class ArenaRoom extends Room {
     this.state.aiNextWaveAt = 0;
     this.spawnWaveOfType("GROUND_CRAWLER", 3);
     this.spawnWaveOfType("CACO", 2);
+    if (L && L.boss) this.spawnColossus();
   }
 
   resetArena() {
@@ -1018,33 +1045,12 @@ export class ArenaRoom extends Room {
 
   spawnWave(waveNum, aggressive = false) {
     const frontAngle = this.getPlayerFrontAngle();
-    const mul = this.state.dbgSpawnMul == null ? 1 : this.state.dbgSpawnMul;
+    const mul = (this.state.dbgSpawnMul == null ? 1 : this.state.dbgSpawnMul) * this.cardSpawnMul();
     let base = Math.min(10, 3 + Math.floor(waveNum / 2));
     if (aggressive) base = Math.ceil(base * 1.5);
-    const count = Math.max(1, Math.round(base * mul));
-    // v0.0.3.0: только Cacodemon (в shared он = CACO); ground vs flying организуем позже
+    const count = Math.max(1, Math.round(base * mul * Math.min(2, this.dmul())));
     for (let i = 0; i < count; i++) {
       this.addEnemyAt("CACO", frontAngle + (Math.random() - 0.5) * Math.PI);
-    }
-    return;
-    /* eslint-disable no-unreachable */
-    for (let i = 0; i < count; i++) {
-      let type = "IMP";
-      const roll = Math.random();
-      if (waveNum >= 5) {
-        // Поздние волны: 25% IMP, 20% FLYER, 20% PINKY, 15% CACO, 15% BARON, 5% (второй PINKY)
-        if (roll < 0.25) type = "IMP";
-        else if (roll < 0.45) type = "FLYER";
-        else if (roll < 0.65) type = "PINKY";
-        else if (roll < 0.80) type = "CACO";
-        else if (roll < 0.95) type = "BARON";
-        else type = "PINKY";
-      } else if (waveNum >= 3) {
-        type = roll < 0.4 ? "IMP" : roll < 0.6 ? "FLYER" : roll < 0.8 ? "PINKY" : "CACO";
-      } else if (waveNum === 2) {
-        type = roll < 0.7 ? "IMP" : roll < 0.9 ? "FLYER" : "PINKY";
-      }
-      this.addEnemyAt(type, frontAngle + (Math.random() - 0.5) * Math.PI);
     }
   }
 
@@ -1064,7 +1070,7 @@ export class ArenaRoom extends Room {
       e.variant = v;
       baseHp = Math.round(baseHp * (vv.hpMul || 1));
     }
-    e.hp = Math.max(1, Math.round(baseHp * difficultyMul(this.state.runTimeSec)));
+    e.hp = Math.max(1, Math.round(baseHp * this.dmul()));
     e.maxHp = e.hp;
     e.spawnedAt = Date.now() / 1000;
     // v0.0.3.0: спавним врагов 40-80м от центра — в радиусе тумана, но видны
@@ -1129,7 +1135,7 @@ export class ArenaRoom extends Room {
       // v0.0.3.1: труп лежит CORPSE_LINGER_S сек (сносится в tick по corpseUntil)
       e.state = "dying";
       e.corpseUntil = Date.now() / 1000 + AI_DIRECTOR.CORPSE_LINGER_S;
-      this.grantKillGold();
+      this.grantKillRewards();
     }
   }
 
@@ -1175,6 +1181,7 @@ export class ArenaRoom extends Room {
     this.broadcast("chat", { name: "система", text: "команда пала — возврат в лобби", id: "" });
     this.broadcast("fx", { type: "wipe_hub" });
     this.state.phase = "hub";
+    this.state.levelIndex = 0;
     this.state.wave = 0;
     this.state.waveTimer = 0;
     this.state.portalActive = false;
@@ -1482,7 +1489,7 @@ export class ArenaRoom extends Room {
     const size = Math.round(
       (AI_DIRECTOR.WAVE_MIN_SIZE + Math.floor(Math.random() * (AI_DIRECTOR.WAVE_MAX_SIZE - AI_DIRECTOR.WAVE_MIN_SIZE + 1)))
       * this.cardSpawnMul()
-      * Math.min(2.4, difficultyMul(this.state.runTimeSec))
+      * Math.min(2.4, this.dmul())
     );
     // Группа спавнится вокруг общего угла (как в текущем коде)
     const frontAngle = this.getPlayerFrontAngle() + (Math.random() - 0.5) * 1.2;

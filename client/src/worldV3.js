@@ -6,7 +6,7 @@
 // - Спрайты-Cacodemon fake-3D
 
 import * as THREE from "three";
-import { WORLD } from "@mhfps/shared";
+import { WORLD, LEVELS } from "@mhfps/shared";
 import { createNetherPortal } from "./netherPortal.js";
 
 // Простая процедурная heightmap: несколько наложенных синусов.
@@ -19,20 +19,16 @@ export function terrainHeight(x, z) {
   return s1 + s2 + s3 + s4;
 }
 
-export function setupTerrainV3(group, levelIndex = 1) {
+export function setupTerrainV3(group, levelIndex = 0) {
   const R = WORLD.ARENA_RADIUS;
-
-  // ── Скайбокс: уровень 1 — чёрный, 2-5 планетарные темы ─────────────
-  const skyColor = levelIndex === 1 ? 0x2a1a28 : // v0.0.3.10: багровый сумрак вместо чёрного
-                   levelIndex === 2 ? 0x2a0a1a : // марс
-                   levelIndex === 3 ? 0x0a1a2a : // ледяная
-                   levelIndex === 4 ? 0x2a2a0a : // пустыня
-                                       0x1a002a;  // финал
+  const L = LEVELS[levelIndex] || LEVELS[0];
+  const skyColor = L.skyColor;
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(R * 3, 24, 12),
     new THREE.MeshBasicMaterial({ color: skyColor, side: THREE.BackSide })
   );
   group.add(dome);
+  group.userData.skyDome = dome;
 
   // ── Освещение: слабое, темно-магическое ─────────────────────────────
   const ambient = new THREE.AmbientLight(0xffdcc0, 1.1); // v0.0.3.10: ярче
@@ -51,11 +47,7 @@ export function setupTerrainV3(group, levelIndex = 1) {
   geo.rotateX(-Math.PI / 2);
 
   // Уровень 1 — чёрный пол. Дальше можно менять цвет по levelIndex.
-  const floorColor = levelIndex === 1 ? 0x4a3a30 : // v0.0.3.10: пепел вместо чёрного (сливался с куполом)
-                     levelIndex === 2 ? 0x3a1a10 :
-                     levelIndex === 3 ? 0x2a4050 :
-                     levelIndex === 4 ? 0x4a3a1a :
-                                         0x2a1a3a;
+  const floorColor = L.floorColor;
   const terrainMat = new THREE.MeshStandardMaterial({
     color: floorColor,
     roughness: 1.0,
@@ -69,7 +61,7 @@ export function setupTerrainV3(group, levelIndex = 1) {
 
   // ── Скалы (декор + укрытия) ────────────────────────────────────────
   const rockMat = new THREE.MeshStandardMaterial({
-    color: levelIndex === 1 ? 0x1a0a0a : 0x2a1a10,
+    color: L.floorColor,
     roughness: 1.0, flatShading: true,
   });
   for (let i = 0; i < 60; i++) {
@@ -125,4 +117,15 @@ export function setupTerrainV3(group, levelIndex = 1) {
   group.userData.portalPos = { x: portalDist, z: 0 };
 
   return group;
+}
+
+export function applyArenaTheme(group, levelIndex = 0) {
+  if (!group) return;
+  const L = LEVELS[levelIndex] || LEVELS[0];
+  if (group.userData.skyDome && group.userData.skyDome.material) {
+    group.userData.skyDome.material.color.setHex(L.skyColor);
+  }
+  if (group.userData.terrain && group.userData.terrain.material) {
+    group.userData.terrain.material.color.setHex(L.floorColor);
+  }
 }

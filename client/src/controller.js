@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { WORLD } from "@mhfps/shared";
+import { WORLD, sumItemStat } from "@mhfps/shared";
 
 // FPS controller: gravity + jump, no flight. Pointer-lock.
 const GRAVITY = 20;
@@ -96,10 +96,13 @@ export class FpsController {
     const mul = window.room?.state?.dbgSpeedMul;
     if (mul && mul !== 1) speed *= mul;
     // Карта FRENZY (надета) — ×2 к перемещению
-    if (myPlayer?.cards) {
-      const cards = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
+    const mp = (typeof window !== "undefined") ? window.myPlayer : null;
+    if (mp?.cards) {
+      const cards = mp.cards.toArray ? mp.cards.toArray() : [...mp.cards];
       if (cards.includes("FRENZY")) speed *= 2;
     }
+    const moveBonus = sumItemStat(mp, "move");
+    if (moveBonus) speed *= 1 + moveBonus;
     this.dashCd = Math.max(0, this.dashCd - dt);
 
     this.vel.x = move.x * speed;
