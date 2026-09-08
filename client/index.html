@@ -17,6 +17,7 @@
     body:not(.in-game) #cardHud,
     body:not(.in-game) #wpnCdHud,
     body:not(.in-game) #fpsHud,
+    body:not(.in-game) #weaponHud,
     body:not(.in-game) #blockHud { display: none !important; }
     #menu {
       position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -80,11 +81,16 @@
       font-family: inherit; font-size: 11px; font-weight: bold; color: #fff; text-shadow: 0 0 3px #000; }
     #cardHud { left: 16px !important; bottom: 92px !important; }
     #wpnCdHud { left: 16px !important; bottom: 42px !important; }
-    #wpnCdHud, #fpsHud { pointer-events: none; }
+    #wpnCdHud, #fpsHud, #weaponHud { pointer-events: none; }
     #fpsHud {
-      left: 50% !important; right: auto !important; bottom: 0 !important;
-      width: min(90vw, 860px) !important; height: min(56vh, 620px) !important;
+      left: 50% !important; right: auto !important; bottom: -4% !important;
+      width: min(46vw, 420px) !important; height: min(34vh, 300px) !important;
       transform: translateX(-50%);
+      perspective: 720px;
+    }
+    #weaponHud {
+      right: 2.2vw !important; bottom: 1.6vh !important; left: auto !important;
+      height: min(32vh, 280px) !important; max-width: min(28vw, 240px);
     }
     #loadoutPanel { width: min(960px, 94vw) !important; height: min(640px, 88vh) !important; overflow: auto; }
     #chestPanel { width: min(900px, 94vw) !important; max-height: min(640px, 88vh) !important; overflow: auto; }

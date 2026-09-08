@@ -38,21 +38,18 @@ dmgOverlay.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:1
 document.body.appendChild(dmgOverlay);
 let dmgAngle = 0, dmgTimer = 0;
 
-// Рука — отдельный спрайт, всегда на экране. Оружие — оверлей сверху.
-// Размер через vmin + px-кэп: на маленьком ноутбуке при 100% zoom рука не
-// перекрывает кадр (старый sword-hand.png был огромным padded-холстом +
-// bob-transform сбрасывал translateX(-50%)).
-// Devil Daggers viewmodel: крупная рука из низа по центру, запястье
-// упирается в край экрана (без «пропасти»). Боб — внутри спрайта.
+// Рука — ниже центра, наклонена вперёд (меньше вертикали, запястье в кадре).
+// Оружие — отдельный спрайт справа снизу, не на гигантской ладони.
 const fpsHud = document.createElement("div");
 fpsHud.id = "fpsHud";
 fpsHud.style.cssText = [
-  "position:fixed", "left:50%", "right:auto", "bottom:0",
+  "position:fixed", "left:50%", "right:auto", "bottom:-4%",
   "transform:translateX(-50%)",
-  "width:min(90vw, 860px)",
-  "height:min(56vh, 620px)",
+  "width:min(46vw, 420px)",
+  "height:min(34vh, 300px)",
   "overflow:visible",
   "pointer-events:none", "z-index:12",
+  "perspective:720px",
   "transform-origin:50% 100%",
 ].join(";");
 const handHud = document.createElement("img");
@@ -60,25 +57,28 @@ const weaponHud = document.createElement("img");
 handHud.draggable = false;
 weaponHud.draggable = false;
 handHud.style.cssText = [
-  "position:absolute", "left:50%", "bottom:-12%",
-  "transform:translateX(-50%)",
-  "height:108%", "width:auto", "max-width:none",
+  "position:absolute", "left:50%", "bottom:-6%",
+  "transform:translateX(-50%) rotateX(-34deg)",
+  "transform-origin:50% 100%",
+  "height:118%", "width:auto", "max-width:none",
   "object-fit:contain", "object-position:center bottom",
   "user-select:none", "image-rendering:pixelated",
-  "filter:drop-shadow(0 -12px 20px rgba(0,0,0,0.75))",
+  "filter:drop-shadow(0 -10px 16px rgba(0,0,0,0.7))",
 ].join(";");
+weaponHud.id = "weaponHud";
 weaponHud.style.cssText = [
-  "position:absolute", "left:51%", "bottom:18%",
-  "transform:translateX(-50%)",
-  "height:46%", "width:auto", "max-width:none",
+  "position:fixed", "right:2.2vw", "bottom:1.6vh", "left:auto",
+  "transform:none",
+  "height:min(32vh, 280px)", "width:auto", "max-width:min(28vw, 240px)",
   "object-fit:contain", "user-select:none",
-  "filter:drop-shadow(0 -6px 10px rgba(0,0,0,0.4))",
+  "pointer-events:none", "z-index:13",
+  "filter:drop-shadow(0 6px 14px rgba(0,0,0,0.55))",
 ].join(";");
 handHud.src = HAND_SPRITE;
 weaponHud.src = hudSprite("sword");
 fpsHud.appendChild(handHud);
-fpsHud.appendChild(weaponHud);
 document.body.appendChild(fpsHud);
+document.body.appendChild(weaponHud);
 let swordBob = 0, viewKick = 0;
 let localBlockHp = 0, shieldGraceUntil = 0;
 function triggerSwordSwing() { viewKick = 1; }
@@ -952,11 +952,15 @@ function layoutHudScale() {
   const insetBottom = vv ? Math.max(0, window.innerHeight - vv.offsetTop - vv.height) : 0;
   fpsHud.style.left = "50%";
   fpsHud.style.right = "auto";
-  fpsHud.style.bottom = insetBottom + "px";
-  fpsHud.style.width = "min(90vw, 860px)";
-  fpsHud.style.height = "min(56vh, 620px)";
+  fpsHud.style.bottom = `calc(-4% + ${insetBottom}px)`;
+  fpsHud.style.width = "min(46vw, 420px)";
+  fpsHud.style.height = "min(34vh, 300px)";
   fpsHud.style.transformOrigin = "50% 100%";
   fpsHud.style.transform = "translateX(-50%)";
+  fpsHud.style.perspective = "720px";
+  weaponHud.style.right = "2.2vw";
+  weaponHud.style.bottom = `calc(1.6vh + ${insetBottom}px)`;
+  weaponHud.style.left = "auto";
   wpnCdHud.style.left = "16px";
   wpnCdHud.style.bottom = (42 + insetBottom) + "px";
   cardHud.style.left = "16px";
@@ -1669,6 +1673,7 @@ function setupRoomHandlers() {
     if (!v) return;
     if (!force && v === appliedPhase) return;
     const first = appliedPhase == null;
+    const prev = appliedPhase;
     appliedPhase = v;
     hubGroup.visible = v === "hub";
     arenaGroup.visible = v !== "hub";
@@ -1679,9 +1684,15 @@ function setupRoomHandlers() {
       playSound("teleport");
       flashTeleport();
     }
-    if (v === "arena") controller.setPosition(0, 2, 0);
-    if (v === "hub") {
-      controller.setPosition(0, 2, WORLD.HUB_RADIUS * 0.25);
+    const toHub = v === "hub" && (force || prev !== "hub");
+    const toArena = v === "arena" && (force || prev === "hub" || prev == null);
+    if (toArena) {
+      controller.setPosition(0, 1.6, 0);
+      portalGraceUntil = performance.now() + 2500;
+    }
+    if (toHub) {
+      controller.setPosition(0, 1.6, WORLD.HUB_RADIUS * 0.25);
+      portalGraceUntil = performance.now() + 2500;
       deadHud.classList.remove("on");
       deathTimer = 0;
     }
@@ -1824,6 +1835,13 @@ function setupRoomHandlers() {
     }
     else if (msg.type === "wipe_hub") {
       applyPhase("hub", true);
+    }
+    else if (msg.type === "phase_teleport") {
+      if (msg.x != null && msg.z != null) {
+        controller.setPosition(msg.x, msg.y != null ? msg.y : 1.6, msg.z);
+        portalGraceUntil = performance.now() + 2500;
+      }
+      if (msg.phase) applyPhase(msg.phase, true);
     }
     else if (msg.type === "death" && msg.target === selfId) {
       deadHud.classList.add("on");
@@ -2113,10 +2131,16 @@ let prevControllerPos = new THREE.Vector3();
 let portalHoldTime = 0;
 let lastPortalKind = null;
 let portalPendingPhase = null;
+let portalGraceUntil = 0;
 const PORTAL_HOLD_S = WORLD.PORTAL_HOLD_S || 1.5;
 function handlePortalTriggers(dt) {
   if (!room || !myPlayer) return;
   const cur = room.state.phase;
+  if (performance.now() < portalGraceUntil) {
+    portalHoldTime = 0;
+    lastPortalKind = null;
+    return;
+  }
   if (portalPendingPhase) {
     if (cur === portalPendingPhase) { portalPendingPhase = null; portalHoldTime = 0; }
     hintText.style.opacity = 0;
@@ -2125,18 +2149,18 @@ function handlePortalTriggers(dt) {
   const p = controller.position;
   const hubP = hubGroup.userData.hubPortal;
   const arenaP = arenaGroup.userData.portal;
-  let inside = false, near = false, ready = false, msg = null, target = null, mesh = null;
+  let inside = false, near = false, ready = false, goHub = false, goArena = false, target = null, mesh = null;
   if (cur === "hub") {
     mesh = hubP;
     inside = playerInsidePortal(hubP, p.x, p.y, p.z);
     near = playerNearPortal(hubP, p.x, p.z, 6);
-    if (inside) { ready = true; msg = { phase: "arena" }; target = "hub"; }
+    if (inside) { ready = true; goArena = true; target = "hub"; }
   } else {
     mesh = arenaP;
     inside = playerInsidePortal(arenaP, p.x, p.y, p.z);
     near = playerNearPortal(arenaP, p.x, p.z, 6);
     if (inside || near) target = "arena";
-    if (inside && cur === "portal_ready") { ready = true; msg = { phase: "hub" }; }
+    if (inside && cur === "portal_ready") { ready = true; goHub = true; }
   }
   if (inside && ready) {
     if (lastPortalKind !== target) { portalHoldTime = 0; lastPortalKind = target; }
@@ -2149,10 +2173,16 @@ function handlePortalTriggers(dt) {
     if (portalHoldTime >= PORTAL_HOLD_S) {
       flashTeleport();
       playSound("teleport");
-      room.send("phase", msg);
-      portalPendingPhase = msg.phase;
+      if (goHub) {
+        room.send("return_hub");
+        portalPendingPhase = "hub";
+      } else if (goArena) {
+        room.send("enter_arena");
+        portalPendingPhase = "arena";
+      }
       portalHoldTime = 0;
       lastPortalKind = null;
+      portalGraceUntil = performance.now() + 2500;
       hintText.textContent = "телепортация…";
       hintText.style.opacity = 1;
       hintTimer = 2.0;
@@ -2708,8 +2738,18 @@ function animate() {
     hubChestMeshes.forEach(g => setChestOpen(g, false, dt));
     if (openChestIndex >= 0) closeChestPanel();
   }
-  // TAB — живой рендер панели снаряжения
-  if (loadoutOpen) renderLoadoutPanel();
+  // TAB — обновлять сетку только при смене инвентаря (иначе DnD ломается каждый кадр)
+  if (loadoutOpen) {
+    const hpEl = document.getElementById("loadoutHp");
+    if (hpEl && myPlayer) hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • ПРИЗРАК" : "");
+    const cards = myPlayer && myPlayer.cards ? ((myPlayer.cards.toArray && myPlayer.cards.toArray()) || [...myPlayer.cards]) : [];
+    const bp = myPlayer && myPlayer.backpack ? ((myPlayer.backpack.toArray && myPlayer.backpack.toArray()) || [...myPlayer.backpack]) : [];
+    const sig = (myPlayer?.weaponSlot || "") + "|" + cards.join(",") + "|" + bp.join(",");
+    if (sig !== window.__loadoutSig) {
+      window.__loadoutSig = sig;
+      renderLoadoutPanel();
+    }
+  }
     // Алтарь-переработчик
     if (hubGroup.userData.hubAltar && room.state.hubReforgeSlots) {
       updateHubAltar(hubGroup.userData.hubAltar, [...room.state.hubReforgeSlots], tSec);
@@ -2777,10 +2817,11 @@ function animate() {
   // ── Анимация рук ─────────────────────────────────────
   animateHands(handsRoot, dt, { moving: moved });
 
-  // v0.0.3.16: рука всегда; оружие — оверлей; bob сохраняет центрирование
+  // рука — ниже и с перспективой; оружие отдельно справа снизу
   if (V3_MODE) {
     const inGame = menu.style.display === "none";
     fpsHud.style.display = inGame ? "block" : "none";
+    weaponHud.style.display = inGame ? "block" : "none";
     wpnCdHud.style.display = inGame ? "flex" : "none";
     const wdef = WEAPONS[myPlayer?.weaponSlot];
     if (handHud.dataset.src !== HAND_SPRITE) {
@@ -2799,17 +2840,17 @@ function animate() {
   if (V3_MODE && fpsHud.style.display !== "none") {
     const running = !!(controller.keys.ShiftLeft || controller.keys.ShiftRight);
     const spd = Math.hypot(controller.vel.x, controller.vel.z);
-    const walkAmp = moved ? (running ? 1.25 : 1) : 0.16;
+    const walkAmp = moved ? (running ? 1.0 : 0.75) : 0.12;
     swordBob += dt * (moved ? (7.4 + Math.min(7, spd * 0.4)) : 1.6);
     viewKick = Math.max(0, viewKick - dt * 7);
     const kick = viewKick * viewKick;
-    const bobX = Math.sin(swordBob) * 48 * walkAmp;
-    const bobY = (1 - Math.cos(swordBob * 2)) * 22 * walkAmp;
-    const plant = 6;
-    const strafe = ((controller.keys.KeyA ? 1 : 0) - (controller.keys.KeyD ? 1 : 0)) * (moved ? 18 : 0);
+    const bobX = Math.sin(swordBob) * 22 * walkAmp;
+    const bobY = (1 - Math.cos(swordBob * 2)) * 10 * walkAmp;
+    const plant = 4;
+    const strafe = ((controller.keys.KeyA ? 1 : 0) - (controller.keys.KeyD ? 1 : 0)) * (moved ? 10 : 0);
     fpsHud.style.transform = "translateX(-50%)";
-    handHud.style.transform = `translateX(calc(-50% + ${bobX + strafe}px)) translateY(${plant - bobY}px)`;
-    weaponHud.style.transform = `translateX(calc(-50% + ${bobX * 0.9 + strafe + kick * 8}px)) translateY(${-bobY * 0.85 + kick * 12}px)`;
+    handHud.style.transform = `translateX(calc(-50% + ${bobX + strafe}px)) translateY(${plant - bobY}px) rotateX(-34deg)`;
+    weaponHud.style.transform = `translate(${bobX * 0.25 + kick * 4}px, ${-bobY * 0.35 - kick * 10}px)`;
   }
   if (starShieldGroup) {
     const on = !!(myPlayer && (myPlayer.blockAbsorbLeft || 0) > 0);

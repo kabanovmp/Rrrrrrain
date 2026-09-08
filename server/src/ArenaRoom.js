@@ -34,9 +34,12 @@ export class ArenaRoom extends Room {
     this.onMessage("input", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
       if (!p) return;
-      if (typeof msg.x === "number") p.pos.x = msg.x;
-      if (typeof msg.y === "number") p.pos.y = msg.y;
-      if (typeof msg.z === "number") p.pos.z = msg.z;
+      const locked = p._posLockUntil && Date.now() < p._posLockUntil;
+      if (!locked) {
+        if (typeof msg.x === "number") p.pos.x = msg.x;
+        if (typeof msg.y === "number") p.pos.y = msg.y;
+        if (typeof msg.z === "number") p.pos.z = msg.z;
+      }
       if (typeof msg.yaw === "number") p.yaw = msg.yaw;
       if (typeof msg.pitch === "number") p.pitch = msg.pitch;
       p._lmbHeld = !!msg.lmbHeld;
@@ -328,6 +331,14 @@ export class ArenaRoom extends Room {
       if (msg.action === "killAllEnemies") {
         this.state.enemies.forEach(e => { if (e.alive) this.damageEnemy(e, 9999); });
       }
+      if (msg.action === "fillPortal") {
+        if (this.state.phase === "arena" || this.state.phase === "portal_ready") {
+          this.state.portalActive = true;
+          this.state.portalCharge = this.state.portalTarget;
+          this.state.phase = "portal_ready";
+          this.broadcast("fx", { type: "portal_ready" });
+        }
+      }
       if (msg.action === "giveHands") {
         const p = this.state.players.get(client.sessionId);
         if (p) { p.hasLeftHand = true; p.hasRightHand = true; p.leftHandType = "FIRE"; p.rightHandType = "ICE"; p.hasLegs = 2; }
@@ -370,8 +381,8 @@ export class ArenaRoom extends Room {
           pl.hp = pl.maxHp; pl.isGhost = false;
         });
       }
-      if (msg.action === "tpHub") { this.state.phase = "hub"; }
-      if (msg.action === "tpArena") { this.state.phase = "arena"; if (this.startArena) this.startArena(); }
+      if (msg.action === "tpHub") this.returnToHub();
+      if (msg.action === "tpArena") this.enterArena();
     });
 
     // ── HUB: взять из слота или сундука ─────────────────────
@@ -447,15 +458,7 @@ export class ArenaRoom extends Room {
     // v0.0.3.4: HUB — уйти на арену через кровать сна
     this.onMessage("hub_go_arena", (client) => {
       if (this.state.phase !== "hub") return;
-      this.state.phase = "arena";
-      if (this.startArena) this.startArena();
-      // телепортируем всех на арену (спавн в центре)
-      this.state.players.forEach(p => {
-        p.pos.x = (Math.random() - 0.5) * 4;
-        p.pos.y = 1.6;
-        p.pos.z = (Math.random() - 0.5) * 4;
-      });
-      this.broadcast("fx", { type: "phase", to: "arena" });
+      this.enterArena();
     });
 
     // v0.0.3.4: HUB — положить в СУНДУК (общий для лобби) ─────────────────
@@ -533,17 +536,11 @@ export class ArenaRoom extends Room {
     });
 
     this.onMessage("phase", (_c, msg) => {
-      if (msg.phase === "arena" || msg.phase === "hub" || msg.phase === "portal_ready") {
-        const prev = this.state.phase;
-        this.state.phase = msg.phase;
-        if (msg.phase === "arena") this.startArena();
-        if (msg.phase === "hub") {
-          this.resetArena();
-          // При возврате в хаб — авто-депозит всего, что игроки держат в руках (кроме первой пары)
-          if (prev !== "hub") this.autoDepositPlayerInventory();
-        }
-      }
+      if (msg?.phase === "hub") this.returnToHub();
+      else if (msg?.phase === "arena") this.enterArena();
     });
+    this.onMessage("return_hub", () => this.returnToHub());
+    this.onMessage("enter_arena", () => this.enterArena());
   }
 
   onJoin(client, opts) {
@@ -889,6 +886,42 @@ export class ArenaRoom extends Room {
     return id;
   }
 
+  hubSpawn() {
+    return { x: 0, y: 1.6, z: WORLD.HUB_RADIUS * 0.25 };
+  }
+
+  arenaSpawn() {
+    return { x: 0, y: 1.6, z: 0 };
+  }
+
+  teleportAllPlayers(x, y, z) {
+    const until = Date.now() + 2200;
+    this.state.players.forEach((p) => {
+      p.pos.x = x;
+      p.pos.y = y;
+      p.pos.z = z;
+      p._posLockUntil = until;
+    });
+    this.broadcast("fx", { type: "phase_teleport", phase: this.state.phase, x, y, z });
+  }
+
+  returnToHub() {
+    const prev = this.state.phase;
+    this.state.phase = "hub";
+    this.resetArena();
+    if (prev !== "hub") this.autoDepositPlayerInventory();
+    const s = this.hubSpawn();
+    this.teleportAllPlayers(s.x, s.y, s.z);
+  }
+
+  enterArena() {
+    if (this.state.phase === "arena" || this.state.phase === "portal_ready") return;
+    this.state.phase = "arena";
+    this.startArena();
+    const s = this.arenaSpawn();
+    this.teleportAllPlayers(s.x, s.y, s.z);
+  }
+
   startArena() {
     this.state.wave = 1;
     this.state.portalCharge = 0;
@@ -908,6 +941,7 @@ export class ArenaRoom extends Room {
     this.state.aiBudget = AI_DIRECTOR.BUDGET_START;
     this.state.aiNextWaveAt = 0;
     this.spawnWaveOfType("GROUND_CRAWLER", 3);
+    this.spawnWaveOfType("CACO", 2);
   }
 
   resetArena() {
@@ -1140,13 +1174,16 @@ export class ArenaRoom extends Room {
     this.projectiles.length = 0;
     this.state.pickups.clear();
     if (prev !== "hub") this.autoDepositPlayerInventory();
+    const s = this.hubSpawn();
     this.state.players.forEach((pl, sid) => {
       pl.isGhost = false;
       pl.maxHp = this.playerMaxHp(pl);
       pl.hp = pl.maxHp;
-      pl.pos.x = 0; pl.pos.y = 1.6; pl.pos.z = 0;
-      this.broadcast("fx", { type: "respawn", target: sid });
+      pl.pos.x = s.x; pl.pos.y = s.y; pl.pos.z = s.z;
+      pl._posLockUntil = Date.now() + 2200;
+      this.broadcast("fx", { type: "respawn", target: sid, x: s.x, y: s.y, z: s.z });
     });
+    this.broadcast("fx", { type: "phase_teleport", phase: "hub", x: s.x, y: s.y, z: s.z });
   }
 
   tick(dt) {
@@ -1404,8 +1441,8 @@ export class ArenaRoom extends Room {
     this.tickMeteorRain(dt);
 
     // ── v0.0.3.1: AI Director — бюджет-based спавн волнами ───────────
-    if (this.state.phase === "arena") {
-      // Регенерация бюджета
+    if (this.state.phase === "arena" || this.state.phase === "portal_ready") {
+      // Регенерация бюджета — волны и атаки не останавливаются, пока портал заряжен
       this.state.aiBudget = Math.min(AI_DIRECTOR.BUDGET_START,
         (this.state.aiBudget || 0) + AI_DIRECTOR.BUDGET_REGEN_PER_SEC * dt);
       let aliveCount = 0;
@@ -1430,10 +1467,11 @@ export class ArenaRoom extends Room {
     );
     // Группа спавнится вокруг общего угла (как в текущем коде)
     const frontAngle = this.getPlayerFrontAngle() + (Math.random() - 0.5) * 1.2;
-    // Строим список кандидатов: большая вероятность для Ground Crawler, в меньшей Cacodemon shooter
-    // v0.0.3.4: только ЗЕМНОЙ враг по ТЗ. Летающие убраны.
+    // Земля + летающие стрелки (CACO / FLYING_SHOOTER) — и в arena, и в portal_ready
     const pool = [
-      { id: "GROUND_CRAWLER", w: 1.0 },
+      { id: "GROUND_CRAWLER", w: 0.42 },
+      { id: "CACO", w: 0.33 },
+      { id: "FLYING_SHOOTER", w: 0.25 },
     ];
     for (let i = 0; i < size; i++) {
       const roll = Math.random();

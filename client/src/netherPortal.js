@@ -262,8 +262,10 @@ export function isInsideNetherPortal(group, x, y, z) {
     && Math.abs(_local.z) < 1.25;
 }
 
+const _nearWorld = new THREE.Vector3();
 export function nearNetherPortal(group, x, z, range = 5) {
   if (!group) return false;
-  const dx = x - group.position.x, dz = z - group.position.z;
+  group.getWorldPosition(_nearWorld);
+  const dx = x - _nearWorld.x, dz = z - _nearWorld.z;
   return dx * dx + dz * dz <= range * range;
 }
