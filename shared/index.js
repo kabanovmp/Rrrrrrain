@@ -206,7 +206,7 @@ export const ENEMY_TYPES = {
   CACO:      { id: "CACO",      hp: 2, speed: 3.5, size: 1.2,  scale: 3.0,  damage: 1, sprite: "caco",      colorTint: 0xffffff, flying: true   },
   BARON:     { id: "BARON",     hp: 4, speed: 3.0, size: 2.0,  scale: 4.5,  damage: 1, sprite: "baron",     colorTint: 0xffffff, hidden: true },
   FLYER:     { id: "FLYER",     hp: 1, speed: 4.5, size: 0.9,  scale: 2.4,  damage: 1, sprite: "caco",      colorTint: 0xffee88, flying: true, hidden: true   },
-  COLOSSUS:  { id: "COLOSSUS",  hp: 10, speed: 1.2, size: 8.0, scale: 30.0, damage: 1, sprite: "colossus",  colorTint: 0xffffff, boss: true     },
+  COLOSSUS:  { id: "COLOSSUS",  hp: 10, speed: 1.2, size: 8.0, scale: 6.5, damage: 1, sprite: "colossus",  colorTint: 0xffffff, boss: true     },
   // v0.0.3.1: Наземный вылазок — 5 процедурных вариаций (см. GROUND_CRAWLER_VARIANTS)
   GROUND_CRAWLER: {
     id: "GROUND_CRAWLER", hp: 22, speed: 4.2, size: 1.5, scale: 3.2, damage: 8,

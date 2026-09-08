@@ -617,13 +617,19 @@ function addChatMessage(name, text, self = false) {
 // ── ДЕБАГ-ПАНЕЛЬ ──────────────────────────────────────
 const debugPanel = document.getElementById("debug-panel");
 let debugOpen = false;
+let debugSyncing = false;
 function toggleDebugPanel() {
   debugOpen = !debugOpen;
   debugPanel.style.display = debugOpen ? "block" : "none";
-  if (debugOpen) { if (window.controller?.releasePointer) window.controller.releasePointer(); }
-  else { if (window.controller?.enable) window.controller.enable(); }
+  if (debugOpen) {
+    if (window.room?.state) syncDebugPanelFromState(window.room.state);
+    if (window.controller?.releasePointer) window.controller.releasePointer();
+  } else {
+    if (window.controller?.enable) window.controller.enable();
+  }
 }
 function sendDebug(payload) {
+  if (debugSyncing) return;
   if (window.room) window.room.send("debug", payload);
 }
 // Привязка обработчиков (после DOMContentLoaded — но HTML уже в памяти)
@@ -788,12 +794,18 @@ function updateCooldownHud() {
 }
 // Синхронизация панели с серверным состоянием (вызвать после подключения)
 function syncDebugPanelFromState(state) {
-  const g = document.getElementById("dbg-god"); if (g) g.checked = !!state.dbgGodMode;
-  const a = document.getElementById("dbg-ammo"); if (a) a.checked = !!state.dbgInfiniteAmmo;
-  const sp = document.getElementById("dbg-speed"); if (sp && state.dbgSpeedMul) { sp.value = state.dbgSpeedMul; document.getElementById("dbg-speed-v").textContent = state.dbgSpeedMul; }
-  const dm = document.getElementById("dbg-dmg"); if (dm && state.dbgDamageMul) { dm.value = state.dbgDamageMul; document.getElementById("dbg-dmg-v").textContent = state.dbgDamageMul; }
-  const sw = document.getElementById("dbg-spawn"); if (sw && state.dbgSpawnMul != null) { sw.value = state.dbgSpawnMul; document.getElementById("dbg-spawn-v").textContent = state.dbgSpawnMul; }
-  const fl = document.getElementById("dbg-fly"); if (fl) fl.checked = !!state.dbgFly;
+  if (!state) return;
+  debugSyncing = true;
+  try {
+    const g = document.getElementById("dbg-god"); if (g) g.checked = !!state.dbgGodMode;
+    const a = document.getElementById("dbg-ammo"); if (a) a.checked = !!state.dbgInfiniteAmmo;
+    const sp = document.getElementById("dbg-speed"); if (sp && state.dbgSpeedMul) { sp.value = state.dbgSpeedMul; const el = document.getElementById("dbg-speed-v"); if (el) el.textContent = state.dbgSpeedMul; }
+    const dm = document.getElementById("dbg-dmg"); if (dm && state.dbgDamageMul) { dm.value = state.dbgDamageMul; const el = document.getElementById("dbg-dmg-v"); if (el) el.textContent = state.dbgDamageMul; }
+    const sw = document.getElementById("dbg-spawn"); if (sw && state.dbgSpawnMul != null) { sw.value = state.dbgSpawnMul; const el = document.getElementById("dbg-spawn-v"); if (el) el.textContent = state.dbgSpawnMul; }
+    const fl = document.getElementById("dbg-fly"); if (fl) fl.checked = !!state.dbgFly;
+  } finally {
+    debugSyncing = false;
+  }
 }
 
 function escapeHtml(s) {
@@ -1506,8 +1518,6 @@ document.getElementById("play").addEventListener("click", async () => {
     window.room = room;
     // Панель синхронизируется при первом получении состояния
     room.onStateChange.once((state) => syncDebugPanelFromState(state));
-    // Обновления тоже маппать
-    room.onStateChange((state) => { if (!debugOpen) syncDebugPanelFromState(state); });
     selfId = room.sessionId;
     menu.style.display = "none";
     document.body.classList.add("in-game");
@@ -1610,7 +1620,7 @@ function setupRoomHandlers() {
       m = createCacodemonSprite();
       m.userData.cacoV3 = true;
       m.userData.flying = true;
-      const sc = ENEMY_TYPES[e.enemyType]?.scale || 3.45;
+      const sc = Math.min(8, ENEMY_TYPES[e.enemyType]?.scale || 3.45);
       m.scale.set(sc, sc, 1);
       if (m.userData.cacoAtlas) m.userData.cacoAtlas.baseScale = sc;
     } else {
@@ -2123,6 +2133,7 @@ document.addEventListener("keydown", (ev) => {
     }
   }
   if (ev.code === "KeyE") {
+    if (ev.repeat) return;
     // 1) На арене или в хабе — пикапы приоритетнее
     let bestId = null, bestD = Infinity;
     pickupMeshes.forEach((m, id) => {

@@ -29,7 +29,13 @@ export class ArenaRoom extends Room {
     this.setupHubStorage();
     this.state.phase = "hub";
     // Арену и врагов поднимаем только когда игроки выходят из хаба
-    this.setSimulationInterval(dt => this.tick(dt / 1000), TICK_MS);
+    this.setSimulationInterval(dt => {
+      try {
+        this.tick(dt / 1000);
+      } catch (err) {
+        console.error("[room] tick", err);
+      }
+    }, TICK_MS);
 
     this.onMessage("input", (client, msg) => {
       const p = this.state.players.get(client.sessionId);
@@ -356,14 +362,31 @@ export class ArenaRoom extends Room {
     this.onMessage("debug", (client, msg) => {
       if (!msg || typeof msg !== "object") return;
       const s = this.state;
-      if (typeof msg.god === "boolean") s.dbgGodMode = msg.god;
-      if (typeof msg.infAmmo === "boolean") s.dbgInfiniteAmmo = msg.infAmmo;
-      if (typeof msg.speedMul === "number") s.dbgSpeedMul = Math.max(0.1, Math.min(10, msg.speedMul));
-      if (typeof msg.damageMul === "number") s.dbgDamageMul = Math.max(0.1, Math.min(20, msg.damageMul));
-      if (typeof msg.spawnMul === "number") s.dbgSpawnMul = Math.max(0, Math.min(10, msg.spawnMul));
+      // Не пачкать схему, если значение то же: иначе каждый тик шлёт патч
+      // (клиент раньше синхронизировал чекбоксы из onStateChange → петля с бессмертием).
+      if (typeof msg.god === "boolean" && s.dbgGodMode !== msg.god) s.dbgGodMode = msg.god;
+      if (typeof msg.infAmmo === "boolean" && s.dbgInfiniteAmmo !== msg.infAmmo) s.dbgInfiniteAmmo = msg.infAmmo;
+      if (typeof msg.speedMul === "number") {
+        const v = Math.max(0.1, Math.min(10, msg.speedMul));
+        if (s.dbgSpeedMul !== v) s.dbgSpeedMul = v;
+      }
+      if (typeof msg.damageMul === "number") {
+        const v = Math.max(0.1, Math.min(20, msg.damageMul));
+        if (s.dbgDamageMul !== v) s.dbgDamageMul = v;
+      }
+      if (typeof msg.spawnMul === "number") {
+        const v = Math.max(0, Math.min(10, msg.spawnMul));
+        if (s.dbgSpawnMul !== v) s.dbgSpawnMul = v;
+      }
       // v0.0.3.1: дизеринг + урон активного оружия
-      if (typeof msg.dither === "number") s.dbgDither = Math.max(1, Math.min(10, msg.dither));
-      if (typeof msg.weaponDmgMul === "number") s.dbgWeaponDmgMul = Math.max(0.1, Math.min(20, msg.weaponDmgMul));
+      if (typeof msg.dither === "number") {
+        const v = Math.max(1, Math.min(10, msg.dither));
+        if (s.dbgDither !== v) s.dbgDither = v;
+      }
+      if (typeof msg.weaponDmgMul === "number") {
+        const v = Math.max(0.1, Math.min(20, msg.weaponDmgMul));
+        if (s.dbgWeaponDmgMul !== v) s.dbgWeaponDmgMul = v;
+      }
       if (msg.action === "respawn") {
         const p = this.state.players.get(client.sessionId);
         if (p) { p.maxHp = this.playerMaxHp(p); p.hp = p.maxHp; p.isGhost = false; p.pos.x = 0; p.pos.y = 1.6; p.pos.z = 0; this.broadcast("fx", { type: "respawn", target: client.sessionId }); }
@@ -386,7 +409,7 @@ export class ArenaRoom extends Room {
         const p = this.state.players.get(client.sessionId);
         if (p) { p.hasLeftHand = true; p.hasRightHand = true; p.leftHandType = "FIRE"; p.rightHandType = "ICE"; p.hasLegs = 2; }
       }
-      if (typeof msg.fly === "boolean") s.dbgFly = msg.fly;
+      if (typeof msg.fly === "boolean" && s.dbgFly !== msg.fly) s.dbgFly = msg.fly;
       if (msg.action === "givePassive") {
         const p = this.state.players.get(client.sessionId);
         if (p) this.equipItem(p, msg.itemId || "BLOODSTONE");
@@ -419,20 +442,24 @@ export class ArenaRoom extends Room {
 
     // ── HUB: взять из слота или сундука ─────────────────────
     this.onMessage("activate_portal", (client) => {
-      if (this.state.phase !== "arena") return;
-      if (this.state.portalActive) return;
-      const p0 = this.state.players.get(client.sessionId);
-      if (!p0 || p0.isGhost || p0.hp <= 0) return;
-      const dx = p0.pos.x - this.state.portalX;
-      const dz = p0.pos.z - this.state.portalZ;
-      if (dx * dx + dz * dz > PORTAL_INTERACT_RANGE * PORTAL_INTERACT_RANGE) return;
-      this.state.portalActive = true;
-      this.state.portalCharge = 0;
-      this.spawnWaveOfType("GROUND_CRAWLER", 6);
-      this.spawnWaveOfType("CACO", 3);
-      this.spawnColossus();
-      this.broadcast("fx", { type: "portal_activated", x: this.state.portalX, y: 0, z: this.state.portalZ });
-      this.broadcast("chat", { name: "система", text: "телепорт зажжён — держите зону 90 секунд, босс телепорта уже здесь", id: "" });
+      try {
+        if (this.state.phase !== "arena") return;
+        if (this.state.portalActive) return;
+        const p0 = this.state.players.get(client.sessionId);
+        if (!p0 || p0.isGhost || p0.hp <= 0) return;
+        const dx = p0.pos.x - this.state.portalX;
+        const dz = p0.pos.z - this.state.portalZ;
+        if (dx * dx + dz * dz > PORTAL_INTERACT_RANGE * PORTAL_INTERACT_RANGE) return;
+        this.state.portalActive = true;
+        this.state.portalCharge = 0;
+        this.spawnWaveOfType("GROUND_CRAWLER", 6);
+        this.spawnWaveOfType("CACO", 3);
+        this.spawnColossus();
+        this.broadcast("fx", { type: "portal_activated", x: this.state.portalX, y: 0, z: this.state.portalZ });
+        this.broadcast("chat", { name: "система", text: "телепорт зажжён — держите зону 90 секунд, босс телепорта уже здесь", id: "" });
+      } catch (err) {
+        console.error("[room] activate_portal", err);
+      }
     });
 
     this.onMessage("hub_take", (client, msg) => {
@@ -1477,6 +1504,7 @@ export class ArenaRoom extends Room {
         }
       }
       const t = ENEMY_TYPES[e.enemyType];
+      if (!t) return;
       let nearest = null, nd = Infinity, nid = "";
       this.state.players.forEach((p, sid) => {
         if (p.isGhost || p.hp <= 0) return;
