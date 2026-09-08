@@ -2409,7 +2409,7 @@ function handlePortalTriggers(dt) {
     mesh = hubP;
     inside = playerInsidePortal(hubP, p.x, p.y, p.z);
     near = playerNearPortal(hubP, p.x, p.z, 6);
-    if (inside) { ready = true; goPhase = "arena"; target = "hub"; }
+    if (inside || near) { ready = true; goPhase = "arena"; target = "hub"; }
   } else {
     mesh = arenaP;
     inside = playerInsidePortal(arenaP, p.x, p.y, p.z);
