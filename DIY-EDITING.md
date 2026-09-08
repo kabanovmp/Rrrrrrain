@@ -24,7 +24,9 @@ npm run build
 `shared/index.js` → `WEAPONS`, `CARDS`, `ITEMS`, `LEVELS`, `RUN`.
 Клиентские иконки: `client/src/weaponHud.js`, `client/src/pedestal.js`.
 
-## Лобби и арена
+## Камера
+
+Вид **от третьего лица** (`client/src/controller.js`, `WORLD.CAM_DIST`). Модель мага — `client/src/otherplayer.js`.
 
 Лобби: `client/src/world.js`. Арена/тема этапа: `client/src/worldV3.js` + `LEVELS`.
 Портал: `client/src/netherPortal.js`.

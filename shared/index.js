@@ -30,6 +30,9 @@ export const WORLD = {
   PORTAL_DIST_MIN: 74,
   PORTAL_DIST_MAX: 90,
   PORTAL_HOLD_S: 1.5,
+  CAM_DIST: 6.6,
+  CAM_SHOULDER: 1.05,
+  CAM_LIFT: 0.55,
 };
 
 /** Петля ливня — золото, XP, таймер сложности, оборона портала. */

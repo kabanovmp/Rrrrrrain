@@ -59,9 +59,9 @@ export class FpsController {
       // Нормализуем yaw в [-π, π] чтобы не накапливалась ошибка точности на больших числах
       if (this.yaw > Math.PI) this.yaw -= 2 * Math.PI;
       if (this.yaw < -Math.PI) this.yaw += 2 * Math.PI;
-      const lim = Math.PI / 2 - 0.05;
+      const lim = 1.15;
       if (this.pitch > lim) this.pitch = lim;
-      if (this.pitch < -lim) this.pitch = -lim;
+      if (this.pitch < -0.85) this.pitch = -0.85;
     });
   }
 
@@ -169,10 +169,19 @@ export class FpsController {
       this.grounded = true;
     }
 
-    this.camera.position.copy(this.position);
     this.camera.rotation.order = "YXZ";
     this.camera.rotation.y = this.yaw;
     this.camera.rotation.x = this.pitch;
-    this.camera.rotation.z = 0; // важно: если z случайно получит не-ноль, экран наклонится и прицел уедет
+    this.camera.rotation.z = 0;
+    const dist = WORLD.CAM_DIST || 6.6;
+    const shoulder = WORLD.CAM_SHOULDER || 1.05;
+    const lift = WORLD.CAM_LIFT || 0.55;
+    const cp = Math.cos(this.pitch);
+    const sp = Math.sin(this.pitch);
+    this.camera.position.set(
+      this.position.x + Math.sin(this.yaw) * cp * dist + Math.cos(this.yaw) * shoulder,
+      this.position.y + lift - sp * dist,
+      this.position.z + Math.cos(this.yaw) * cp * dist - Math.sin(this.yaw) * shoulder
+    );
   }
 }

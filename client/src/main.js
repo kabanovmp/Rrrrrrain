@@ -984,7 +984,7 @@ function fitToViewport() {
   const h = Math.max(1, Math.floor((vv && vv.height) || window.innerHeight));
   if (!w || !h) return;
   camera.aspect = w / h;
-  camera.fov = h < 700 ? 84 : (h < 850 ? 80 : (h < 980 ? 76 : 72));
+  camera.fov = h < 700 ? 62 : (h < 850 ? 58 : 55);
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   renderer.setSize(w, h, false);
@@ -1473,6 +1473,18 @@ function spawnWaveFx(x, y, z, r) {
 // ═══════════════════════════════════════════════════════════════════
 const controller = new FpsController(camera, canvas);
 window.controller = controller;
+let localHero = null;
+function syncLocalHero(dt) {
+  if (!localHero) {
+    localHero = createOtherPlayer("ты", 0);
+    if (localHero.userData.nameSprite) localHero.userData.nameSprite.visible = false;
+    scene.add(localHero);
+  }
+  localHero.position.set(controller.position.x, controller.position.y - 1.6, controller.position.z);
+  localHero.rotation.y = controller.yaw + Math.PI;
+  const moving = Math.hypot(controller.vel.x, controller.vel.z) > 0.35;
+  animateOtherPlayer(localHero, dt, moving);
+}
 
 // Надёжный выход из Pointer Lock — чтобы курсор не пропадал во всём браузере
 function safeExitPointerLock() {
@@ -1913,7 +1925,7 @@ canvas.addEventListener("mousedown", (ev) => {
     camera.updateMatrixWorld(true);
     const dir = new THREE.Vector3();
     camera.getWorldDirection(dir);
-    const origin = controller.position.clone().add(new THREE.Vector3(0, 0.4, 0));
+    const origin = controller.position.clone();
     sendInput();
     if (spell.isDaggerCharge) return;
     if (spell.isShield) { localBlockHp = 100; shieldGraceUntil = performance.now() + 1500; }
@@ -2605,6 +2617,7 @@ let fellFlashUntil = 0;
 function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   controller.update(dt, myPlayer);
+  syncLocalHero(dt);
 
   // v0.0.3.1: ПАДЕНИЕ С КРАЯ НА АРЕНЕ → сервер возвращает игрока на край с 5% HP
   if (room && myPlayer && room.state.phase === "arena") {
@@ -2893,38 +2906,9 @@ function animate() {
   // рука — ниже и с перспективой; оружие отдельно справа снизу
   if (V3_MODE) {
     const inGame = menu.style.display === "none";
-    fpsHud.style.display = inGame ? "block" : "none";
-    weaponHud.style.display = inGame ? "block" : "none";
+    fpsHud.style.display = "none";
+    weaponHud.style.display = "none";
     wpnCdHud.style.display = inGame ? "flex" : "none";
-    const wdef = WEAPONS[myPlayer?.weaponSlot];
-    if (handHud.dataset.src !== HAND_SPRITE) {
-      handHud.src = HAND_SPRITE;
-      handHud.dataset.src = HAND_SPRITE;
-    }
-    if (!wdef) weaponHud.style.opacity = "0";
-    else {
-      weaponHud.style.opacity = "1";
-      const kind = wdef.hud || "sword";
-      const extra = kind === "daggers" ? (myPlayer.daggerCount || 1) : 1;
-      const src = hudSprite(kind, extra);
-      if (weaponHud.dataset.src !== src) { weaponHud.src = src; weaponHud.dataset.src = src; }
-    }
-  }
-  if (V3_MODE && fpsHud.style.display !== "none") {
-    const running = !!(controller.keys.ShiftLeft || controller.keys.ShiftRight);
-    const spd = Math.hypot(controller.vel.x, controller.vel.z);
-    const walkAmp = moved ? (running ? 1.0 : 0.75) : 0.12;
-    swordBob += dt * (moved ? (7.4 + Math.min(7, spd * 0.4)) : 1.6);
-    viewKick = Math.max(0, viewKick - dt * 7);
-    const kick = viewKick * viewKick;
-    const bobX = Math.sin(swordBob) * 22 * walkAmp;
-    const bobY = (1 - Math.cos(swordBob * 2)) * 10 * walkAmp;
-    const plant = 4;
-    const strafe = ((controller.keys.KeyA ? 1 : 0) - (controller.keys.KeyD ? 1 : 0)) * (moved ? 10 : 0);
-    fpsHud.style.transform = "translateX(-50%) rotateX(-50deg)";
-    fpsHud.style.transformOrigin = "50% 100%";
-    handHud.style.transform = `translateX(calc(-50% + ${bobX + strafe}px)) translateY(${plant - bobY}px)`;
-    weaponHud.style.transform = `translate(${bobX * 0.25 + kick * 4}px, ${-bobY * 0.35 - kick * 10}px)`;
   }
   if (starShieldGroup) {
     const on = !!(myPlayer && (myPlayer.blockAbsorbLeft || 0) > 0);
