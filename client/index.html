@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-      <title>Rrrrrrain — v0.0.8.1</title>
+      <title>Rrrrrrain — v0.0.8.2</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #eee; font-family: 'Trebuchet MS', 'Segoe UI', sans-serif; }
@@ -11,7 +11,6 @@
     body.in-game #canvas { cursor: none; }
     body.in-game #menu { display: none !important; }
     body:not(.in-game) #hp-bar,
-    body:not(.in-game) #status,
     body:not(.in-game) #runHud,
     body:not(.in-game) #crosshair,
     body:not(.in-game) #radarHud,
@@ -175,7 +174,7 @@
   <style>.dbg-btn { background:#334; color:#dde; border:1px solid #556; padding:6px; cursor:pointer; font-size:11px; font-family:inherit; border-radius:3px; } .dbg-btn:hover { background:#445; }</style>
   <div id="menu">
     <h1>RRRRRRAIN</h1>
-      <p>кооп · третье лицо · pixel · v0.0.8.1</p>
+      <p>кооп · третье лицо · pixel · v0.0.8.2</p>
     <div class="row">
       <input id="name" placeholder="твоё имя" value="sgustok" maxlength="20" />
     </div>
@@ -188,8 +187,12 @@
     <div class="row">
       <button id="play">начать</button>
     </div>
-    <p style="margin-top:24px;max-width:520px;text-align:center;font-size:12px;line-height:1.6;">
-      WASD — движение · SPACE — прыжок · SHIFT — бег · CTRL — присед · ЛКМ/ПКМ — оружие · R — рывок · Q — аптечка · E — взять · L — Loop у портала · TAB — инвентарь · ESC — курсор
+    <p id="menu-error" style="color:#ff8866;min-height:1.2em;margin:4px 0 8px;max-width:520px;text-align:center;font-size:13px;"></p>
+    <p id="menu-hint" style="margin-top:12px;max-width:560px;text-align:center;font-size:12px;line-height:1.7;color:#cbbba8;">
+      WASD — движение · SPACE — прыжок · SHIFT — бег · CTRL — присед<br>
+      ЛКМ — основная атака · ПКМ — вторичная · R — рывок (utility)<br>
+      Q — аптечка · E — взаимодействие · L — Loop у готового портала<br>
+      TAB — инвентарь · СКМ — ping · ESC — курсор
     </p>
   </div>
   <script type="module" src="/src/main.js"></script>
