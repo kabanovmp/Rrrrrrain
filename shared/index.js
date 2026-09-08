@@ -329,7 +329,7 @@ export const EQUIPMENT = {
 export const EQUIPMENT_IDS = Object.keys(EQUIPMENT);
 
 export const LEVELS = [
-  { id: "L1", label: "Морось на костях",     skyColor: 0x1a1220, floorColor: 0x3a322c, portalCharge: 90 },
+  { id: "L1", label: "Морось на костях",     skyColor: 0x2a2238, floorColor: 0x4a4038, portalCharge: 90 },
   { id: "L2", label: "Ливень пепла",         skyColor: 0x2a1018, floorColor: 0x4a2418, portalCharge: 90 },
   { id: "L3", label: "Стеклянный град",      skyColor: 0x102028, floorColor: 0x2a4050, portalCharge: 90 },
   { id: "L4", label: "Золотая жила ливня",   skyColor: 0x241808, floorColor: 0x4a3a18, portalCharge: 90 },

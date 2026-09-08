@@ -2454,6 +2454,7 @@ function handlePortalTriggers(dt) {
       else hintText.textContent = "удержи — следующий этап · [G] лобби";
     } else if (cur === "bazaar") {
       hintText.textContent = "Базар Ньюта · удержи портал чтобы вернуться";
+    } else if (cur === "hub") {
       hintText.textContent = inside ? "стой в портале — переход на арену" : "войди в фиолетовую рамку";
     } else {
       hintText.textContent = "портал ещё не заряжен";
