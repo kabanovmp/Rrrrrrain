@@ -270,6 +270,9 @@ export const ITEMS = [
   { id: "EMBER_SIGIL", rarity: "white", name: "Сигил углей",     effect: "+12% урон / стак", color: 0xf0f0f0, glyph: "✦", dmg: 0.12 },
   { id: "STORM_LINK",  rarity: "green", name: "Цепь ливня",      effect: "+8% урон и +6 HP / стак", color: 0x44cc66, glyph: "⛓", hp: 6, dmg: 0.08 },
   { id: "CRIMSON_PACT", rarity: "red",  name: "Багровый пакт",   effect: "+25% урон и +20 HP / стак", color: 0xee3030, glyph: "☠", hp: 20, dmg: 0.25 },
+  { id: "SCRAP_WHITE", rarity: "white", name: "Лом",            effect: "материал для принтера", color: 0xb8b8b8, glyph: "▣", scrap: true },
+  { id: "SCRAP_GREEN", rarity: "green", name: "Лом+",           effect: "материал для принтера", color: 0x66dd88, glyph: "▣", scrap: true },
+  { id: "SCRAP_RED",   rarity: "red",   name: "Лом++",          effect: "материал для принтера", color: 0xee5555, glyph: "▣", scrap: true },
 ];
 export const ITEMS_BY_ID = Object.fromEntries(ITEMS.map(i => [i.id, i]));
 
@@ -293,6 +296,12 @@ export function sumItemStat(p, key) {
     if (it && typeof it[key] === "number") s += it[key];
   }
   return s;
+}
+
+export function scrapIdForRarity(rarity) {
+  if (rarity === "green") return "SCRAP_GREEN";
+  if (rarity === "red") return "SCRAP_RED";
+  return "SCRAP_WHITE";
 }
 
 export function stackedPassives(p) {
