@@ -2139,7 +2139,17 @@ let portalHoldTime = 0;
 let lastPortalKind = null;
 let portalPendingPhase = null;
 let portalGraceUntil = 0;
+let portalPendingAt = 0;
 const PORTAL_HOLD_S = WORLD.PORTAL_HOLD_S || 1.5;
+const PORTAL_PENDING_MS = 5000;
+function sendPortalPhase(phase) {
+  if (!phase) return;
+  room.send("phase", { phase });
+  if (phase === "arena") room.send("enter_arena");
+  else if (phase === "hub") room.send("return_hub");
+  portalPendingPhase = phase;
+  portalPendingAt = performance.now();
+}
 function handlePortalTriggers(dt) {
   if (!room || !myPlayer) return;
   const cur = room.state.phase;
@@ -2149,25 +2159,30 @@ function handlePortalTriggers(dt) {
     return;
   }
   if (portalPendingPhase) {
-    if (cur === portalPendingPhase) { portalPendingPhase = null; portalHoldTime = 0; }
-    hintText.style.opacity = 0;
-    return;
+    if (cur === portalPendingPhase || performance.now() - portalPendingAt > PORTAL_PENDING_MS) {
+      portalPendingPhase = null;
+      portalHoldTime = 0;
+    }
+    if (portalPendingPhase) {
+      hintText.style.opacity = 0;
+      return;
+    }
   }
   const p = controller.position;
   const hubP = hubGroup.userData.hubPortal;
   const arenaP = arenaGroup.userData.portal;
-  let inside = false, near = false, ready = false, goHub = false, goArena = false, target = null, mesh = null;
+  let inside = false, near = false, ready = false, target = null, mesh = null, goPhase = null;
   if (cur === "hub") {
     mesh = hubP;
     inside = playerInsidePortal(hubP, p.x, p.y, p.z);
     near = playerNearPortal(hubP, p.x, p.z, 6);
-    if (inside) { ready = true; goArena = true; target = "hub"; }
+    if (inside) { ready = true; goPhase = "arena"; target = "hub"; }
   } else {
     mesh = arenaP;
     inside = playerInsidePortal(arenaP, p.x, p.y, p.z);
     near = playerNearPortal(arenaP, p.x, p.z, 6);
     if (inside || near) target = "arena";
-    if ((inside || near) && cur === "portal_ready") { ready = true; goHub = true; }
+    if ((inside || near) && cur === "portal_ready") { ready = true; goPhase = "hub"; }
   }
   if (ready) {
     if (lastPortalKind !== target) { portalHoldTime = 0; lastPortalKind = target; }
@@ -2180,13 +2195,7 @@ function handlePortalTriggers(dt) {
     if (portalHoldTime >= PORTAL_HOLD_S) {
       flashTeleport();
       playSound("teleport");
-      if (goHub) {
-        room.send("return_hub");
-        portalPendingPhase = "hub";
-      } else if (goArena) {
-        room.send("enter_arena");
-        portalPendingPhase = "arena";
-      }
+      sendPortalPhase(goPhase);
       portalHoldTime = 0;
       lastPortalKind = null;
       portalGraceUntil = performance.now() + 2500;

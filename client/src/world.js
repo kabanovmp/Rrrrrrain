@@ -87,8 +87,8 @@ export function setupHub(group) {
   const hpR = WORLD.HUB_PORTAL_R || R * 0.90;
   const hpA = WORLD.HUB_PORTAL_ANG != null ? WORLD.HUB_PORTAL_ANG : Math.PI / 20;
   hubPortal.position.set(Math.cos(hpA) * hpR, 0, Math.sin(hpA) * hpR);
-  if (hpR > 1) hubPortal.lookAt(0, 0, 0);
   group.add(hubPortal);
+  if (hpR > 1) hubPortal.lookAt(0, 0, 0);
   group.userData.hubPortal = hubPortal;
 
   // Светящаяся метка над порталом

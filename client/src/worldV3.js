@@ -119,8 +119,8 @@ export function setupTerrainV3(group, levelIndex = 1) {
   const portalDist = WORLD.PORTAL_DIST || 82;
   const portalGroup = createNetherPortal({ scale: 1.45, lit: true });
   portalGroup.position.set(portalDist, 0, 0);
-  if (portalDist > 1) portalGroup.lookAt(0, 0, 0);
   group.add(portalGroup);
+  if (portalDist > 1) portalGroup.lookAt(0, 0, 0);
   group.userData.portal = portalGroup;
   group.userData.portalPos = { x: portalDist, z: 0 };
 
