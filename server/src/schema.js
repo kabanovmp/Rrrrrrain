@@ -23,15 +23,15 @@ export class Player extends Schema {
     this.passiveItemId = "";
     this.name = "";
     // v0.0.3.1: активное оружие в руке + карты + рюкзак + Звёздный Блок
-    this.weaponSlot = "STAR_SWORD"; // id активного оружия
-    this.cards = new ArraySchema();      // 10 слотов, строки вида "ANGER" или ""
-    this.backpack = new ArraySchema();   // бесконечный скролл, строки вида "CARD:ANGER" | "WEAPON:STAR_SWORD"
+    this.weaponSlot = "";
+    this.cards = new ArraySchema();
+    this.backpack = new ArraySchema();
     this.blockActiveUntil = 0;
     this.blockAbsorbLeft = 0;
     this.blockCdUntil = 0;
     this.lmbCdUntil = 0;
     this.rmbCdUntil = 0;
-    this.daggerCount = 1;
+    this.specCdUntil = 0;
     this.gold = 0;
     this.xp = 0;
     this.survivorLevel = 1;
@@ -64,7 +64,7 @@ type("number")(Player.prototype, "blockAbsorbLeft");
 type("number")(Player.prototype, "blockCdUntil");
 type("number")(Player.prototype, "lmbCdUntil");
 type("number")(Player.prototype, "rmbCdUntil");
-type("number")(Player.prototype, "daggerCount");
+type("number")(Player.prototype, "specCdUntil");
 type("number")(Player.prototype, "gold");
 type("number")(Player.prototype, "xp");
 type("number")(Player.prototype, "survivorLevel");

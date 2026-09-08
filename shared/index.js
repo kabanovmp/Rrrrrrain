@@ -163,52 +163,17 @@ export const SPELLS = {
   CIG_BLOW: { cooldown: 1.1, isCosmetic: true, fx: "cig_blow", color: 0xbbbbbb },
 };
 
-// v0.0.3.1: активные магические карты. Карта модифицирует поведение активного оружия.
-export const CARDS = {
-  ANGER: {
-    id: "ANGER", name: "ANGER", subtitle: "Hit them twice",
-    effect: "doubleShot", color: 0xff2020, icon: "card-anger.jpg",
-  },
-  FRENZY: {
-    id: "FRENZY", name: "FRENZY", subtitle: "More of them / run faster",
-    effect: "spawnMove", spawnMul: 3, moveMul: 2, color: 0xff6622, icon: "card-frenzy.jpg",
-  },
-  RAIN: {
-    id: "RAIN", name: "RAIN", subtitle: "It falls on everyone",
-    effect: "meteorRain", color: 0xff3311, icon: "card-rain.jpg",
-    interval: 0.42, radius: 7, enemyDamage: 28, playerDamage: 10, visRange: 90,
-  },
+// Один выживший: 4 слота GDD (Primary / Secondary / Utility=рывок / Special), без карт и сменного оружия.
+export const SURVIVOR = {
+  id: "COMMANDO",
+  name: "Выживший",
+  lmb: "BOLT_HITSCAN",
+  rmb: "STAR_SHIELD",
+  special: "CHAIN_STORM",
+  lmbHint: "основная атака",
+  rmbHint: "барьер",
+  specialHint: "особый залп, долгий КД",
 };
-export const CARDS_BY_ID = CARDS;
-
-// v0.0.3.1: каталог активного оружия (то что кладётся в руку)
-export const WEAPONS = {
-  STAR_SWORD: {
-    id: "STAR_SWORD", name: "Звёздный Меч",
-    lmb: "STAR_BOLT", rmb: "STAR_SHIELD",
-    icon: "card-sword.jpg", hud: "sword",
-    lmbHint: "1 звезда/с, автонаведение", rmbHint: "щит 100 HP вокруг тебя",
-  },
-  LIGHTNING_STAFF: {
-    id: "LIGHTNING_STAFF", name: "Посох Молний",
-    lmb: "BOLT_HITSCAN", rmb: "CHAIN_STORM",
-    icon: "staff", hud: "staff",
-    lmbHint: "молния по лучу взгляда", rmbHint: "цепь 10 целей, КД 30с",
-  },
-  DAGGERS: {
-    id: "DAGGERS", name: "Кинжалы",
-    lmb: "DAGGER_CHARGE", rmb: "DAGGER_THROW",
-    icon: "daggers", hud: "daggers", palmUp: true,
-    lmbHint: "держать: +1 нож/с, макс 10", rmbHint: "все ножи по целям",
-  },
-  CIGARETTE: {
-    id: "CIGARETTE", name: "Сигарета",
-    lmb: "CIG_PUFF", rmb: "CIG_BLOW",
-    icon: "cig", hud: "cig", cosmetic: true,
-    lmbHint: "затянуться", rmbHint: "выпустить дым",
-  },
-};
-export const WEAPONS_BY_ID = WEAPONS;
 
 // v0.0.3.1: AI Director — бюджет-based спавн
 export const AI_DIRECTOR = {

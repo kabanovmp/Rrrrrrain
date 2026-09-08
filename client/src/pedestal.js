@@ -5,7 +5,6 @@
 
 import * as THREE from "three";
 import { getTexture } from "./assets.js";
-import { lootIconDataUrl } from "./weaponHud.js";
 
 const SPELL_COLORS = {
   fireball: 0xff4400,
@@ -196,16 +195,7 @@ function createAccessoryPedestal() {
 // Анимация — работает для всех типов
 const _lootLook = new THREE.Vector3();
 const _lootWorld = new THREE.Vector3();
-const LOOT_TEX_SRC = {
-  "CARD:ANGER": "/assets/v031/card-anger.jpg",
-  "CARD:FRENZY": "/assets/v031/card-frenzy.jpg",
-  "CARD:RAIN": "/assets/v031/card-rain.jpg",
-  "WEAPON:STAR_SWORD": "/assets/v031/card-sword.jpg",
-  "WEAPON:SWORD": "/assets/v031/card-sword.jpg",
-  "WEAPON:LIGHTNING_STAFF": lootIconDataUrl("LIGHTNING_STAFF"),
-  "WEAPON:DAGGERS": lootIconDataUrl("DAGGERS"),
-  "WEAPON:CIGARETTE": lootIconDataUrl("CIGARETTE"),
-};
+const LOOT_TEX_SRC = {};
 const _lootTexCache = new Map();
 
 function lootTexture(src) {
@@ -223,11 +213,24 @@ function lootTexture(src) {
  *  чтобы она не тонула в камне колонны. */
 export function createFloatingLootCard(raw) {
   const key = String(raw || "");
-  const src = LOOT_TEX_SRC[key]
-    || (key.startsWith("WEAPON:") ? "/assets/v031/card-sword.jpg" : "/assets/v031/card-anger.jpg");
+  const id = key.includes(":") ? key.split(":")[1] : key;
+  const canvas = document.createElement("canvas");
+  canvas.width = 128; canvas.height = 176;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#1a100c";
+  ctx.fillRect(0, 0, 128, 176);
+  ctx.strokeStyle = "#c08858";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(4, 4, 120, 168);
+  ctx.fillStyle = "#ffd08a";
+  ctx.font = "bold 18px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText((id || "лут").slice(0, 10), 64, 88);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.needsUpdate = true;
   const group = new THREE.Group();
   const w = 1.55, h = 2.15;
-  const tex = lootTexture(src);
   const mat = new THREE.MeshBasicMaterial({
     map: tex, side: THREE.DoubleSide, transparent: true, toneMapped: false,
   });
@@ -236,7 +239,7 @@ export function createFloatingLootCard(raw) {
   const glow = new THREE.Mesh(
     new THREE.PlaneGeometry(w + 0.22, h + 0.22),
     new THREE.MeshBasicMaterial({
-      color: key.startsWith("WEAPON") ? 0xffe08a : 0xff6644,
+      color: 0xffc070,
       transparent: true, opacity: 0.38, side: THREE.DoubleSide, depthWrite: false,
     })
   );

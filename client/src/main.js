@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Client } from "colyseus.js";
-import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, COMBAT, WEAPONS, difficultyLabel, LEVELS, stackedPassives, sumItemStat, xpToNextLevel, RUN, EQUIPMENT, stageKind } from "@mhfps/shared";
+import { NET, WORLD, HAND_TYPES, SPELLS, ENEMY_TYPES, ITEMS, ITEMS_BY_ID, COMBAT, SURVIVOR, difficultyLabel, LEVELS, stackedPassives, sumItemStat, xpToNextLevel, RUN, EQUIPMENT, stageKind } from "@mhfps/shared";
 import { setupHub, setupArena, disposeGroup, animateTorches, updateArenaPortal, getArenaPortalPos, setArenaPortalPosition, updateHubPortal, getHubPortalPos, playerInsidePortal, playerNearPortal, animateDangerZones, createHubSlotMesh, makeSlotContent, createHubChestMesh, updateChestCount, setChestOpen } from "./world.js";
 import { setupTerrainV3, terrainHeight, applyArenaTheme } from "./worldV3.js";
 import { createCacodemonSprite, updateCacodemonSprite } from "./enemyV3.js";
@@ -14,7 +14,7 @@ import { createOtherPlayer, animateOtherPlayer } from "./otherplayer.js";
 import { createPedestalMesh, animatePedestal, createFloatingLootCard, animateFloatingLoot } from "./pedestal.js";
 import { FpsController } from "./controller.js";
 import { initAudio, playSound, playSoundLoop, stopSoundLoop, setMasterVolume, getMasterVolume } from "./assets.js";
-import { hudSprite, lootIconDataUrl, HAND_SPRITE } from "./weaponHud.js";
+import { hudSprite, HAND_SPRITE } from "./weaponHud.js";
 
 // ═══════════════════════════════════════════════════════════════════
 // DOM
@@ -203,51 +203,22 @@ loadoutPanel.style.cssText = [
   "color:#e6d9c2",
   "backdrop-filter:blur(4px)",
 ].join(";");
-loadoutPanel.innerHTML = V31_MODE ? `
+loadoutPanel.innerHTML = `
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #6a4a2866;">
-    <div style="font-size:22px;font-weight:bold;letter-spacing:3px;color:#ffd08a;">СНАРЯЖЕНИЕ</div>
+    <div style="font-size:22px;font-weight:bold;letter-spacing:3px;color:#ffd08a;">ЗАБЕГ</div>
     <div id="loadoutHp" style="font-size:14px;color:#e6b070;font-weight:bold;">HP: –</div>
-    <div style="font-size:12px;color:#8a7050;">TAB — закрыть • drag-and-drop</div>
+    <div style="font-size:12px;color:#8a7050;">TAB — закрыть</div>
   </div>
-  <div style="display:grid;grid-template-columns:340px 1fr;gap:20px;min-height:420px;max-height:min(520px,calc(88vh - 120px));">
-    <!-- ЛЕВАЯ КОЛОНКА: НАДЕТО -->
-    <div style="display:flex;flex-direction:column;gap:12px;background:#0000002a;border:1px solid #6a4a2844;border-radius:8px;padding:14px;">
-      <div style="font-size:13px;color:#ffd08a;letter-spacing:2px;text-align:center;padding-bottom:6px;border-bottom:1px solid #6a4a2833;">НАДЕТО</div>
-      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;">
-        <div style="font-size:11px;color:#8a7050;letter-spacing:1px;">ОРУЖИЕ</div>
-        <div id="lpWeapon" class="lp-slot lp-weapon" data-slot="weapon" style="width:96px;height:96px;background:#00000044;border:2px dashed #6a4a28;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#4a3520;"></div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:6px;margin-top:2px;">
-        <div style="font-size:11px;color:#8a7050;letter-spacing:1px;text-align:center;">КАРТЫ (10 слотов)</div>
-        <div id="lpCards" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;"></div>
-      </div>
-      <div style="margin-top:8px;">
-        <div style="font-size:11px;color:#8a7050;letter-spacing:1px;text-align:center;">ПАССИВКИ (стаки)</div>
-        <div id="lpPassivesV31" style="max-height:120px;overflow:auto;font-size:12px;color:#c0a070;margin-top:6px;line-height:1.45;"></div>
-      </div>
-      <div style="margin-top:auto;font-size:11px;color:#8a7050;text-align:center;line-height:1.4;padding-top:8px;border-top:1px solid #6a4a2833;">
-        ЛКМ / ПКМ — умения оружия
-      </div>
+  <div style="display:flex;flex-direction:column;gap:12px;">
+    <div style="font-size:12px;color:#cbbba8;" id="lpKit">Выживший · ЛКМ атака · ПКМ барьер · R рывок · Q снаряжение</div>
+    <div>
+      <div style="font-size:11px;color:#8a7050;letter-spacing:1px;margin-bottom:6px;">СНАРЯЖЕНИЕ Q</div>
+      <div id="lpEquip" style="color:#e6d9c2;font-size:14px;"></div>
     </div>
-    <!-- ПРАВАЯ КОЛОНКА: РЮКЗАК -->
-    <div style="display:flex;flex-direction:column;gap:8px;background:#0000002a;border:1px solid #6a4a2844;border-radius:8px;padding:14px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:6px;border-bottom:1px solid #6a4a2833;">
-        <div style="font-size:13px;color:#ffd08a;letter-spacing:2px;">РЮКЗАК</div>
-        <div id="lpBpCount" style="font-size:12px;color:#8a7050;">0 предметов</div>
-      </div>
-      <div id="lpBackpack" style="flex:1;display:grid;grid-template-columns:repeat(8,1fr);gap:6px;overflow-y:auto;padding:4px;align-content:start;"></div>
+    <div>
+      <div style="font-size:11px;color:#8a7050;letter-spacing:1px;margin-bottom:6px;">ПАССИВКИ (стаки без лимита)</div>
+      <div id="lpPassivesV31" style="max-height:280px;overflow:auto;font-size:13px;color:#c0a070;line-height:1.5;"></div>
     </div>
-  </div>
-  <div style="margin-top:10px;text-align:center;font-size:11px;color:#8a7050;">Перетащи в любую сторону • двойной клик по предмету — в рюкзак или обратно</div>
-` : `
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #6a4a28;">
-    <div style="font-size:22px;font-weight:bold;letter-spacing:2px;text-shadow:0 0 8px rgba(255,170,50,0.6);">СНАРЯЖЕНИЕ</div>
-    <div id="loadoutHp" style="font-size:16px;color:#e0c090;">HP: –</div>
-    <div style="font-size:12px;color:#8a7050;">держи TAB</div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-    <div id="lpHands"></div>
-    <div id="lpPassives"></div>
   </div>
 `;
 document.body.appendChild(loadoutPanel);
@@ -313,26 +284,9 @@ function renderPassivesHud() {
 }
 const cardHud = document.createElement("div");
 cardHud.id = "cardHud";
-cardHud.style.cssText = "position:fixed;left:16px;bottom:92px;display:flex;gap:8px;z-index:16;pointer-events:auto;";
+cardHud.style.cssText = "position:fixed;left:16px;bottom:92px;display:none;gap:8px;z-index:16;pointer-events:none;";
 document.body.appendChild(cardHud);
-function renderCardHud() {
-  if (!myPlayer) { cardHud.innerHTML = ""; return; }
-  const cards = (myPlayer.cards && myPlayer.cards.toArray) ? myPlayer.cards.toArray() : [...(myPlayer.cards || [])];
-  const worn = cards.filter(Boolean);
-  cardHud.innerHTML = "";
-  worn.forEach(id => {
-    const info = v31IconFor("CARD:" + id);
-    const wrap = document.createElement("div");
-    wrap.title = info.label + (info.desc ? " — " + info.desc : "");
-    wrap.style.cssText = "width:44px;height:58px;border:1px solid #c08858;border-radius:4px;overflow:hidden;box-shadow:0 0 10px rgba(255,80,40,0.35);background:#120805;";
-    const img = document.createElement("img");
-    img.src = info.src;
-    img.style.cssText = "width:100%;height:100%;object-fit:cover;";
-    wrap.appendChild(img);
-    bindItemTooltip(wrap, "CARD:" + id);
-    cardHud.appendChild(wrap);
-  });
-}
+function renderCardHud() { cardHud.innerHTML = ""; }
 
 // v0.0.3.1: иконки для инвентаря. v0.0.3.4: SVG-генерация для всего
 function svgIcon(bg, fg, emoji) {
@@ -343,30 +297,15 @@ function svgIcon(bg, fg, emoji) {
   </svg>`;
   return "data:image/svg+xml;utf8," + encodeURIComponent(s);
 }
-const V31_ICON = {
-  "CARD:ANGER":         { src: "/assets/v031/card-anger.jpg",  label: "Ярость",       desc: "Пока надета: Звёздопад бьёт дважды. Hit them twice." },
-  "CARD:FRENZY":        { src: "/assets/v031/card-frenzy.jpg", label: "Безумие",      desc: "Пока надета: врагов спавнится ×3, скорость персонажа ×2." },
-  "CARD:RAIN":          { src: "/assets/v031/card-rain.jpg",   label: "Дождь",        desc: "Пока надета: метеоритный дождь в зоне видимости. Уничтожает врагов и ранит тебя." },
-  "WEAPON:STAR_SWORD":  { src: "/assets/v031/card-sword.jpg",  label: "Звёздный Меч", desc: "ЛКМ — 1 самонаводящаяся звезда/с. ПКМ — орбитальный щит на 100 HP, пока не сломают." },
-  "WEAPON:LIGHTNING_STAFF": { src: lootIconDataUrl("LIGHTNING_STAFF"), label: "Посох Молний", desc: "ЛКМ — молния по лучу взгляда. ПКМ — цепь на 10 врагов (150…60 урона), КД 30с." },
-  "WEAPON:DAGGERS": { src: lootIconDataUrl("DAGGERS"), label: "Кинжалы", desc: "Удерживай ЛКМ: +1 нож/с, макс 10. ПКМ — ножи разлетаются по целям (не все в одного)." },
-  "WEAPON:CIGARETTE": { src: lootIconDataUrl("CIGARETTE"), label: "Сигарета", desc: "Декор. ЛКМ — затянуться, ПКМ — выпустить дым. Урона нет." },
-  "WEAPON:SWORD":       { src: svgIcon("#c8a05a", "#fff", "⚔️"), label: "Меч",           desc: "Основное оружие" },
-  "HAND:FIRE":          { src: svgIcon("#c04010", "#fff", "🔥"), label: "Огненная",     desc: "Файербол" },
-  "HAND:ICE":           { src: svgIcon("#3080c0", "#fff", "❄️"), label: "Ледяная",      desc: "Ледяная стрела" },
-  "HAND:BONE":          { src: svgIcon("#8a7050", "#fff", "🦴"), label: "Костяная",     desc: "Костяной копьё" },
-  "HAND:CHAIN":         { src: svgIcon("#2080a0", "#fff", "⚡"), label: "Грозовая",     desc: "Цепная молния" },
-  "LEG:":               { src: svgIcon("#20604a", "#fff", "🦵"), label: "Нога",          desc: "Скорость бега" },
-  "ITEM:BLOODSTONE":    { src: svgIcon("#a02020", "#fff", "💎"), label: "Кровник",     desc: "+Макс HP" },
-  "ITEM:SIGIL_DASH":    { src: svgIcon("#4080a0", "#fff", "💨"), label: "Сигил Рывка", desc: "Короткий КД dash" },
-};
+const V31_ICON = {};
 function v31IconFor(raw) {
-  if (V31_ICON[raw]) return V31_ICON[raw];
   const [kind, sub] = String(raw).split(":");
-  if (kind === "CARD") return { src: svgIcon("#c08040", "#fff", "🃏"), label: sub || "Карта", desc: "Магическая карта. Действует, пока надета в слот карт." };
-  if (kind === "ITEM") return { src: svgIcon("#805020", "#fff", "📦"), label: sub || "Предмет", desc: "Пассивный предмет" };
-  if (kind === "WEAPON") return { src: svgIcon("#c8a05a", "#fff", "⚔️"), label: sub || "Оружие", desc: "Оружие. ЛКМ — удар, ПКМ — блок." };
-  return { src: svgIcon("#666", "#fff", "❓"), label: raw, desc: "" };
+  if (kind === "ITEM") {
+    const it = ITEMS_BY_ID[sub] || ITEMS.find(x => x.id === sub);
+    if (it) return { src: svgIcon("#805020", "#fff", it.glyph || "◆"), label: it.name, desc: it.effect || "пассив" };
+    return { src: svgIcon("#805020", "#fff", "◆"), label: sub || "Предмет", desc: "Пассивный предмет" };
+  }
+  return { src: svgIcon("#666", "#fff", "◆"), label: sub || raw, desc: "" };
 }
 
 const itemTooltip = document.createElement("div");
@@ -611,52 +550,19 @@ function passiveSlotHtml(id, isSpare = false) {
 function renderLoadoutPanel() {
   if (!myPlayer) return;
   const hpEl = document.getElementById("loadoutHp");
-      hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • НАБЛЮДАТЕЛЬ" : "");
-  if (V31_MODE) {
-    // Оружие
-    v31WeaponSlot(myPlayer.weaponSlot || "");
-    // Карты (10)
-    const cardsEl = document.getElementById("lpCards");
-    if (cardsEl) {
-      cardsEl.innerHTML = "";
-      const cards = (myPlayer.cards && myPlayer.cards.toArray) ? myPlayer.cards.toArray() : [...(myPlayer.cards || [])];
-      for (let i = 0; i < 10; i++) cardsEl.appendChild(v31CardCell(cards[i] || "", i));
-    }
-    // Рюкзак
-    const bpEl = document.getElementById("lpBackpack");
-    const bpCount = document.getElementById("lpBpCount");
-    if (bpEl) {
-      bpEl.innerHTML = "";
-      const bp = (myPlayer.backpack && myPlayer.backpack.toArray) ? myPlayer.backpack.toArray() : [...(myPlayer.backpack || [])];
-      // авто-сорт: WEAPON вперёд, затем CARD стабильно (indexed)
-      const sorted = bp.map((raw, i) => ({ raw, i })).sort((a, b) => {
-        const ka = a.raw.startsWith("WEAPON:") ? 0 : 1;
-        const kb = b.raw.startsWith("WEAPON:") ? 0 : 1;
-        if (ka !== kb) return ka - kb;
-        return a.raw.localeCompare(b.raw);
-      });
-      sorted.forEach(x => bpEl.appendChild(v31BackpackCell(x.raw, x.i)));
-      if (bpCount) bpCount.textContent = bp.length === 1 ? "1 предмет" : (bp.length + " предметов");
-    }
-    v31InstallBackpackDrop(); // можно кидать в пустое место рюкзака
-    const ps = document.getElementById("lpPassivesV31");
-    if (ps) {
-      const stacks = stackedPassives(myPlayer);
-      if (!stacks.length) ps.textContent = "пусто — сундуки за золото на арене";
-      else ps.innerHTML = stacks.map(s => `${s.glyph || "•"} ${s.name || s.id} ×${s.n}`).join("<br>");
-    }
-    renderCardHud();
-    return;
+  if (hpEl) hpEl.textContent = `HP: ${Math.round(myPlayer.hp)}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • НАБЛЮДАТЕЛЬ" : "");
+  const eqEl = document.getElementById("lpEquip");
+  if (eqEl) {
+    const eq = EQUIPMENT[myPlayer.equipmentId || "HEAL"] || EQUIPMENT.HEAL;
+    eqEl.textContent = (eq.name || "аптечка") + (myPlayer.droneCount ? ` · дроны ${myPlayer.droneCount}` : "");
   }
-  const hands = document.getElementById("lpHands");
-  if (hands) hands.innerHTML = "<div style='font-size:13px;color:#8a7050;'>оружие и карты — режим сетки TAB</div>";
-  const passives = document.getElementById("lpPassives");
-  if (passives) {
+  const ps = document.getElementById("lpPassivesV31");
+  if (ps) {
     const stacks = stackedPassives(myPlayer);
-    passives.innerHTML = stacks.length
-      ? stacks.map(s => passiveSlotHtml(s.id)).join("")
-      : passiveSlotHtml("");
+    if (!stacks.length) ps.textContent = "пусто — сундуки за золото на арене";
+    else ps.innerHTML = stacks.map(s => `${s.glyph || "•"} ${s.name || s.id} ×${s.n}<div style="opacity:.7;font-size:11px;">${s.effect || ""}</div>`).join("");
   }
+  renderCardHud();
 }
 
 // Чат (внизу слева)
@@ -2050,7 +1956,7 @@ let lastCastMs = 0;
 canvas.addEventListener("mousedown", (ev) => {
   if (!room || !myPlayer || myPlayer.isGhost) return;
   if (V3_MODE) {
-    const wdef = WEAPONS[myPlayer.weaponSlot];
+    const kit = SURVIVOR;
     const combat = room.state.phase === "arena" || room.state.phase === "portal_ready";
     if (ev.button === 0) lmbHeld = true;
     if (ev.button === 1) {
@@ -2064,8 +1970,7 @@ canvas.addEventListener("mousedown", (ev) => {
       });
       return;
     }
-    if (!wdef) return;
-    const spellId = ev.button === 0 ? wdef.lmb : ev.button === 2 ? wdef.rmb : null;
+    const spellId = ev.button === 0 ? kit.lmb : ev.button === 2 ? kit.rmb : null;
     if (!spellId) return;
     const spell = SPELLS[spellId];
     if (!spell) return;
@@ -2272,13 +2177,7 @@ document.addEventListener("keydown", (ev) => {
           playSound("pickup");
         } else if (slot && slot.empty && myPlayer) {
           let what = null;
-          const bp = myPlayer.backpack && (myPlayer.backpack.toArray ? myPlayer.backpack.toArray() : [...myPlayer.backpack]);
-          if (bp && bp.length) what = "backpack";
-          else if (myPlayer.cards) {
-            const arr = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
-            const idx = arr.findIndex(Boolean);
-            if (idx >= 0) what = "card:" + idx;
-          }
+          if (myPlayer.itemsInBody && myPlayer.itemsInBody.length) what = "item";
           if (what) {
             room.send("hub_put", { index: c.i, what });
             playSound("pickup");
@@ -2535,13 +2434,7 @@ function updateHubInteractionHint() {
       const slot = room.state.hubSlots[i];
       if (slot && !slot.empty) action = `[E] взять ${slotLabel(slot.kind, slot.handType, slot.itemId)}`;
       else if (slot && slot.empty && myPlayer) {
-        const bp = myPlayer.backpack && (myPlayer.backpack.toArray ? myPlayer.backpack.toArray() : [...myPlayer.backpack]);
-        if (bp && bp.length) action = `[E] положить ${bp[0]}`;
-        else if (myPlayer.cards) {
-          const arr = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
-          const c = arr.find(Boolean);
-          if (c) action = `[E] положить карту (${c})`;
-        }
+        if (myPlayer.itemsInBody && myPlayer.itemsInBody.length) action = "[E] положить пассив";
       }
     }
   });
@@ -2593,10 +2486,6 @@ function chestItemLabel(raw) {
   if (kind === "ITEM") {
     const it = ITEMS.find(x => x.id === sub);
     return it ? it.name : (sub || "Предмет");
-  }
-  if (kind === "WEAPON") return (WEAPONS[sub]?.name) || sub || "Оружие";
-  if (kind === "CARD") {
-    return ({ ANGER: "Ярость", FRENZY: "Безумие", RAIN: "Дождь" })[sub] || (sub || "Карта");
   }
   return "Предмет";
 }
@@ -2765,18 +2654,12 @@ function renderChestPanel() {
   if (myGrid && myPlayer) {
     myGrid.innerHTML = "";
     const myItems = [];
-    if (myPlayer.weaponSlot) myItems.push({ raw: "WEAPON:" + myPlayer.weaponSlot, what: "weapon", label: "Оружие: " + myPlayer.weaponSlot });
-    if (myPlayer.cards) {
-      const arr = myPlayer.cards.toArray ? myPlayer.cards.toArray() : [...myPlayer.cards];
-      arr.forEach((c, i) => { if (c) myItems.push({ raw: "CARD:" + c, what: "card:" + i, label: "Карта: " + c }); });
-    }
-    if (myPlayer.backpack && myPlayer.backpack.length) {
-      const bp = myPlayer.backpack.toArray ? myPlayer.backpack.toArray() : [...myPlayer.backpack];
-      bp.forEach((raw, i) => {
-        if (!raw) return;
-        myItems.push({ raw, what: "backpack:" + i, label: "Рюкзак: " + raw });
-      });
-    }
+    const body = myPlayer.itemsInBody && (myPlayer.itemsInBody.toArray ? myPlayer.itemsInBody.toArray() : [...myPlayer.itemsInBody]);
+    (body || []).forEach((id) => {
+      if (!id) return;
+      const it = ITEMS.find(x => x.id === id);
+      myItems.push({ raw: "ITEM:" + id, what: "item", label: it?.name || id });
+    });
     const CAP2 = 24;
     const total2 = Math.max(CAP2, Math.ceil(myItems.length / 4) * 4);
     for (let i = 0; i < total2; i++) {
@@ -2868,12 +2751,12 @@ function animate() {
       blockHud.style.opacity = 0;
     }
     // ЛКМ / ПКМ кулдауны с сервера
-    const wdef = WEAPONS[myPlayer.weaponSlot];
+    const kit = SURVIVOR;
     const fillChip = (chip, until, hint, cdMax) => {
       const left = Math.max(0, (until || 0) - nowS);
       const v = chip.querySelector(".cdv");
       const bar = chip.querySelector(".cdbar");
-      chip.style.opacity = wdef ? "1" : "0.35";
+      chip.style.opacity = "1";
       chip.title = hint || "";
       if (left > 0.05) {
         v.textContent = "КД " + (left >= 10 ? left.toFixed(0) : left.toFixed(1)) + "с";
@@ -2889,15 +2772,16 @@ function animate() {
         if (bar) { bar.style.width = "100%"; bar.style.background = "#66cc88"; }
       }
     };
-    const lmbSpell = wdef ? SPELLS[wdef.lmb] : null;
-    const rmbSpell = wdef ? SPELLS[wdef.rmb] : null;
-    fillChip(lmbChip, myPlayer.lmbCdUntil, wdef?.lmbHint || "готово", lmbSpell?.cooldown);
-    fillChip(rmbChip, myPlayer.rmbCdUntil, wdef?.rmbHint || "готово", rmbSpell?.cooldown);
+    const lmbSpell = SPELLS[kit.lmb];
+    const rmbSpell = SPELLS[kit.rmb];
+    const specSpell = SPELLS[kit.special];
+    fillChip(lmbChip, myPlayer.lmbCdUntil, kit.lmbHint, lmbSpell?.cooldown);
+    fillChip(rmbChip, myPlayer.rmbCdUntil, kit.rmbHint, rmbSpell?.cooldown);
     extraChip.style.display = "flex";
     extraChip.querySelector(".cdv").textContent = controller.dashCd > 0.05
       ? ("КД " + controller.dashCd.toFixed(1) + "с")
-      : (myPlayer.weaponSlot === "DAGGERS" ? `${myPlayer.daggerCount || 1}/10` : "рывок");
-    specChip.querySelector(".cdv").textContent = "—";
+      : "рывок";
+    fillChip(specChip, myPlayer.specCdUntil, kit.specialHint, specSpell?.cooldown);
     const eqLeft = Math.max(0, (myPlayer.equipCdUntil || 0) - nowS);
     const eqDef = EQUIPMENT[myPlayer.equipmentId || "HEAL"] || EQUIPMENT.HEAL;
     eqChip.querySelector(".cdv").textContent = eqLeft > 0.05 ? ("КД " + eqLeft.toFixed(1) + "с") : (eqDef.name || "Q");
@@ -3052,9 +2936,7 @@ function animate() {
   if (loadoutOpen) {
     const hpEl = document.getElementById("loadoutHp");
     if (hpEl && myPlayer) hpEl.textContent = `HP: ${myPlayer.hp}/${myPlayer.maxHp || 3}` + (myPlayer.isGhost ? "  • НАБЛЮДАТЕЛЬ" : "");
-    const cards = myPlayer && myPlayer.cards ? ((myPlayer.cards.toArray && myPlayer.cards.toArray()) || [...myPlayer.cards]) : [];
-    const bp = myPlayer && myPlayer.backpack ? ((myPlayer.backpack.toArray && myPlayer.backpack.toArray()) || [...myPlayer.backpack]) : [];
-    const sig = (myPlayer?.weaponSlot || "") + "|" + cards.join(",") + "|" + bp.join(",");
+    const sig = String(myPlayer?.equipmentId || "") + "|" + stackedPassives(myPlayer).map(s => s.id + s.n).join(",");
     if (sig !== window.__loadoutSig) {
       window.__loadoutSig = sig;
       renderLoadoutPanel();
