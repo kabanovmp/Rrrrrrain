@@ -1692,8 +1692,14 @@ function setupRoomHandlers() {
       portalGraceUntil = performance.now() + 2500;
     }
     if (toHub) {
-      controller.setPosition(0, 1.6, WORLD.HUB_RADIUS * 0.25);
-      portalGraceUntil = performance.now() + 2500;
+      const hz = WORLD.HUB_RADIUS * 0.25;
+      controller.setPosition(0, 1.6, hz);
+      const hpR = WORLD.HUB_PORTAL_R || WORLD.HUB_RADIUS * 0.9;
+      const hpA = WORLD.HUB_PORTAL_ANG != null ? WORLD.HUB_PORTAL_ANG : Math.PI / 20;
+      const px = Math.cos(hpA) * hpR;
+      const pz = Math.sin(hpA) * hpR;
+      controller.yaw = Math.atan2(-px, -(pz - hz));
+      if (!first) portalGraceUntil = performance.now() + 2500;
       deadHud.classList.remove("on");
       deathTimer = 0;
     }
