@@ -299,6 +299,7 @@ function updateAimEnemyHud() {
   aimEnemyHud.style.display = "block";
   void bestId;
 }
+const passivesHud = document.createElement("div");
 passivesHud.id = "passivesHud";
 passivesHud.style.cssText = "position:fixed;left:50%;top:58px;transform:translateX(-50%);z-index:16;pointer-events:none;font-size:12px;color:#e6d9c2;text-shadow:0 1px 3px #000;letter-spacing:0.4px;text-align:center;max-width:70vw;";
 document.body.appendChild(passivesHud);
@@ -310,6 +311,7 @@ function renderPassivesHud() {
   const stacks = stackedPassives(myPlayer);
   passivesHud.textContent = stacks.map(s => `${s.glyph || "•"}${s.n > 1 ? "×" + s.n : ""}`).join("  ");
 }
+const cardHud = document.createElement("div");
 cardHud.id = "cardHud";
 cardHud.style.cssText = "position:fixed;left:16px;bottom:92px;display:flex;gap:8px;z-index:16;pointer-events:auto;";
 document.body.appendChild(cardHud);
@@ -1571,9 +1573,14 @@ if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
 }
 
 document.getElementById("play").addEventListener("click", async () => {
+  const playBtn = document.getElementById("play");
+  const menuError = document.getElementById("menu-error");
   const name = document.getElementById("name").value.trim() || "sgustok";
   localStorage.setItem("rrrrrrain_name", name);
   const url  = document.getElementById("server").value.trim();
+  playBtn.disabled = true;
+  playBtn.textContent = "подключение…";
+  if (menuError) menuError.textContent = "";
   try {
     initAudio(); // разбудить AudioContext сразу после клика
     client = new Client(url);
@@ -1596,7 +1603,11 @@ document.getElementById("play").addEventListener("click", async () => {
     setInterval(sendInput, 1000 / NET.PLAYER_SEND_HZ);
   } catch (e) {
     console.error(e);
-    status.textContent = "не удалось подключиться: " + (e?.message || e);
+    const msg = "не удалось подключиться: " + (e?.message || e);
+    status.textContent = msg;
+    if (menuError) menuError.textContent = msg;
+    playBtn.disabled = false;
+    playBtn.textContent = "начать";
   }
 });
 
