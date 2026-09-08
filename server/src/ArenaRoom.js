@@ -1,7 +1,7 @@
 import colyseus from "colyseus";
 import { GameState, Player, Enemy, Pickup, Vec3, HubSlot, HubChest } from "./schema.js";
 const { Room } = colyseus.default || colyseus;
-import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, ITEMS_BY_ID, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions, RUN, difficultyMul, chestGoldCost, xpToNextLevel, sumItemStat } from "../../shared/index.js";
+import { NET, WORLD, COMBAT, ENEMY_TYPES, ITEMS, ITEMS_BY_ID, SPELLS, pickRandom, AI_DIRECTOR, GROUND_CRAWLER_VARIANTS, WEAPONS, CARDS, LEVELS, lobbyDisplayPositions, lobbyChestPositions, RUN, difficultyMul, chestGoldCost, xpToNextLevel, sumItemStat, scrapIdForRarity } from "../../shared/index.js";
 
 const TICK_MS = 1000 / NET.TICK_RATE;
 const ENEMY_GRACE_SEC = 2.0;   // 2 сек нельзя атаковать после спавна
@@ -177,7 +177,7 @@ export class ArenaRoom extends Room {
         p.gold -= cost;
         item.taken = true;
         if (Math.random() < 0.5) {
-          const it = pickRandom(ITEMS);
+          const it = pickRandom(ITEMS.filter(x => !x.scrap));
           this.grantToPlayer(p, "ITEM", "", it.id);
           this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} выиграл ${it.name}`, id: "" });
           this.broadcast("fx", { type: "shrine_chance", target: client.sessionId, win: true, item: it.name, x: item.pos.x, y: item.pos.y, z: item.pos.z });
@@ -185,6 +185,37 @@ export class ArenaRoom extends Room {
           this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} проиграл алтарь шанса`, id: "" });
           this.broadcast("fx", { type: "shrine_chance", target: client.sessionId, win: false, x: item.pos.x, y: item.pos.y, z: item.pos.z });
         }
+        return;
+      }
+      if (item.kind === "SHRINE_COMBAT") {
+        item.taken = true;
+        const n = 6 + Math.floor(this.dmul());
+        for (let i = 0; i < n; i++) this.addEnemyNear("GROUND_CRAWLER", item.pos.x, item.pos.z);
+        this.broadcast("fx", { type: "shrine_combat", x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        this.broadcast("chat", { name: "система", text: `${p.name || "игрок"} активировал алтарь боя`, id: "" });
+        return;
+      }
+      if (item.kind === "PRINTER") {
+        const printed = item.itemId || "BLOODSTONE";
+        const rarity = (ITEMS_BY_ID[printed] && ITEMS_BY_ID[printed].rarity) || "white";
+        const consumed = this.consumePrinterFuel(p, rarity);
+        if (!consumed) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: нет лома/предмета той же редкости`, id: "" });
+          return;
+        }
+        this.equipItem(p, printed);
+        this.broadcast("fx", { type: "printer", target: client.sessionId, item: printed, consumed, x: item.pos.x, y: item.pos.y, z: item.pos.z });
+        return;
+      }
+      if (item.kind === "SCRAPPER") {
+        const raw = this.takeOneNonScrap(p);
+        if (!raw) {
+          this.broadcast("chat", { name: "система", text: `${p.name || "игрок"}: нечего утилизировать`, id: "" });
+          return;
+        }
+        const rarity = (ITEMS_BY_ID[raw] && ITEMS_BY_ID[raw].rarity) || "white";
+        this.equipItem(p, scrapIdForRarity(rarity));
+        this.broadcast("fx", { type: "scrapper", target: client.sessionId, scrap: scrapIdForRarity(rarity), x: item.pos.x, y: item.pos.y, z: item.pos.z });
         return;
       }
       const cost = item.goldCost || 0;
@@ -789,6 +820,37 @@ export class ArenaRoom extends Room {
     p.hp = Math.min(p.maxHp, p.hp + Math.max(0, p.maxHp - prevMax));
   }
 
+  refreshItemHp(p) {
+    const prevMax = p.maxHp || COMBAT.PLAYER_MAX_HP;
+    p.maxHp = this.playerMaxHp(p);
+    if (p.hp > p.maxHp) p.hp = p.maxHp;
+    else if (p.maxHp > prevMax) p.hp = Math.min(p.maxHp, p.hp + (p.maxHp - prevMax));
+  }
+
+  consumePrinterFuel(p, rarity) {
+    const scrapId = scrapIdForRarity(rarity);
+    const arr = [...(p.itemsInBody || [])];
+    let idx = arr.findIndex(id => id === scrapId);
+    if (idx < 0) idx = arr.findIndex(id => (ITEMS_BY_ID[id] && ITEMS_BY_ID[id].rarity) === rarity);
+    if (idx < 0) return null;
+    const used = arr[idx];
+    p.itemsInBody.splice(idx, 1);
+    p.passiveItemId = p.itemsInBody[0] || "";
+    this.refreshItemHp(p);
+    return used;
+  }
+
+  takeOneNonScrap(p) {
+    const arr = [...(p.itemsInBody || [])];
+    const idx = arr.findIndex(id => ITEMS_BY_ID[id] && !ITEMS_BY_ID[id].scrap);
+    if (idx < 0) return null;
+    const used = arr[idx];
+    p.itemsInBody.splice(idx, 1);
+    p.passiveItemId = p.itemsInBody[0] || "";
+    this.refreshItemHp(p);
+    return used;
+  }
+
   onLeave(client) {
     this.state.players.delete(client.sessionId);
     console.log(`[room] leave ${client.sessionId}. total=${this.state.players.size}`);
@@ -886,7 +948,7 @@ export class ArenaRoom extends Room {
     const chests = 5;
     for (let i = 0; i < chests; i++) {
       const a = (i / chests) * Math.PI * 2;
-      const item = pickRandom(ITEMS);
+      const item = pickRandom(ITEMS.filter(x => !x.scrap));
       this.addPickup({
         kind: "CHEST", itemId: item.id, handType: "",
         goldCost: cost,
@@ -908,6 +970,20 @@ export class ArenaRoom extends Room {
     this.addPickup({
       kind: "SHRINE_CHANCE", itemId: "", handType: "", goldCost: 0,
       x: -18, y: 1.2, z: 10,
+    });
+    this.addPickup({
+      kind: "SHRINE_COMBAT", itemId: "", handType: "", goldCost: 0,
+      x: 12, y: 1.2, z: -12,
+    });
+    const printables = ITEMS.filter(it => !it.scrap);
+    const printed = pickRandom(printables);
+    this.addPickup({
+      kind: "PRINTER", itemId: printed.id, handType: "", goldCost: 0,
+      x: 0, y: 1.2, z: 18,
+    });
+    this.addPickup({
+      kind: "SCRAPPER", itemId: "", handType: "", goldCost: 0,
+      x: 0, y: 1.2, z: -18,
     });
   }
 
@@ -1172,6 +1248,39 @@ export class ArenaRoom extends Room {
       e.pos.y = 1;
       e.state = "patrol";
     }
+    const id = `e${++this.enemySeq}`;
+    this.state.enemies.set(id, e);
+    e._grace = ENEMY_GRACE_SEC;
+    this.broadcast("fx", { type: "enemy_spawn", x: e.pos.x, y: e.pos.y, z: e.pos.z, kind: typeId, variant: e.variant });
+    return id;
+  }
+
+  addEnemyNear(typeId, x, z) {
+    const t = ENEMY_TYPES[typeId]; if (!t) return;
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 7 + Math.random() * 6;
+    const e = new Enemy();
+    e.enemyType = typeId;
+    let baseHp = t.hp;
+    if (typeof baseHp !== "number" || baseHp < 5) {
+      baseHp = t.armored ? COMBAT.ARMORED_ENEMY_MAX_HP : COMBAT.ENEMY_MAX_HP;
+    }
+    if (typeId === "GROUND_CRAWLER") {
+      const v = Math.floor(Math.random() * GROUND_CRAWLER_VARIANTS.length);
+      const vv = GROUND_CRAWLER_VARIANTS[v];
+      e.variant = v;
+      baseHp = Math.round(baseHp * (vv.hpMul || 1));
+    }
+    e.hp = Math.max(1, Math.round(baseHp * this.dmul()));
+    e.maxHp = e.hp;
+    e.spawnedAt = Date.now() / 1000;
+    e.pos.x = (x || 0) + Math.sin(ang) * dist;
+    e.pos.z = (z || 0) + Math.cos(ang) * dist;
+    e.pos.y = t.flying ? (10 + Math.random() * 8) : 1;
+    e._homeX = e.pos.x;
+    e._homeZ = e.pos.z;
+    e._hoverY = e.pos.y;
+    e.state = "patrol";
     const id = `e${++this.enemySeq}`;
     this.state.enemies.set(id, e);
     e._grace = ENEMY_GRACE_SEC;

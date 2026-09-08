@@ -1098,14 +1098,27 @@ let colorIdxCounter = 0;
 // Пикапы = пьедесталы
 const pickupMeshes = new Map();
 function makePickupMesh(pk) {
-  const isShrine = pk.kind === "SHRINE_BLOOD" || pk.kind === "SHRINE_CHANCE";
-  if (isShrine) {
+  const shrineTint = {
+    SHRINE_BLOOD: [0xff2244, 0x880011],
+    SHRINE_CHANCE: [0x44eebb, 0x116644],
+    SHRINE_COMBAT: [0xffaa22, 0x884400],
+    SCRAPPER: [0x99aacc, 0x223344],
+    PRINTER: [0x66ccff, 0x114466],
+  };
+  if (shrineTint[pk.kind]) {
     const ped = createPedestalMesh("ACCESSORY", "bone");
-    const blood = pk.kind === "SHRINE_BLOOD";
+    const [col, em] = shrineTint[pk.kind];
     if (ped.userData.crystal) {
       ped.userData.crystal.material = ped.userData.crystal.material.clone();
-      ped.userData.crystal.material.color.setHex(blood ? 0xff2244 : 0x44eebb);
-      ped.userData.crystal.material.emissive.setHex(blood ? 0x880011 : 0x116644);
+      ped.userData.crystal.material.color.setHex(col);
+      ped.userData.crystal.material.emissive.setHex(em);
+    }
+    if (pk.kind === "PRINTER" && pk.itemId) {
+      const loot = createFloatingLootCard("ITEM:" + pk.itemId);
+      loot.position.y = 2.22;
+      ped.add(loot);
+      ped.userData.floatCard = loot.userData.floatCard;
+      ped.userData.floatBaseY = loot.userData.floatBaseY;
     }
     return ped;
   }
@@ -1920,6 +1933,20 @@ function setupRoomHandlers() {
         hintTimer = 1.1;
       }
     }
+    else if (msg.type === "shrine_combat" || msg.type === "printer" || msg.type === "scrapper") {
+      spawnWaveFx(msg.x, msg.y, msg.z, 3);
+      playSound("pickup");
+      if (msg.target === selfId || msg.type === "shrine_combat") {
+        const it = ITEMS.find(x => x.id === (msg.item || msg.scrap));
+        hintText.textContent = msg.type === "shrine_combat"
+          ? "алтарь боя — волна врагов"
+          : (msg.type === "printer"
+            ? ("принтер · " + (it?.name || msg.item || "предмет"))
+            : ("утильщик · " + (it?.name || "лом")));
+        hintText.style.opacity = 1;
+        hintTimer = 1.4;
+      }
+    }
     else if (msg.type === "shrine_blood" || msg.type === "shrine_chance") {
       spawnWaveFx(msg.x, msg.y, msg.z, 3);
       playSound("pickup");
@@ -2385,6 +2412,13 @@ function updateArenaLootHint() {
     hintText.textContent = "[E] алтарь крови · 20% HP → золото";
   } else if (best.kind === "SHRINE_CHANCE") {
     hintText.textContent = "[E] алтарь шанса · золото, 50% предмет";
+  } else if (best.kind === "SHRINE_COMBAT") {
+    hintText.textContent = "[E] алтарь боя · волна врагов";
+  } else if (best.kind === "PRINTER") {
+    const it = ITEMS.find(x => x.id === best.itemId);
+    hintText.textContent = `[E] принтер · ${it?.name || best.itemId} за лом/предмет той же редкости`;
+  } else if (best.kind === "SCRAPPER") {
+    hintText.textContent = "[E] утильщик · предмет → лом";
   } else {
     const it = ITEMS.find(x => x.id === (best.itemId || best.handType));
     const name = it?.name || best.handType || best.itemId || "лут";
