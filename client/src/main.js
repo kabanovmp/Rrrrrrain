@@ -181,7 +181,7 @@ loadoutPanel.style.cssText = [
   "border-radius:10px",
   "box-shadow:0 12px 60px rgba(0,0,0,0.7), 0 0 20px rgba(255,170,50,0.15)",
   V31_MODE ? "padding:20px 24px" : "padding:18px 24px",
-  V31_MODE ? "width:960px;height:640px" : "min-width:560px",
+  V31_MODE ? "width:min(960px,94vw);max-height:min(640px,88vh);height:auto;overflow:auto" : "min-width:560px",
   "color:#e6d9c2",
   "backdrop-filter:blur(4px)",
 ].join(";");
@@ -191,7 +191,7 @@ loadoutPanel.innerHTML = V31_MODE ? `
     <div id="loadoutHp" style="font-size:14px;color:#e6b070;font-weight:bold;">HP: –</div>
     <div style="font-size:12px;color:#8a7050;">TAB — закрыть • drag-and-drop</div>
   </div>
-  <div style="display:grid;grid-template-columns:340px 1fr;gap:20px;height:560px;">
+  <div style="display:grid;grid-template-columns:340px 1fr;gap:20px;min-height:420px;max-height:min(520px,calc(88vh - 120px));">
     <!-- ЛЕВАЯ КОЛОНКА: НАДЕТО -->
     <div style="display:flex;flex-direction:column;gap:12px;background:#0000002a;border:1px solid #6a4a2844;border-radius:8px;padding:14px;">
       <div style="font-size:13px;color:#ffd08a;letter-spacing:2px;text-align:center;padding-bottom:6px;border-bottom:1px solid #6a4a2833;">НАДЕТО</div>
